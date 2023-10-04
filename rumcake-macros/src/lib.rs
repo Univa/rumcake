@@ -200,13 +200,6 @@ pub fn main(
     initialization.extend(quote! {
         let layout = rumcake::setup_keyboard_layout!(#kb_name);
         spawner.spawn(rumcake::layout_collect!((#kb_name), (layout))).unwrap();
-    });
-
-    #[cfg(all(
-        not(feature = "split-central"),
-        any(feature = "bluetooth", feature = "usb")
-    ))]
-    initialization.extend(quote! {
         spawner
             .spawn(rumcake::layout_register!((#kb_name), (layout)))
             .unwrap();
