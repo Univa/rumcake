@@ -1,11 +1,12 @@
 # rumcake
 
-A rust-based mechanical keyboard firmware that aims to be featureful, and easy to configure.
+A rust-based mechanical keyboard firmware that aims to be decentralized, featureful, and easy to configure.
 
 **⚠ `rumcake` is still a work in progress. Expect some bugs and breaking changes.**
 
 <!--toc:start-->
 
+- [About](#about)
 - [Getting started](#getting-started)
   - [Minimum Supported Rust Version](#minimum-supported-rust-version)
 - [MCUs](#mcus)
@@ -18,6 +19,17 @@ A rust-based mechanical keyboard firmware that aims to be featureful, and easy t
 - [Why "rumcake"](#why-rumcake)
 - [Acknowledgements](#acknowledgements)
 <!--toc:end-->
+
+## About
+
+`rumcake` provides a library for you to build a keyboard firmware, using [`embassy-rs`](https://github.com/embassy-rs/embassy) under the hood.
+Providing `rumcake` as a library allows you to build your firmware in your own Cargo workspace, removing the need to push code to the central `rumcake` repo.
+
+The `rumcake` library:
+
+- Provides `embassy-executor` tasks for common keyboard tasks, including matrix polling, host communication, LED rendering, etc.
+- Provides macros that allow you to configure your keyboard firmware in an easy-to-understand way. [`keyberon`](https://github.com/TeXitoi/keyberon) is also used under the hood for keyboard layout configuration.
+- Aims to be platform-agnostic, and uses different HALs (hardware abstraction libraries) under the hood, depending on the chip you decide to build for.
 
 ## Getting started
 
