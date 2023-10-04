@@ -1,0 +1,8 @@
+[toolchain]
+channel = "nightly"
+components = [ "rust-src", "rustfmt", "llvm-tools-preview" ]
+target = [ 
+  "thumbv6m-none-eabi",
+  "thumbv7em-none-eabihf",
+]
+

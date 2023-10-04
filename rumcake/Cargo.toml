@@ -1,0 +1,101 @@
+[package]
+name = "rumcake"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+defmt = "0.3"
+embedded-hal = "0.2.7"
+embedded-hal-async = "1.0.0-rc.1"
+embedded-storage = "0.3.0"
+embedded-io-async = "0.5.0"
+embassy-sync = { git = "https://github.com/embassy-rs/embassy", features = ["defmt"] }
+embassy-futures = { git = "https://github.com/embassy-rs/embassy" }
+embassy-executor = { git = "https://github.com/embassy-rs/embassy", features = ["defmt", "integrated-timers", "executor-thread", "nightly"] }
+embassy-time = { git = "https://github.com/embassy-rs/embassy", features = ["defmt", "defmt-timestamp-uptime", "nightly"] }
+embassy-usb = { git = "https://github.com/embassy-rs/embassy", features = ["defmt"] }
+embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", features = ["defmt", "memory-x", "nightly", "unstable-pac", "unstable-traits"], optional = true }
+embassy-nrf = { git = "https://github.com/embassy-rs/embassy", features = ["defmt", "nightly", "nfc-pins-as-gpio", "unstable-traits", "time-driver-rtc1"], optional = true }
+nrf-softdevice = { git = "https://github.com/Univa/nrf-softdevice", optional = true }
+keyberon = { git = "https://github.com/TeXitoi/keyberon", branch = "master" }
+lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
+static_cell = "1.0.0"
+usbd-human-interface-device = "0.4.3"
+packed_struct = { version = "0.10.0", default-features = false }
+heapless = "0.7.16"
+bitflags = "2.4.0"
+ringbuffer = { git = "https://github.com/NULLx76/ringbuffer", default-features = false }
+rand = { version = "0.8.5", default-features = false, features = ["small_rng"] } 
+rand_core = { version = "0.6.4", default-features = false }
+num = { version = "0.4.1", default-features = false }
+num-traits = { version = "0.2", default-features = false } 
+num-derive = "0.3"
+libm = "0.2.7"
+
+# serialization for split keyboard setups
+serde = { version = "1.0.188", default-features = false, features = ["derive"] }
+postcard = "1.0.7"
+
+# third party utilities for dealing with rgb values
+smart-leds = "0.3.0"
+
+# third party drivers for backlight
+is31fl3731 = { git = "https://github.com/Univa/is31fl3731", features = ["async"] }
+
+rumcake-macros = { path = "../rumcake-macros" }
+
+[features]
+default = []
+
+#
+# Chips
+#
+
+# STM32
+stm32 = ["dep:embassy-stm32", "rumcake-macros/stm32"]
+stm32f072cb = ["stm32", "embassy-stm32/stm32f072cb", "embassy-stm32/time-driver-any", "embassy-executor/arch-cortex-m"]
+stm32f303cb = ["stm32", "embassy-stm32/stm32f303cb", "embassy-stm32/time-driver-any", "embassy-executor/arch-cortex-m"]
+
+# nRF5x
+nrf = ["dep:embassy-nrf", "rumcake-macros/nrf"]
+nrf-ble = ["dep:nrf-softdevice", "nrf-softdevice/defmt", "nrf-softdevice/ble-sec"]
+nrf52840 = ["nrf", "embassy-nrf/nrf52840", "nrf-softdevice?/nrf52840", "nrf-softdevice?/s140", "embassy-executor/arch-cortex-m"]
+
+eeprom = []
+
+#
+# Keyboard features
+#
+
+# Via/Vial
+via = ["usb", "eeprom", "rumcake-macros/via"]
+vial = ["via", "rumcake-macros/vial"]
+
+# Host communication
+usb = ["rumcake-macros/usb"]
+bluetooth = ["rumcake-macros/bluetooth", "nrf-softdevice?/ble-peripheral", "nrf-softdevice?/ble-gatt-server"]
+
+# Underglow features
+underglow = ["rumcake-macros/underglow"]
+
+underglow-driver-ws2812-timer = ["underglow"]
+underglow-driver-ws2812-bitbang = ["underglow"]
+
+# Backlight features
+backlight = ["rumcake-macros/backlight"]
+
+simple-backlight-driver-is31fl3731 = ["backlight"]
+simple-backlight-driver-ws2812-bitbang = ["backlight"]
+
+simple-backlight-matrix-driver-is31fl3731 = ["backlight"]
+simple-backlight-matrix-driver-ws2812-bitbang = ["backlight"]
+
+rgb-backlight-matrix-driver-is31fl3731 = ["backlight"]
+rgb-backlight-matrix-driver-ws2812-bitbang = ["backlight"]
+
+# Split keyboard features
+split-peripheral = ["rumcake-macros/split-peripheral", "nrf-softdevice?/ble-peripheral", "nrf-softdevice?/ble-gatt-server"]
+split-central = ["rumcake-macros/split-central", "nrf-softdevice?/ble-central", "nrf-softdevice?/ble-gatt-client"]
+split-driver-serial = []
+split-driver-ble = ["rumcake-macros/split-driver-ble"]
+
