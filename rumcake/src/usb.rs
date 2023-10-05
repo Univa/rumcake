@@ -11,12 +11,12 @@ use usbd_human_interface_device::device::keyboard::{
     NKROBootKeyboardReport, NKRO_BOOT_KEYBOARD_REPORT_DESCRIPTOR,
 };
 
-use crate::keyboard::{Keyboard, KEYBOARD_REPORT_HID_SEND_CHANNEL};
+use crate::keyboard::{Keyboard, KeyboardLayout, KEYBOARD_REPORT_HID_SEND_CHANNEL};
 use crate::StaticArray;
 
 pub static USB_STATE: PubSubChannel<ThreadModeRawMutex, bool, 2, 2, 2> = PubSubChannel::new();
 
-pub trait USBKeyboard: Keyboard {
+pub trait USBKeyboard: Keyboard + KeyboardLayout {
     // USB Configuration
     const USB_VID: u16;
     const USB_PID: u16;

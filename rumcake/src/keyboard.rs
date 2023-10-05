@@ -44,7 +44,9 @@ pub trait Keyboard {
     const SERIAL_NUMBER: &'static str = "1";
     const HARDWARE_REVISION: &'static str = "1";
     const FIRMWARE_REVISION: &'static str = "1";
+}
 
+pub trait KeyboardLayout {
     // Features
     const NUM_ENCODERS: u8 = 0; // Only for VIA compatibility, no proper encoder support. This is the default if not set in QMK
 
@@ -248,7 +250,7 @@ pub async fn matrix_poll<K: KeyboardMatrix>(
 pub static MATRIX_EVENTS: PubSubChannel<ThreadModeRawMutex, Event, 4, 4, 1> = PubSubChannel::new();
 
 #[rumcake_macros::task]
-pub async fn layout_register<K: Keyboard>(
+pub async fn layout_register<K: KeyboardLayout>(
     layout: &'static Mutex<
         ThreadModeRawMutex,
         Layout<{ K::LAYOUT_COLS }, { K::LAYOUT_ROWS }, { K::LAYERS }, Keycode>,
@@ -277,7 +279,7 @@ pub static KEYBOARD_REPORT_HID_SEND_CHANNEL: Channel<
 > = Channel::new();
 
 #[rumcake_macros::task]
-pub async fn layout_collect<K: Keyboard>(
+pub async fn layout_collect<K: KeyboardLayout>(
     layout: &'static Mutex<
         ThreadModeRawMutex,
         Layout<{ K::LAYOUT_COLS }, { K::LAYOUT_ROWS }, { K::LAYERS }, Keycode>,

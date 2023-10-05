@@ -5,7 +5,7 @@ use embassy_sync::pubsub::PubSubBehavior;
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex};
 use keyberon::layout::Layout;
 
-use crate::keyboard::{Keyboard, Keycode, MATRIX_EVENTS};
+use crate::keyboard::{Keyboard, KeyboardLayout, Keycode, MATRIX_EVENTS};
 use crate::split::MessageToCentral;
 
 use super::drivers::CentralDeviceDriver;
@@ -17,7 +17,7 @@ pub static MESSAGE_TO_PERIPHERALS: Channel<ThreadModeRawMutex, MessageToPeripher
 // This task replaces the `layout_register` task, which is usually used on non-split keyboards for sending events to the keyboard layout
 // Multiple instances of this task may run in order to send and receive messages from other peripherals
 #[rumcake_macros::task]
-pub async fn central_task<K: Keyboard>(
+pub async fn central_task<K: KeyboardLayout>(
     mut driver: impl CentralDeviceDriver,
     layout: &'static Mutex<
         ThreadModeRawMutex,

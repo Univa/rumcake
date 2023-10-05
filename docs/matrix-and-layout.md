@@ -87,7 +87,7 @@ remap_matrix! {
 /* ... later in your config ... */
 
 use rumcake::keyboard::Keyboard;
-impl Keyboard for MyKeyboard {
+impl KeyboardLayout for MyKeyboard {
     // Use the `remap!` to create the keyboard layout
     remap! {
         build_layout! {
@@ -105,6 +105,7 @@ impl Keyboard for MyKeyboard {
 
 # Keyboard Layout
 
-rumcake's `build_layout!` macro is simply a wrapper around `keyberon`'s [`layout!` macro](https://github.com/TeXitoi/keyberon/blob/a423de29a9cf0e9e4d3bdddc6958657662c46e01/src/layout.rs#L5).
+To implement a keyboard layout, you must implement the `KeyboardLayout` trait. See above for an example.
+It's recommended to use rumcake's `build_layout!` macro, which is simply a wrapper around `keyberon`'s [`layout!` macro](https://github.com/TeXitoi/keyberon/blob/a423de29a9cf0e9e4d3bdddc6958657662c46e01/src/layout.rs#L5).
 
-Please follow the instructions there to set up your keyboard layout.
+Please follow keyberon's macro instructions there to set up your keyboard layout.
