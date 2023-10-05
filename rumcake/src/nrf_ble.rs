@@ -687,37 +687,19 @@ where
                         || !bluetooth_state.lock().await.usb_on
                         || !USB_DETECTED.wait().await
                     {
-                        match select::select(
-                            BLUETOOTH_COMMAND_CHANNEL.receive(),
-                            KEYBOARD_REPORT_HID_SEND_CHANNEL.receive(),
-                        )
-                        .await
-                        {
-                            select::Either::First(command) => {
-                                bluetooth_state.lock().await.process_command(command);
-                            }
-                            select::Either::Second(report) => {
-                                // TODO: media keys
-                                debug!(
-                                    "[BT_HID] Writing HID keyboard report to bluetooth: {:?}",
-                                    Debug2Format(&report)
-                                );
+                        let report = KEYBOARD_REPORT_HID_SEND_CHANNEL.receive().await;
+                        // TODO: media keys
+                        debug!(
+                            "[BT_HID] Writing HID keyboard report to bluetooth: {:?}",
+                            Debug2Format(&report)
+                        );
 
-                                if let Err(err) =
-                                    server.hids.keyboard_report_notify(&connection, report)
-                                {
-                                    error!(
-                                        "[BT_HID] Couldn't write HID keyboard report: {:?}",
-                                        Debug2Format(&err)
-                                    );
-                                };
-                            }
-                        }
-                    } else {
-                        bluetooth_state
-                            .lock()
-                            .await
-                            .process_command(BLUETOOTH_COMMAND_CHANNEL.receive().await);
+                        if let Err(err) = server.hids.keyboard_report_notify(&connection, report) {
+                            error!(
+                                "[BT_HID] Couldn't write HID keyboard report: {:?}",
+                                Debug2Format(&err)
+                            );
+                        };
                     }
                 }
             };
