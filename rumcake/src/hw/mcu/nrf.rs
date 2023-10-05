@@ -51,7 +51,7 @@ macro_rules! output_pin {
 #[cfg(feature = "nrf-ble")]
 lazy_static! {
     static ref VBUS_DETECT: embassy_nrf::usb::vbus_detect::SoftwareVbusDetect =
-        embassy_nrf::usb::vbus_detect::SoftwareVbusDetect::new(false, false);
+        embassy_nrf::usb::vbus_detect::SoftwareVbusDetect::new(true, true);
 }
 
 #[cfg(feature = "usb")]
