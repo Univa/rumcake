@@ -132,8 +132,8 @@ pub trait KeyboardMatrix {
         Infallible,
     >;
 
-    fn remap_to_layout(col: u8, row: u8) -> (u8, u8) {
-        (col, row)
+    fn remap_to_layout(row: u8, col: u8) -> (u8, u8) {
+        (row, col)
     }
 }
 
@@ -224,12 +224,12 @@ pub async fn matrix_poll<K: KeyboardMatrix>(
                     .unwrap(),
             );
             for e in events {
-                let (col, row) = e.coord();
-                let (new_col, new_row) = K::remap_to_layout(col, row);
+                let (row, col) = e.coord();
+                let (new_row, new_col) = K::remap_to_layout(row, col);
 
                 let remapped_event = match e {
-                    Event::Press(_, _) => Event::Press(new_col, new_row),
-                    Event::Release(_, _) => Event::Release(new_col, new_row),
+                    Event::Press(_, _) => Event::Press(new_row, new_col),
+                    Event::Release(_, _) => Event::Release(new_row, new_col),
                 };
 
                 info!(
