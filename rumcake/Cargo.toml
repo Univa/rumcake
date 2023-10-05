@@ -58,7 +58,7 @@ stm32f303cb = ["stm32", "embassy-stm32/stm32f303cb", "embassy-stm32/time-driver-
 
 # nRF5x
 nrf = ["dep:embassy-nrf", "rumcake-macros/nrf"]
-nrf-ble = ["dep:nrf-softdevice", "nrf-softdevice/defmt", "nrf-softdevice/ble-sec"]
+nrf-ble = ["dep:nrf-softdevice", "nrf-softdevice/defmt", "nrf-softdevice/ble-sec", "nrf-softdevice/critical-section-impl"]
 nrf52840 = ["nrf", "embassy-nrf/nrf52840", "nrf-softdevice?/nrf52840", "nrf-softdevice?/s140", "embassy-executor/arch-cortex-m"]
 
 eeprom = []
