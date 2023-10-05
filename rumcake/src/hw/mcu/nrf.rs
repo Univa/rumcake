@@ -208,6 +208,12 @@ where
 #[cfg(feature = "nrf-ble")]
 #[rumcake_macros::task]
 pub async fn softdevice_task(sd: &'static nrf_softdevice::Softdevice) {
+    unsafe {
+        nrf_softdevice::raw::sd_power_usbpwrrdy_enable(true as u8);
+        nrf_softdevice::raw::sd_power_usbdetected_enable(true as u8);
+        nrf_softdevice::raw::sd_power_usbremoved_enable(true as u8);
+    }
+
     sd.run_with_callback(|e| match e {
         nrf_softdevice::SocEvent::PowerUsbPowerReady => {
             VBUS_DETECT.ready();
@@ -220,5 +226,5 @@ pub async fn softdevice_task(sd: &'static nrf_softdevice::Softdevice) {
         }
         _ => {}
     })
-    .await
+    .await;
 }
