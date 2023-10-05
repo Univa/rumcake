@@ -109,3 +109,7 @@ To implement a keyboard layout, you must implement the `KeyboardLayout` trait. S
 It's recommended to use rumcake's `build_layout!` macro, which is simply a wrapper around `keyberon`'s [`layout!` macro](https://github.com/TeXitoi/keyberon/blob/a423de29a9cf0e9e4d3bdddc6958657662c46e01/src/layout.rs#L5).
 
 Please follow keyberon's macro instructions there to set up your keyboard layout.
+
+# To-dos
+
+- [ ] Macro to quickly remap Pro Micro-like boards
