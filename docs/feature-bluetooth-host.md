@@ -43,18 +43,20 @@ impl NRFBluetoothKeyboard for MyKeyboard {
 }
 ```
 
-## USB host communication interoperability
-
-By default, your keyboard will use bluetooth to communicate with your device.
-You can use the `ToggleUSB` keycode to switch to USB and back.
-
 ## Keycodes
 
 In your keyberon layout, you can use any of the enum members defined in `BluetoothCommand`:
 
 ```rust
-ToggleUSB // Only available if the `usb` feature flag is also enabled. Allows you to switch between USB and bluetooth host communication. Useful if you swap between a USB and a bluetooth host.
+ToggleUSB // Only available if the `usb` feature flag is also enabled. More information below.
 ```
+
+## USB host communication interoperability (`ToggleUSB`)
+
+By default, your keyboard will use bluetooth to communicate with your device.
+You can use the `ToggleUSB` keycode to switch to USB and back. This won't
+disconnect your keyboard from your USB or Bluetooth host, but it will simply
+determine the device to send keyboard reports to.
 
 ## To-do List
 
