@@ -186,6 +186,8 @@ pub enum Keycode {
     Underglow(crate::underglow::animations::UnderglowCommand),
     #[cfg(feature = "backlight")]
     Backlight(crate::backlight::animations::BacklightCommand),
+    #[cfg(feature = "bluetooth")]
+    Bluetooth(crate::nrf_ble::BluetoothCommand),
 }
 
 // Channel with keyboard events after polling the matrix
@@ -311,6 +313,12 @@ pub async fn layout_collect<K: Keyboard>(
                             .await;
                         crate::backlight::BACKLIGHT_COMMAND_CHANNEL
                             .send(crate::backlight::animations::BacklightCommand::SaveConfig)
+                            .await;
+                    }
+                    #[cfg(feature = "bluetooth")]
+                    Keycode::Bluetooth(command) => {
+                        crate::nrf_ble::BLUETOOTH_COMMAND_CHANNEL
+                            .send(*command)
                             .await;
                     }
                     #[allow(unreachable_patterns)]
