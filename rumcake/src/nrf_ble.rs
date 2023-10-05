@@ -540,13 +540,13 @@ pub enum BluetoothCommand {
 pub static BLUETOOTH_COMMAND_CHANNEL: Channel<ThreadModeRawMutex, BluetoothCommand, 2> =
     Channel::new();
 
-pub struct BluetoothCommandHandler<'a> {
+pub struct BluetoothCommandHandler {
     #[cfg(feature = "usb")]
-    usb_state_publisher: Publisher<'a, ThreadModeRawMutex, bool, 2, 2, 2>,
+    usb_state_publisher: Publisher<'static, ThreadModeRawMutex, bool, 2, 2, 2>,
     usb_enabled: bool,
 }
 
-impl BluetoothCommandHandler<'static> {
+impl BluetoothCommandHandler {
     pub fn new() -> Self {
         Self {
             #[cfg(feature = "usb")]
