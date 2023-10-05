@@ -51,7 +51,7 @@ Here's an example portion of a duplex matrix:
 As you can imagine, this would be hard to track in your firmware code.
 
 So, `rumcake` includes a `remap_matrix` macro to help "re-visualize" your matrix to look
-more like your physical layout. It creates a `remap` matrix for you to use in parts of
+more like your physical layout. It creates a `remap` macro for you to use in parts of
 the code that require you to configure something that looks like your matrix.
 
 This can be useful for your keyboard layout config, or your backlight matrix config:
