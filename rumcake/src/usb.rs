@@ -50,6 +50,7 @@ pub async fn start_usb(mut usb: UsbDevice<'static, impl Driver<'static>>) {
     loop {
         info!("[USB] USB started");
         usb.run_until_suspend().await;
+        info!("[USB] USB suspended");
         usb.wait_resume().await;
     }
 }
