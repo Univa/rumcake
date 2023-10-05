@@ -43,17 +43,9 @@ pub async fn peripheral_task<K: KeyboardMatrix>(mut driver: impl PeripheralDevic
                 }
             },
             Either::Second(event) => {
-                let (col, row) = event.coord();
-                let (new_col, new_row) = K::remap_to_layout(col, row);
+                MATRIX_EVENTS.publish_immediate(event);
 
-                let remapped_event = match event {
-                    Event::Press(_, _) => Event::Press(new_col, new_row),
-                    Event::Release(_, _) => Event::Release(new_col, new_row),
-                };
-
-                MATRIX_EVENTS.publish_immediate(remapped_event);
-
-                if let Err(err) = driver.send_message_to_central(remapped_event.into()).await {
+                if let Err(err) = driver.send_message_to_central(event.into()).await {
                     error!(
                         "[SPLIT_PERIPHERAL] Error sending matrix events to central: {}",
                         Debug2Format(&err)
