@@ -238,7 +238,7 @@ pub async fn matrix_poll<K: KeyboardMatrix>(
                     Debug2Format(&remapped_event)
                 );
 
-                POLLED_EVENTS_CHANNEL.send(e).await;
+                POLLED_EVENTS_CHANNEL.send(remapped_event).await;
             }
         }
         Timer::after(Duration::from_micros(500)).await;
