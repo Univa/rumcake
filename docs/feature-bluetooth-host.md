@@ -17,6 +17,14 @@ You must enable the following `rumcake` features:
 - `bluetooth`
 - `nrf-ble` if you are using an nRF-based keyboard
 
+Since `nrf-softdevice` has its own critical section implementation, **you must disable any other critical section implementation**.
+For example, if you used one of the rumcake templates, you may have to remove `critical-section-single-core` from the `cortex-m` dependency:
+
+```toml
+# cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
+cortex-m = { version = "0.7.6" }
+```
+
 ### Required code
 
 To set up your keyboard for bluetooth host communication, your keyboard must implement the `NRFBluetoothKeyboard` trait:
