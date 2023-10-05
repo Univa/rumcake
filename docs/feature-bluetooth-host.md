@@ -37,8 +37,18 @@ impl NRFBluetoothKeyboard for MyKeyboard {
 
 ## USB host communication interoperability
 
-If USB is plugged in, rumcake will automatically switch to USB communication, and disable bluetooth communications.
+By default, your keyboard will use bluetooth to communicate with your device.
+You can use the `ToggleUSB` keycode to switch to USB and back.
+
+## Keycodes
+
+In your keyberon layout, you can use any of the enum members defined in `BluetoothCommand`:
+
+```rust
+ToggleUSB // Only available if the `usb` feature flag is also enabled. Allows you to switch between USB and bluetooth host communication. Useful if you swap between a USB and a bluetooth host.
+```
 
 ## To-do List
 
+- [ ] Multiple bluetooth profiles
 - [ ] LE Secure Connections (I believe this requires `nrf-softdevice` changes)

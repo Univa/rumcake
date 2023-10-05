@@ -1,7 +1,11 @@
 use core::cell::{Cell, RefCell};
 
 use defmt::{debug, error, info, unwrap, warn, Debug2Format};
-use embassy_futures::select::{self, select3};
+use embassy_futures::join;
+use embassy_futures::select::{self, select, select3};
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::channel::Channel;
+use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Timer};
 use heapless::Vec;
 use nrf_softdevice::ble::gatt_server::builder::ServiceBuilder;
@@ -526,6 +530,27 @@ pub struct Server {
     hids: HIDService,
 }
 
+pub enum BluetoothCommand {
+    #[cfg(feature = "usb")]
+    ToggleUSB, // Switch between bluetooth and USB operation
+}
+
+pub static BLUETOOTH_COMMAND_CHANNEL: Channel<ThreadModeRawMutex, BluetoothCommand, 2> =
+    Channel::new();
+
+pub struct BluetoothState {
+    usb_on: bool,
+}
+
+impl BluetoothState {
+    pub fn process_command(&mut self, command: BluetoothCommand) {
+        match command {
+            #[cfg(feature = "usb")]
+            BluetoothCommand::ToggleUSB => self.usb_on = !self.usb_on,
+        }
+    }
+}
+
 #[rumcake_macros::task]
 pub async fn nrf_ble_task<K: NRFBluetoothKeyboard>(sd: &'static Softdevice, server: Server)
 where
@@ -580,109 +605,148 @@ where
     static BONDER: StaticCell<Bonder> = StaticCell::new();
     let bonder = BONDER.init(Bonder::default());
 
-    loop {
-        let advertisement = ConnectableAdvertisement::ScannableUndirected {
-            adv_data: &adv_data,
-            scan_data: &scan_data,
-        };
-
-        let connection =
-            match advertise_pairable(sd, advertisement, &Default::default(), bonder).await {
-                Ok(connection) => {
-                    info!("[BT_HID] Connection established with host device");
-                    connection
-                }
-                Err(error) => {
-                    warn!("[BT_HID] BLE advertising error: {}", Debug2Format(&error));
-                    continue;
-                }
-            };
-
-        let conn_fut = run(&connection, &server, |event| match event {
-            ServerEvent::Bas(bas_event) => match bas_event {
-                BatteryServiceEvent::BatteryLevelCccdWrite { notifications } => {
-                    debug!("[BT_HID] Battery value CCCD updated: {}", notifications);
-                }
-            },
-            ServerEvent::Dis(dis_event) => match dis_event {},
-            ServerEvent::Hids(hids_event) => match hids_event {
-                HIDServiceEvent::KeyboardReportCccdWrite { notifications } => {
-                    debug!("[BT_HID] Keyboard report CCCD updated: {}", notifications);
-                }
-                HIDServiceEvent::ConsumerReportCccdWrite { notifications } => {
-                    debug!("[BT_HID] Consumer report CCCD updated: {}", notifications);
-                }
-                HIDServiceEvent::HidControlWrite(val) => {
-                    debug!("[BT_HID] Received HID control value: {=u8}", val);
-                }
-            },
+    let mut bluetooth_state: Mutex<ThreadModeRawMutex, BluetoothState> =
+        Mutex::new(BluetoothState {
+            usb_on: false, // Assume that we want to communicate using Bluetooth first.
         });
 
-        let adc_fut = async {
-            adc.calibrate().await;
+    let connection_fut = async {
+        loop {
+            let advertisement = ConnectableAdvertisement::ScannableUndirected {
+                adv_data: &adv_data,
+                scan_data: &scan_data,
+            };
 
-            loop {
-                let mut buf: [i16; 1] = [0; 1];
-                adc.sample(&mut buf).await;
-
-                let pct = adc_sample_to_pct(&buf[0]);
-
-                match server.bas.battery_level_notify(&connection, &pct) {
-                    Ok(_) => {
-                        debug!(
-                            "[BT_HID] Notified connection of new battery level: {=u8}",
-                            pct
-                        );
+            let connection =
+                match advertise_pairable(sd, advertisement, &Default::default(), bonder).await {
+                    Ok(connection) => {
+                        info!("[BT_HID] Connection established with host device");
+                        connection
                     }
                     Err(error) => {
-                        error!(
+                        warn!("[BT_HID] BLE advertising error: {}", Debug2Format(&error));
+                        continue;
+                    }
+                };
+
+            let conn_fut = run(&connection, &server, |event| match event {
+                ServerEvent::Bas(bas_event) => match bas_event {
+                    BatteryServiceEvent::BatteryLevelCccdWrite { notifications } => {
+                        debug!("[BT_HID] Battery value CCCD updated: {}", notifications);
+                    }
+                },
+                ServerEvent::Dis(dis_event) => match dis_event {},
+                ServerEvent::Hids(hids_event) => match hids_event {
+                    HIDServiceEvent::KeyboardReportCccdWrite { notifications } => {
+                        debug!("[BT_HID] Keyboard report CCCD updated: {}", notifications);
+                    }
+                    HIDServiceEvent::ConsumerReportCccdWrite { notifications } => {
+                        debug!("[BT_HID] Consumer report CCCD updated: {}", notifications);
+                    }
+                    HIDServiceEvent::HidControlWrite(val) => {
+                        debug!("[BT_HID] Received HID control value: {=u8}", val);
+                    }
+                },
+            });
+
+            let adc_fut = async {
+                adc.calibrate().await;
+
+                loop {
+                    let mut buf: [i16; 1] = [0; 1];
+                    adc.sample(&mut buf).await;
+
+                    let pct = adc_sample_to_pct(&buf[0]);
+
+                    match server.bas.battery_level_notify(&connection, &pct) {
+                        Ok(_) => {
+                            debug!(
+                                "[BT_HID] Notified connection of new battery level: {=u8}",
+                                pct
+                            );
+                        }
+                        Err(error) => {
+                            error!(
                             "[BT_HID] Could not notify connection of new battery level ({=u8}): {}",
                             pct,
                             Debug2Format(&error)
                         );
+                        }
+                    }
+
+                    Timer::after(Duration::from_secs(10)).await;
+                }
+            };
+
+            let hid_fut = async {
+                // Discard any reports that haven't been processed due to lack of a connection
+                while KEYBOARD_REPORT_HID_SEND_CHANNEL.try_receive().is_ok() {}
+
+                loop {
+                    if !cfg!(feature = "usb")
+                        || !bluetooth_state.lock().await.usb_on
+                        || !USB_DETECTED.wait().await
+                    {
+                        match select::select(
+                            BLUETOOTH_COMMAND_CHANNEL.receive(),
+                            KEYBOARD_REPORT_HID_SEND_CHANNEL.receive(),
+                        )
+                        .await
+                        {
+                            select::Either::First(command) => {
+                                bluetooth_state.lock().await.process_command(command);
+                            }
+                            select::Either::Second(report) => {
+                                // TODO: media keys
+                                debug!(
+                                    "[BT_HID] Writing HID keyboard report to bluetooth: {:?}",
+                                    Debug2Format(&report)
+                                );
+
+                                if let Err(err) =
+                                    server.hids.keyboard_report_notify(&connection, report)
+                                {
+                                    error!(
+                                        "[BT_HID] Couldn't write HID keyboard report: {:?}",
+                                        Debug2Format(&err)
+                                    );
+                                };
+                            }
+                        }
+                    } else {
+                        bluetooth_state
+                            .lock()
+                            .await
+                            .process_command(BLUETOOTH_COMMAND_CHANNEL.receive().await);
                     }
                 }
+            };
 
-                Timer::after(Duration::from_secs(10)).await;
-            }
-        };
-
-        let hid_fut = async {
-            // Discard any reports that haven't been processed due to lack of a connection
-            while KEYBOARD_REPORT_HID_SEND_CHANNEL.try_receive().is_ok() {}
-
-            loop {
-                if !USB_DETECTED.wait().await {
-                    // TODO: media keys
-                    let report = KEYBOARD_REPORT_HID_SEND_CHANNEL.receive().await;
-                    debug!(
-                        "[BT_HID] Writing HID keyboard report to bluetooth: {:?}",
-                        Debug2Format(&report)
-                    );
-
-                    if let Err(err) = server.hids.keyboard_report_notify(&connection, report) {
-                        error!(
-                            "[BT_HID] Couldn't write HID keyboard report: {:?}",
-                            Debug2Format(&err)
-                        );
-                    };
+            match select3(conn_fut, adc_fut, hid_fut).await {
+                select::Either3::First(error) => {
+                    warn!(
+                        "[BT_HID] Connection has been lost: {}",
+                        Debug2Format(&error)
+                    )
                 }
-            }
-        };
+                select::Either3::Second(_) => {
+                    error!("[BT_HID] Battery task failed. This should not happen.");
+                }
+                select::Either3::Third(_) => {
+                    error!("[BT_HID] HID task failed. This should not happen.");
+                }
+            };
+        }
+    };
 
-        match select3(conn_fut, adc_fut, hid_fut).await {
-            select::Either3::First(error) => {
-                warn!(
-                    "[BT_HID] Connection has been lost: {}",
-                    Debug2Format(&error)
-                )
-            }
-            select::Either3::Second(_) => {
-                error!("[BT_HID] Battery task failed. This should not happen.");
-            }
-            select::Either3::Third(_) => {
-                error!("[BT_HID] HID task failed. This should not happen.");
-            }
-        };
-    }
+    let command_fut = async {
+        loop {
+            bluetooth_state
+                .lock()
+                .await
+                .process_command(BLUETOOTH_COMMAND_CHANNEL.receive().await);
+        }
+    };
+
+    join::join(command_fut, connection_fut).await;
 }
