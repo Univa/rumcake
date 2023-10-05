@@ -5,6 +5,7 @@ use embassy_futures::join;
 use embassy_futures::select::{self, select, select3};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
+use embassy_sync::pubsub::Publisher;
 use embassy_time::{Duration, Timer};
 use heapless::Vec;
 use nrf_softdevice::ble::gatt_server::builder::ServiceBuilder;
@@ -30,6 +31,8 @@ use usbd_human_interface_device::device::keyboard::{
 
 use crate::hw::mcu::{adc_sample_to_pct, setup_adc};
 use crate::keyboard::{Keyboard, KEYBOARD_REPORT_HID_SEND_CHANNEL};
+
+#[cfg(feature = "usb")]
 use crate::usb::USB_STATE;
 
 pub trait NRFBluetoothKeyboard: Keyboard {
@@ -537,6 +540,32 @@ pub enum BluetoothCommand {
 pub static BLUETOOTH_COMMAND_CHANNEL: Channel<ThreadModeRawMutex, BluetoothCommand, 2> =
     Channel::new();
 
+pub struct BluetoothCommandHandler<'a> {
+    #[cfg(feature = "usb")]
+    usb_state_publisher: Publisher<'a, ThreadModeRawMutex, bool, 2, 2, 2>,
+    usb_enabled: bool,
+}
+
+impl BluetoothCommandHandler<'static> {
+    pub fn new() -> Self {
+        Self {
+            #[cfg(feature = "usb")]
+            usb_state_publisher: USB_STATE.publisher().unwrap(),
+            usb_enabled: false,
+        }
+    }
+
+    pub async fn process_command(&mut self, command: BluetoothCommand) {
+        match command {
+            #[cfg(feature = "usb")]
+            BluetoothCommand::ToggleUSB => {
+                self.usb_enabled = !self.usb_enabled;
+                self.usb_state_publisher.publish(self.usb_enabled).await
+            }
+        }
+    }
+}
+
 #[rumcake_macros::task]
 pub async fn nrf_ble_task<K: NRFBluetoothKeyboard>(sd: &'static Softdevice, server: Server)
 where
@@ -590,6 +619,8 @@ where
 
     static BONDER: StaticCell<Bonder> = StaticCell::new();
     let bonder = BONDER.init(Bonder::default());
+
+    let mut command_handler = BluetoothCommandHandler::new();
 
     let connection_fut = async {
         loop {
@@ -660,50 +691,73 @@ where
             };
 
             let hid_fut = async {
-                let mut usb_reports_enabled = false;
-                let mut usb_state_subscriber = USB_STATE.subscriber().unwrap();
-
                 // Discard any reports that haven't been processed due to lack of a connection
                 while KEYBOARD_REPORT_HID_SEND_CHANNEL.try_receive().is_ok() {}
 
-                loop {
-                    if !cfg!(feature = "usb") || !usb_reports_enabled {
-                        match select(
-                            usb_state_subscriber.next_message_pure(),
-                            KEYBOARD_REPORT_HID_SEND_CHANNEL.receive(),
-                        )
-                        .await
-                        {
-                            select::Either::First(new_state) => {
-                                usb_reports_enabled = new_state;
-                                info!(
-                                    "[BT_HID] Bluetooth HID reports enabled = {}",
-                                    !usb_reports_enabled
-                                );
-                            }
-                            select::Either::Second(report) => {
-                                // TODO: media keys
-                                debug!(
-                                    "[BT_HID] Writing HID keyboard report to bluetooth: {:?}",
-                                    Debug2Format(&report)
-                                );
+                #[cfg(feature = "usb")]
+                {
+                    let mut usb_reports_enabled = false;
+                    let mut usb_state_subscriber = USB_STATE.subscriber().unwrap();
 
-                                if let Err(err) =
-                                    server.hids.keyboard_report_notify(&connection, report)
-                                {
-                                    error!(
-                                        "[BT_HID] Couldn't write HID keyboard report: {:?}",
-                                        Debug2Format(&err)
+                    loop {
+                        if !usb_reports_enabled {
+                            match select(
+                                usb_state_subscriber.next_message_pure(),
+                                KEYBOARD_REPORT_HID_SEND_CHANNEL.receive(),
+                            )
+                            .await
+                            {
+                                select::Either::First(new_state) => {
+                                    usb_reports_enabled = new_state;
+                                    info!(
+                                        "[BT_HID] Bluetooth HID reports enabled = {}",
+                                        !usb_reports_enabled
                                     );
-                                };
-                            }
-                        };
-                    } else {
-                        usb_reports_enabled = usb_state_subscriber.next_message_pure().await;
-                        info!(
-                            "[BT_HID] Bluetooth HID reports enabled = {}",
-                            !usb_reports_enabled
+                                }
+                                select::Either::Second(report) => {
+                                    // TODO: media keys
+                                    debug!(
+                                        "[BT_HID] Writing HID keyboard report to bluetooth: {:?}",
+                                        Debug2Format(&report)
+                                    );
+
+                                    if let Err(err) =
+                                        server.hids.keyboard_report_notify(&connection, report)
+                                    {
+                                        error!(
+                                            "[BT_HID] Couldn't write HID keyboard report: {:?}",
+                                            Debug2Format(&err)
+                                        );
+                                    };
+                                }
+                            };
+                        } else {
+                            usb_reports_enabled = usb_state_subscriber.next_message_pure().await;
+                            info!(
+                                "[BT_HID] Bluetooth HID reports enabled = {}",
+                                !usb_reports_enabled
+                            );
+                        }
+                    }
+                }
+
+                #[cfg(not(feature = "usb"))]
+                {
+                    loop {
+                        let report = KEYBOARD_REPORT_HID_SEND_CHANNEL.receive().await;
+
+                        // TODO: media keys
+                        debug!(
+                            "[BT_HID] Writing HID keyboard report to bluetooth: {:?}",
+                            Debug2Format(&report)
                         );
+
+                        if let Err(err) = server.hids.keyboard_report_notify(&connection, report) {
+                            error!(
+                                "[BT_HID] Couldn't write HID keyboard report: {:?}",
+                                Debug2Format(&err)
+                            );
+                        };
                     }
                 }
             };
@@ -726,17 +780,9 @@ where
     };
 
     let command_fut = async {
-        let mut usb_reports_enabled = false;
-        let usb_state_publisher = USB_STATE.publisher().unwrap();
-
         loop {
-            match BLUETOOTH_COMMAND_CHANNEL.receive().await {
-                #[cfg(feature = "usb")]
-                BluetoothCommand::ToggleUSB => {
-                    usb_reports_enabled = !usb_reports_enabled;
-                    usb_state_publisher.publish(!usb_reports_enabled).await;
-                }
-            };
+            let command = BLUETOOTH_COMMAND_CHANNEL.receive().await;
+            command_handler.process_command(command).await;
         }
     };
 

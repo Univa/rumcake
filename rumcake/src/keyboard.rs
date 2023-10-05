@@ -1,5 +1,5 @@
 use core::convert::Infallible;
-use defmt::{debug, info, Debug2Format};
+use defmt::{debug, info, warn, Debug2Format};
 use embassy_sync::pubsub::{PubSubBehavior, PubSubChannel};
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel, mutex::Mutex};
 use embassy_time::{Duration, Timer};
@@ -345,9 +345,14 @@ pub async fn layout_collect<K: KeyboardLayout>(
 
             debug!("[KEYBOARD] Preparing new report");
 
-            KEYBOARD_REPORT_HID_SEND_CHANNEL
-                .send(NKROBootKeyboardReport::new(keys))
-                .await;
+            // It's possible for this channel to become filled (e.g. if USB is disabled and there is no Bluetooth connection
+            // So, we just try_send instead of using `send`, which waits for capacity. That way, we can still process rumcake keycodes.
+            if KEYBOARD_REPORT_HID_SEND_CHANNEL
+                .try_send(NKROBootKeyboardReport::new(keys))
+                .is_err()
+            {
+                warn!("[KEYBOARD] Discarding report");
+            };
         }
 
         Timer::after(Duration::from_millis(1)).await;

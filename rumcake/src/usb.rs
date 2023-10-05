@@ -95,6 +95,9 @@ pub async fn usb_hid_kb_write_task(
         } else {
             usb_reports_enabled = subscriber.next_message_pure().await;
             info!("[USB] USB HID reports enabled = {}", usb_reports_enabled);
+
+            // Ignore any unprocessed reports due to lack of a connection
+            while KEYBOARD_REPORT_HID_SEND_CHANNEL.try_receive().is_ok() {}
         }
     }
 }
