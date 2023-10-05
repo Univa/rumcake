@@ -214,11 +214,9 @@ pub async fn softdevice_task(sd: &'static nrf_softdevice::Softdevice) {
         }
         nrf_softdevice::SocEvent::PowerUsbDetected => {
             VBUS_DETECT.detected(true);
-            crate::hw::USB_DETECTED.signal(true);
         }
         nrf_softdevice::SocEvent::PowerUsbRemoved => {
             VBUS_DETECT.detected(false);
-            crate::hw::USB_DETECTED.signal(false);
         }
         _ => {}
     })

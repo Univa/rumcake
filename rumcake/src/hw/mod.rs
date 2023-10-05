@@ -9,8 +9,3 @@ compile_error!("Please enable only one chip feature flag.");
 pub mod mcu;
 
 pub mod drivers;
-
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-
-pub static USB_DETECTED: embassy_sync::signal::Signal<ThreadModeRawMutex, bool> =
-    embassy_sync::signal::Signal::new();
