@@ -198,7 +198,7 @@ pub fn main(
 
     #[cfg(feature = "nrf")]
     initialization.extend(quote! {
-        spawner.spawn(rumcake::adc_task!());
+        spawner.spawn(rumcake::adc_task!()).unwrap();
     });
 
     #[cfg(any(feature = "bluetooth", feature = "usb"))]
