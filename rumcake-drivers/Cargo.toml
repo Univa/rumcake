@@ -1,0 +1,20 @@
+[package]
+name = "rumcake-drivers"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+embedded-hal = "0.2.7"
+embedded-hal-async = "1.0.0-rc.1"
+embassy-time = { git = "https://github.com/embassy-rs/embassy", features = ["defmt", "defmt-timestamp-uptime", "nightly"] }
+
+rumcake = { path = "../rumcake", features = ["backlight", "display", "underglow"] }
+
+# third party utilities for dealing with rgb values
+smart-leds = "0.3.0"
+
+# third party drivers for backlight
+is31fl3731 = { git = "https://github.com/Univa/is31fl3731", features = ["async"] }
+

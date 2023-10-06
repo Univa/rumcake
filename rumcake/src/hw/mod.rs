@@ -11,6 +11,4 @@ compile_error!("Please enable only one chip feature flag.");
 #[cfg_attr(feature = "nrf", path = "mcu/nrf.rs")]
 pub mod mcu;
 
-pub mod drivers;
-
 pub static BATTERY_LEVEL: PubSubChannel<ThreadModeRawMutex, u8, 2, 2, 1> = PubSubChannel::new();
