@@ -1,7 +1,6 @@
 use defmt::{error, Debug2Format};
 use embassy_futures::select::{select, Either};
 use embassy_sync::pubsub::PubSubBehavior;
-use keyberon::layout::Event;
 
 use crate::keyboard::{KeyboardMatrix, MATRIX_EVENTS, POLLED_EVENTS_CHANNEL};
 use crate::split::MessageToPeripheral;

@@ -260,7 +260,7 @@ where
         match self.config.effect {
             BacklightEffect::Solid => {
                 if K::SOLID_ENABLED {
-                    self.set_brightness_for_each_led(|animator, _time, _coord, _pos| u8::MAX)
+                    self.set_brightness_for_each_led(|_animator, _time, _coord, _pos| u8::MAX)
                 }
             }
             BacklightEffect::AlphasMods => {

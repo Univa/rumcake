@@ -5,7 +5,7 @@ use embassy_sync::pubsub::PubSubBehavior;
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex};
 use keyberon::layout::Layout;
 
-use crate::keyboard::{Keyboard, KeyboardLayout, Keycode, MATRIX_EVENTS};
+use crate::keyboard::{KeyboardLayout, Keycode, MATRIX_EVENTS};
 use crate::split::MessageToCentral;
 
 use super::drivers::CentralDeviceDriver;
