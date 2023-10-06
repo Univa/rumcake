@@ -55,17 +55,16 @@ pub trait KeyboardLayout {
     const LAYOUT_ROWS: usize;
     const LAYERS: usize;
     fn build_layout(
-    ) -> Layers<{ Self::LAYOUT_COLS }, { Self::LAYOUT_ROWS }, { Self::LAYERS }, Keycode>;
+    ) -> &'static Layers<{ Self::LAYOUT_COLS }, { Self::LAYOUT_ROWS }, { Self::LAYERS }, Keycode>;
 }
 
 #[macro_export]
 macro_rules! build_layout {
     // Pass the layers to the keyberon macro
     ($layers:literal, $rows:literal, $cols:literal, ($($l:tt)*)) => {
-        fn build_layout() -> $crate::keyberon::layout::Layers<{ Self::LAYOUT_COLS }, { Self::LAYOUT_ROWS }, {${count(l)}}, $crate::keyboard::Keycode> {
-            $crate::keyberon::layout::layout! {
-                $($l)*
-            }
+        fn build_layout() -> &'static $crate::keyberon::layout::Layers<{ Self::LAYOUT_COLS }, { Self::LAYOUT_ROWS }, { Self::LAYERS }, $crate::keyboard::Keycode> {
+            static LAYERS: $crate::keyberon::layout::Layers<$cols, $rows, $layers, $crate::keyboard::Keycode> = $crate::keyberon::layout::layout! { $($l)* };
+            &LAYERS
         }
     };
     // We count the number of keys in the first row to determine the number of columns
@@ -99,17 +98,8 @@ macro_rules! setup_keyboard_layout {
                 >,
             >,
         > = $crate::static_cell::StaticCell::new();
-        static LAYERS: $crate::static_cell::StaticCell<
-            $crate::keyberon::layout::Layers<
-                { $K::LAYOUT_COLS },
-                { $K::LAYOUT_ROWS },
-                { $K::LAYERS },
-                $crate::keyboard::Keycode,
-            >,
-        > = $crate::static_cell::StaticCell::new();
-        let layers = LAYERS.init($K::build_layout());
         let layout = LAYOUT.init($crate::embassy_sync::mutex::Mutex::new(
-            $crate::keyberon::layout::Layout::new(layers),
+            $crate::keyberon::layout::Layout::new($K::build_layout()),
         ));
         layout
     }};
