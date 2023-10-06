@@ -87,6 +87,8 @@ pub mod central {
             let mut config = central::ConnectConfig::default();
             let whitelist = [&peripheral_addr];
             config.scan_config.whitelist = Some(&whitelist);
+            config.conn_params.min_conn_interval = 6;
+            config.conn_params.max_conn_interval = 6;
             let connection = match connect(sd, &config).await {
                 Ok(connection) => {
                     info!("[SPLIT_BT_DRIVER] Connection established with peripheral");
