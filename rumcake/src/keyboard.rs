@@ -69,14 +69,14 @@ macro_rules! build_layout {
         }
     };
     // We count the number of keys in the first row to determine the number of columns
-    ($layers:literal, $rows:literal, ($({[$($first_row_keys:tt)*] $([$($key:tt)*])*})*)) => {
+    ($layers:literal, $rows:literal, ({[$($first_row_keys:tt)*] $([$($key:tt)*])*} $($rest:tt)*)) => {
         const LAYOUT_COLS: usize = ${count(first_row_keys)};
-        build_layout!($layers, $rows, ${count(first_row_keys)}, ($({[$($first_row_keys)*] $([$($key)*])*})*));
+        build_layout!($layers, $rows, ${count(first_row_keys)}, ({[$($first_row_keys)*] $([$($key)*])*} $($rest)*));
     };
     // Count the number of "[]" inside the "{}" to determine the number of rows
-    ($layers:literal, ($({$($rows:tt)*})*)) => {
+    ($layers:literal, ({$($rows:tt)*} $($rest:tt)*)) => {
         const LAYOUT_ROWS: usize = ${count(rows)};
-        build_layout!($layers, ${count(rows)}, ($({$($rows)*})*));
+        build_layout!($layers, ${count(rows)}, ({$($rows)*} $($rest)*));
     };
     // Count the number of "{}" to determine the number of layers
     ($($layers:tt)*) => {
