@@ -6,9 +6,12 @@ use embassy_nrf::saadc::{ChannelConfig, Input, Saadc, VddhDiv5Input};
 use embassy_nrf::usb::Driver;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
+use embassy_time::{Duration, Timer};
 use embedded_storage::nor_flash::NorFlash;
 use lazy_static::lazy_static;
 use static_cell::StaticCell;
+
+use crate::hw::BATTERY_LEVEL;
 
 #[cfg(feature = "nrf52840")]
 pub const SYSCLK: u32 = 48_000_000;
@@ -116,8 +119,9 @@ pub fn setup_flash() -> &'static mut Mutex<ThreadModeRawMutex, impl NorFlash> {
     }
 }
 
-pub fn setup_adc() -> Saadc<'static, 1> {
-    unsafe {
+#[rumcake_macros::task]
+pub async fn adc_task() {
+    let mut adc = unsafe {
         bind_interrupts! {
             struct Irqs {
                 SAADC => embassy_nrf::saadc::InterruptHandler;
@@ -127,18 +131,30 @@ pub fn setup_adc() -> Saadc<'static, 1> {
         let vddh = VddhDiv5Input;
         let channel = ChannelConfig::single_ended(vddh.degrade_saadc());
         Saadc::new(SAADC::steal(), Irqs, Default::default(), [channel])
-    }
-}
+    };
 
-pub fn adc_sample_to_pct(sample: &i16) -> u8 {
-    let mv = sample * 5;
+    adc.calibrate().await;
 
-    if mv >= 4200 {
-        100
-    } else if mv <= 3450 {
-        0
-    } else {
-        (mv * 2 / 15 - 459) as u8
+    let battery_level_publisher = BATTERY_LEVEL.publisher().unwrap();
+
+    loop {
+        let mut buf: [i16; 1] = [0; 1];
+        adc.sample(&mut buf).await;
+
+        let sample = &buf[0];
+        let mv = sample * 5;
+
+        let pct = if mv >= 4200 {
+            100
+        } else if mv <= 3450 {
+            0
+        } else {
+            (mv * 2 / 15 - 459) as u8
+        };
+
+        battery_level_publisher.publish_immediate(pct);
+
+        Timer::after(Duration::from_secs(10)).await;
     }
 }
 

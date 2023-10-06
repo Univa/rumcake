@@ -196,6 +196,11 @@ pub fn main(
             .unwrap();
     });
 
+    #[cfg(feature = "nrf")]
+    initialization.extend(quote! {
+        spawner.spawn(rumcake::adc_task!());
+    });
+
     #[cfg(any(feature = "bluetooth", feature = "usb"))]
     initialization.extend(quote! {
         let layout = rumcake::setup_keyboard_layout!(#kb_name);

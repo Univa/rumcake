@@ -29,7 +29,7 @@ use usbd_human_interface_device::device::keyboard::{
     NKROBootKeyboardReport, NKRO_BOOT_KEYBOARD_REPORT_DESCRIPTOR,
 };
 
-use crate::hw::mcu::{adc_sample_to_pct, setup_adc};
+use crate::hw::BATTERY_LEVEL;
 use crate::keyboard::{Keyboard, KEYBOARD_REPORT_HID_SEND_CHANNEL};
 
 #[cfg(feature = "usb")]
@@ -571,9 +571,6 @@ pub async fn nrf_ble_task<K: NRFBluetoothKeyboard>(sd: &'static Softdevice, serv
 where
     [(); K::PRODUCT.len() + 15]:,
 {
-    // ADC setup for the battery service
-    let mut adc = setup_adc();
-
     #[rustfmt::skip]
     let adv_data: Vec<u8, { K::PRODUCT.len() + 15 }> = [
         0x02, 0x01, nrf_softdevice::raw::BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE as u8,
@@ -662,13 +659,10 @@ where
             });
 
             let adc_fut = async {
-                adc.calibrate().await;
+                let mut adc_subscriber = BATTERY_LEVEL.subscriber().unwrap();
 
                 loop {
-                    let mut buf: [i16; 1] = [0; 1];
-                    adc.sample(&mut buf).await;
-
-                    let pct = adc_sample_to_pct(&buf[0]);
+                    let pct = adc_subscriber.next_message_pure().await;
 
                     match server.bas.battery_level_notify(&connection, &pct) {
                         Ok(_) => {

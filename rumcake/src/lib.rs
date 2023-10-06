@@ -97,6 +97,9 @@ pub mod tasks {
     #[cfg(feature = "split-peripheral")]
     pub use crate::split::peripheral::__peripheral_task_task;
 
+    #[cfg(feature = "nrf")]
+    pub use crate::hw::mcu::__adc_task_task;
+
     #[cfg(feature = "nrf-ble")]
     pub use crate::hw::mcu::__softdevice_task_task;
 

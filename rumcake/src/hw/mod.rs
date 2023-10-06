@@ -1,3 +1,6 @@
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::pubsub::PubSubChannel;
+
 #[cfg(all(not(feature = "stm32"), not(feature = "nrf")))]
 compile_error!("Please enable the appropriate feature flag for the chip you're using.");
 
@@ -9,3 +12,5 @@ compile_error!("Please enable only one chip feature flag.");
 pub mod mcu;
 
 pub mod drivers;
+
+pub static BATTERY_LEVEL: PubSubChannel<ThreadModeRawMutex, u8, 2, 2, 1> = PubSubChannel::new();
