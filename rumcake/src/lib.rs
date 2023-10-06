@@ -69,6 +69,9 @@ pub mod split;
 #[cfg(all(feature = "nrf", feature = "bluetooth"))]
 pub mod nrf_ble;
 
+#[cfg(feature = "display")]
+pub mod display;
+
 pub mod hw;
 
 pub mod tasks {
