@@ -5,8 +5,7 @@ use embassy_futures::join;
 use embassy_futures::select::{self, select, select3};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
-use embassy_sync::pubsub::Publisher;
-use embassy_time::{Duration, Timer};
+use embassy_sync::signal::Signal;
 use heapless::Vec;
 use nrf_softdevice::ble::gatt_server::builder::ServiceBuilder;
 use nrf_softdevice::ble::gatt_server::characteristic::{Attribute, Metadata, Properties};
@@ -29,7 +28,7 @@ use usbd_human_interface_device::device::keyboard::{
     NKROBootKeyboardReport, NKRO_BOOT_KEYBOARD_REPORT_DESCRIPTOR,
 };
 
-use crate::hw::BATTERY_LEVEL;
+use crate::hw::BATTERY_LEVEL_STATE;
 use crate::keyboard::{Keyboard, KEYBOARD_REPORT_HID_SEND_CHANNEL};
 
 #[cfg(feature = "usb")]
@@ -540,31 +539,8 @@ pub enum BluetoothCommand {
 pub static BLUETOOTH_COMMAND_CHANNEL: Channel<ThreadModeRawMutex, BluetoothCommand, 2> =
     Channel::new();
 
-pub struct BluetoothCommandHandler {
-    #[cfg(feature = "usb")]
-    usb_state_publisher: Publisher<'static, ThreadModeRawMutex, bool, 2, 2, 2>,
-    usb_enabled: bool,
-}
-
-impl BluetoothCommandHandler {
-    pub fn new() -> Self {
-        Self {
-            #[cfg(feature = "usb")]
-            usb_state_publisher: USB_STATE.publisher().unwrap(),
-            usb_enabled: false,
-        }
-    }
-
-    pub async fn process_command(&mut self, command: BluetoothCommand) {
-        match command {
-            #[cfg(feature = "usb")]
-            BluetoothCommand::ToggleUSB => {
-                self.usb_enabled = !self.usb_enabled;
-                self.usb_state_publisher.publish(self.usb_enabled).await
-            }
-        }
-    }
-}
+pub static USB_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();
+pub static BATTERY_LEVEL_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();
 
 #[rumcake_macros::task]
 pub async fn nrf_ble_task<K: NRFBluetoothKeyboard>(sd: &'static Softdevice, server: Server)
@@ -617,8 +593,6 @@ where
     static BONDER: StaticCell<Bonder> = StaticCell::new();
     let bonder = BONDER.init(Bonder::default());
 
-    let mut command_handler = BluetoothCommandHandler::new();
-
     let connection_fut = async {
         loop {
             let advertisement = ConnectableAdvertisement::ScannableUndirected {
@@ -659,10 +633,9 @@ where
             });
 
             let adc_fut = async {
-                let mut adc_subscriber = BATTERY_LEVEL.subscriber().unwrap();
-
                 loop {
-                    let pct = adc_subscriber.next_message_pure().await;
+                    BATTERY_LEVEL_LISTENER.wait().await;
+                    let pct = BATTERY_LEVEL_STATE.get().await;
 
                     match server.bas.battery_level_notify(&connection, &pct) {
                         Ok(_) => {
@@ -673,14 +646,12 @@ where
                         }
                         Err(error) => {
                             error!(
-                            "[BT_HID] Could not notify connection of new battery level ({=u8}): {}",
-                            pct,
-                            Debug2Format(&error)
-                        );
+                                "[BT_HID] Could not notify connection of new battery level ({=u8}): {}",
+                                pct,
+                                Debug2Format(&error)
+                            );
                         }
                     }
-
-                    Timer::after(Duration::from_secs(10)).await;
                 }
             };
 
@@ -690,22 +661,18 @@ where
 
                 #[cfg(feature = "usb")]
                 {
-                    let mut usb_reports_enabled = false;
-                    let mut usb_state_subscriber = USB_STATE.subscriber().unwrap();
-
                     loop {
-                        if !usb_reports_enabled {
+                        if !USB_STATE.get().await {
                             match select(
-                                usb_state_subscriber.next_message_pure(),
+                                USB_STATE_LISTENER.wait(),
                                 KEYBOARD_REPORT_HID_SEND_CHANNEL.receive(),
                             )
                             .await
                             {
-                                select::Either::First(new_state) => {
-                                    usb_reports_enabled = new_state;
+                                select::Either::First(()) => {
                                     info!(
                                         "[BT_HID] Bluetooth HID reports enabled = {}",
-                                        !usb_reports_enabled
+                                        !USB_STATE.get().await
                                     );
                                 }
                                 select::Either::Second(report) => {
@@ -726,10 +693,10 @@ where
                                 }
                             };
                         } else {
-                            usb_reports_enabled = usb_state_subscriber.next_message_pure().await;
+                            USB_STATE_LISTENER.wait().await;
                             info!(
                                 "[BT_HID] Bluetooth HID reports enabled = {}",
-                                !usb_reports_enabled
+                                !USB_STATE.get().await
                             );
                         }
                     }
@@ -776,7 +743,12 @@ where
     let command_fut = async {
         loop {
             let command = BLUETOOTH_COMMAND_CHANNEL.receive().await;
-            command_handler.process_command(command).await;
+            match command {
+                #[cfg(feature = "usb")]
+                BluetoothCommand::ToggleUSB => {
+                    USB_STATE.set(!USB_STATE.get().await).await;
+                }
+            }
         }
     };
 

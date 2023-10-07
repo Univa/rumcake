@@ -11,7 +11,7 @@ use embedded_storage::nor_flash::NorFlash;
 use lazy_static::lazy_static;
 use static_cell::StaticCell;
 
-use crate::hw::BATTERY_LEVEL;
+use crate::hw::BATTERY_LEVEL_STATE;
 
 #[cfg(feature = "nrf52840")]
 pub const SYSCLK: u32 = 48_000_000;
@@ -135,8 +135,6 @@ pub async fn adc_task() {
 
     adc.calibrate().await;
 
-    let battery_level_publisher = BATTERY_LEVEL.publisher().unwrap();
-
     loop {
         let mut buf: [i16; 1] = [0; 1];
         adc.sample(&mut buf).await;
@@ -152,21 +150,21 @@ pub async fn adc_task() {
             (mv * 2 / 15 - 459) as u8
         };
 
-        battery_level_publisher.publish_immediate(pct);
+        BATTERY_LEVEL_STATE.set(pct).await;
 
         Timer::after(Duration::from_secs(10)).await;
     }
 }
 
 #[macro_export]
-macro_rules! setup_i2c {
+macro_rules! setup_i2c_inner {
     ($interrupt:ident, $i2c:ident, $sda:ident, $scl:ident) => {
-        fn setup_i2c() -> impl $crate::embedded_hal_async::i2c::I2c<Error = impl core::fmt::Debug> {
+        {
             use $crate::embassy_nrf::interrupt::InterruptExt;
             unsafe {
                 $crate::embassy_nrf::bind_interrupts! {
                     struct Irqs {
-                        $interrupt => $crate::embassy_nrf::twim::InterruptHandler<$crate::embassy_nrf::peripherals::$i2c>
+                        $interrupt => $crate::embassy_nrf::twim::InterruptHandler<$crate::embassy_nrf::peripherals::$i2c>;
                     }
                 };
                 $crate::embassy_nrf::interrupt::$interrupt.set_priority($crate::embassy_nrf::interrupt::Priority::P2);
@@ -175,6 +173,25 @@ macro_rules! setup_i2c {
                 let scl = $crate::embassy_nrf::peripherals::$scl::steal();
                 $crate::embassy_nrf::twim::Twim::new(i2c, Irqs, sda, scl, Default::default())
             }
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! setup_i2c {
+    ($interrupt:ident, $i2c:ident, $sda:ident, $scl:ident) => {
+        fn setup_i2c() -> impl $crate::embedded_hal_async::i2c::I2c<Error = impl core::fmt::Debug> {
+            $crate::setup_i2c_inner!($interrupt, $i2c, $sda, $scl)
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! setup_i2c_blocking {
+    ($interrupt:ident, $i2c:ident, $sda:ident, $scl:ident) => {
+        fn setup_i2c(
+        ) -> impl $crate::embedded_hal::blocking::i2c::Write<Error = impl core::fmt::Debug> {
+            $crate::setup_i2c_inner!($interrupt, $i2c, $sda, $scl)
         }
     };
 }

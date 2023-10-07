@@ -98,13 +98,14 @@ rgb-backlight-matrix-driver-is31fl3731 = ["backlight"]
 rgb-backlight-matrix-driver-ws2812-bitbang = ["backlight"]
 
 # Display
-display = []
+display = ["rumcake-macros/display"]
 
 display-driver-ssd1306 = ["display"]
 
 # Split keyboard features
 split-peripheral = ["rumcake-macros/split-peripheral", "nrf-softdevice?/ble-peripheral", "nrf-softdevice?/ble-gatt-server"]
 split-central = ["rumcake-macros/split-central", "nrf-softdevice?/ble-central", "nrf-softdevice?/ble-gatt-client"]
+
 split-driver-serial = []
 split-driver-ble = ["rumcake-macros/split-driver-ble"]
 

@@ -33,6 +33,8 @@ underglow = []
 
 backlight = []
 
+display = []
+
 split-peripheral = []
 split-central = []
 

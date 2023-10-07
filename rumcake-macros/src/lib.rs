@@ -337,6 +337,12 @@ pub fn main(
         spawner.spawn(rumcake::backlight_task!((#kb_name), (backlight_driver))).unwrap();
     });
 
+    #[cfg(feature = "display")]
+    initialization.extend(quote! {
+        let display_driver = rumcake::display::drivers::setup_display_driver(#kb_name).await;
+        spawner.spawn(rumcake::display_task!((#kb_name), (display_driver))).unwrap();
+    });
+
     quote! {
         #[rumcake::embassy_executor::main]
         async fn main(spawner: rumcake::embassy_executor::Spawner) {

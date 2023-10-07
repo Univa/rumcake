@@ -1,8 +1,8 @@
 use defmt::{debug, error, info, Debug2Format};
 use embassy_futures::select::{self, select};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::pubsub::PubSubChannel;
-use embassy_usb::class::hid::{Config, HidWriter, State};
+use embassy_sync::signal::Signal;
+use embassy_usb::class::hid::{Config, HidWriter, State as UsbState};
 use embassy_usb::driver::Driver;
 use embassy_usb::{Builder, UsbDevice};
 use packed_struct::PackedStruct;
@@ -12,9 +12,19 @@ use usbd_human_interface_device::device::keyboard::{
 };
 
 use crate::keyboard::{Keyboard, KeyboardLayout, KEYBOARD_REPORT_HID_SEND_CHANNEL};
-use crate::StaticArray;
+use crate::{State, StaticArray};
 
-pub static USB_STATE: PubSubChannel<ThreadModeRawMutex, bool, 2, 2, 2> = PubSubChannel::new();
+pub static USB_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();
+pub static USB_STATE: State<bool> = State::new(
+    cfg!(not(feature = "bluetooth")),
+    &[
+        &USB_STATE_LISTENER,
+        #[cfg(feature = "display")]
+        &crate::display::USB_STATE_LISTENER,
+        #[cfg(feature = "bluetooth")]
+        &crate::nrf_ble::USB_STATE_LISTENER,
+    ],
+);
 
 pub trait USBKeyboard: Keyboard + KeyboardLayout {
     // USB Configuration
@@ -30,8 +40,8 @@ pub fn setup_usb_hid_nkro_writer(
     { <<NKROBootKeyboardReport as PackedStruct>::ByteArray as StaticArray>::LEN },
 > {
     // Keyboard HID setup
-    static KB_STATE: StaticCell<State> = StaticCell::new();
-    let kb_state = KB_STATE.init(State::new());
+    static KB_STATE: StaticCell<UsbState> = StaticCell::new();
+    let kb_state = KB_STATE.init(UsbState::new());
     let kb_hid_config = Config {
         request_handler: None,
         report_descriptor: NKRO_BOOT_KEYBOARD_REPORT_DESCRIPTOR,
@@ -64,20 +74,16 @@ pub async fn usb_hid_kb_write_task(
         { <<NKROBootKeyboardReport as PackedStruct>::ByteArray as StaticArray>::LEN },
     >,
 ) {
-    let mut usb_reports_enabled = cfg!(not(feature = "bluetooth"));
-    let mut subscriber = USB_STATE.subscriber().unwrap();
-
     loop {
-        if usb_reports_enabled {
+        if USB_STATE.get().await {
             match select(
-                subscriber.next_message_pure(),
+                USB_STATE_LISTENER.wait(),
                 KEYBOARD_REPORT_HID_SEND_CHANNEL.receive(),
             )
             .await
             {
-                select::Either::First(new_state) => {
-                    usb_reports_enabled = new_state;
-                    info!("[USB] USB HID reports enabled = {}", usb_reports_enabled);
+                select::Either::First(()) => {
+                    info!("[USB] USB HID reports enabled = {}", USB_STATE.get().await);
                 }
                 select::Either::Second(report) => {
                     debug!(
@@ -93,8 +99,8 @@ pub async fn usb_hid_kb_write_task(
                 }
             }
         } else {
-            usb_reports_enabled = subscriber.next_message_pure().await;
-            info!("[USB] USB HID reports enabled = {}", usb_reports_enabled);
+            USB_STATE_LISTENER.wait().await;
+            info!("[USB] USB HID reports enabled = {}", USB_STATE.get().await);
 
             // Ignore any unprocessed reports due to lack of a connection
             while KEYBOARD_REPORT_HID_SEND_CHANNEL.try_receive().is_ok() {}

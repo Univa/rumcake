@@ -6,6 +6,10 @@
 #![feature(return_position_impl_trait_in_trait)]
 #![feature(async_fn_in_trait)]
 
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::mutex::Mutex;
+use embassy_sync::signal::Signal;
+
 pub trait StaticArray {
     const LEN: usize;
 }
@@ -21,6 +25,34 @@ trait LEDEffect {
 trait Cycle {
     fn increment(&mut self);
     fn decrement(&mut self);
+}
+
+pub struct State<'a, T: Clone + PartialEq> {
+    data: Mutex<ThreadModeRawMutex, T>,
+    listeners: &'a [&'a Signal<ThreadModeRawMutex, ()>],
+}
+
+impl<'a, T: Clone + PartialEq> State<'a, T> {
+    const fn new(data: T, listeners: &'a [&'a Signal<ThreadModeRawMutex, ()>]) -> State<'a, T> {
+        Self {
+            data: Mutex::new(data),
+            listeners,
+        }
+    }
+
+    async fn get(&self) -> T {
+        self.data.lock().await.clone()
+    }
+
+    async fn set(&self, value: T) {
+        let mut data = self.data.lock().await;
+        if *data != value {
+            for listener in self.listeners.iter() {
+                listener.signal(());
+            }
+        }
+        *data = value;
+    }
 }
 
 // TODO: remove re-exports
@@ -82,6 +114,9 @@ pub mod tasks {
 
     #[cfg(feature = "underglow")]
     pub use crate::underglow::__underglow_task_task;
+
+    #[cfg(feature = "display")]
+    pub use crate::display::__display_task_task;
 
     #[cfg(feature = "usb")]
     pub use crate::usb::{__start_usb_task, __usb_hid_kb_write_task_task};
