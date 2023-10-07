@@ -68,4 +68,12 @@ impl<DI: Write<Error = impl Debug>, S: DisplaySize, K: Ssd1306I2cDisplayDriver<S
         K::on_update(self);
         self.flush().unwrap();
     }
+
+    fn turn_off(&mut self) {
+        self.set_display_on(false).unwrap();
+    }
+
+    fn turn_on(&mut self) {
+        self.set_display_on(true).unwrap();
+    }
 }
