@@ -2,9 +2,11 @@
 
 <!--toc:start-->
 
-- [Displays](#displays)
-  - [Setup](#setup) - [Required Cargo features](#required-cargo-features) - [Required code](#required-code) - [Custom](#custom)
-  <!--toc:end-->
+- [Setup](#setup)
+  - [Required Cargo features](#required-cargo-features)
+  - [Required code](#required-code)
+- [Custom graphics](#custom-graphics)
+<!--toc:end-->
 
 ## Setup
 
