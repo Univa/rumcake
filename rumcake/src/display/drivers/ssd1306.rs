@@ -10,13 +10,16 @@ use embedded_hal::blocking::i2c::Write;
 use ssd1306::mode::BufferedGraphicsMode;
 use ssd1306::prelude::{DisplayConfig, I2CInterface};
 use ssd1306::rotation::DisplayRotation;
-pub use ssd1306::size;
 use ssd1306::size::{DisplaySize, DisplaySize128x32};
 use ssd1306::{I2CDisplayInterface, Ssd1306};
 
 use crate::display::DisplayDevice;
 
 use super::DisplayDriver;
+
+pub mod driver {
+    pub use ssd1306::*;
+}
 
 pub static DEFAULT_STYLE: MonoTextStyle<'_, BinaryColor> = MonoTextStyleBuilder::new()
     .font(&FONT_5X8)
