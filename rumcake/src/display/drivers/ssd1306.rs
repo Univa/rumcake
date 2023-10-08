@@ -3,14 +3,10 @@ use core::fmt::Debug;
 use embedded_graphics::mono_font::ascii::FONT_6X10;
 use embedded_graphics::mono_font::{MonoTextStyle, MonoTextStyleBuilder};
 use embedded_graphics::pixelcolor::BinaryColor;
-use embedded_graphics::prelude::{Dimensions, DrawTarget};
-use embedded_graphics::Drawable;
+use embedded_graphics::prelude::DrawTarget;
 use embedded_hal::blocking::i2c::Write;
-use embedded_layout::layout::linear::{FixedMargin, LinearLayout};
-use embedded_layout::prelude::{horizontal, vertical, Align, Chain};
 use embedded_text::alignment::HorizontalAlignment;
 use embedded_text::style::{HeightMode, TextBoxStyle, TextBoxStyleBuilder};
-use embedded_text::TextBox;
 use heapless::String;
 use ssd1306::mode::BufferedGraphicsMode;
 use ssd1306::prelude::{DisplayConfig, I2CInterface};
@@ -18,11 +14,7 @@ use ssd1306::rotation::DisplayRotation;
 use ssd1306::size::{DisplaySize, DisplaySize128x32};
 use ssd1306::{I2CDisplayInterface, Ssd1306};
 
-use crate::display::DisplayDevice;
-use crate::hw::BATTERY_LEVEL_STATE;
-
-#[cfg(feature = "usb")]
-use crate::usb::USB_STATE;
+use crate::display::{on_update_default, DisplayDevice};
 
 use super::DisplayDriver;
 
@@ -62,52 +54,20 @@ pub trait Ssd1306I2cDisplayDriver<S: DisplaySize = DisplaySize128x32>: DisplayDe
             BufferedGraphicsMode<S>,
         >,
     ) {
-        let bounding_box = display.bounding_box();
-
-        let contents = Chain::new(TextBox::with_textbox_style(
-            "INFO",
-            bounding_box,
-            DEFAULT_STYLE,
-            DEFAULT_HEADER_STYLE,
-        ));
-
-        // Battery level
-        #[cfg(any(feature = "bluetooth", feature = "split-driver-ble"))]
-        let battery_level = {
-            let mut string: String<8> = String::from("BAT: ");
-            string
-                .push_str(&String::<3>::from(BATTERY_LEVEL_STATE.get().await))
-                .unwrap();
-            string
-        };
-
-        #[cfg(any(feature = "bluetooth", feature = "split-driver-ble"))]
-        let contents = contents.append(TextBox::with_textbox_style(
-            &battery_level,
-            bounding_box,
-            DEFAULT_STYLE,
-            DEFAULT_TEXTBOX_STYLE,
-        ));
-
-        // Mode
-        #[cfg(all(feature = "usb", feature = "bluetooth"))]
-        let contents = contents.append(TextBox::with_textbox_style(
-            if USB_STATE.get().await {
-                "MODE: USB"
-            } else {
-                "MODE: BT"
-            },
-            bounding_box,
-            DEFAULT_STYLE,
-            DEFAULT_TEXTBOX_STYLE,
-        ));
-
-        LinearLayout::vertical(contents)
-            .with_spacing(FixedMargin(8))
-            .align_to(&bounding_box, horizontal::Left, vertical::Top)
-            .arrange()
-            .draw(display)
-            .unwrap();
+        match Self::ROTATION {
+            DisplayRotation::Rotate0 => {
+                on_update_default!(display, horizontal, 8);
+            }
+            DisplayRotation::Rotate90 => {
+                on_update_default!(display, vertical, 8);
+            }
+            DisplayRotation::Rotate180 => {
+                on_update_default!(display, horizontal, 8);
+            }
+            DisplayRotation::Rotate270 => {
+                on_update_default!(display, vertical, 8);
+            }
+        }
     }
 }
 

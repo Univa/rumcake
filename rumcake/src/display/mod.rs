@@ -20,6 +20,71 @@ pub trait DisplayDevice {
     const TIMEOUT: usize = 30;
 }
 
+// TODO: fix horizontal layouts
+macro_rules! on_update_default {
+    ($display:ident, $direction:ident, $margin:literal) => {
+        use embedded_graphics::prelude::Dimensions;
+        use embedded_graphics::Drawable;
+        use embedded_layout::prelude::Align;
+
+        let bounding_box = $display.bounding_box();
+
+        let contents =
+            embedded_layout::prelude::Chain::new(embedded_text::TextBox::with_textbox_style(
+                "INFO",
+                bounding_box,
+                DEFAULT_STYLE,
+                DEFAULT_HEADER_STYLE,
+            ));
+
+        // Battery level
+        #[cfg(any(feature = "bluetooth", feature = "split-driver-ble"))]
+        let battery_level = {
+            let mut string: String<8> = String::from("BAT: ");
+            string
+                .push_str(&String::<3>::from(
+                    crate::hw::BATTERY_LEVEL_STATE.get().await,
+                ))
+                .unwrap();
+            string
+        };
+
+        #[cfg(any(feature = "bluetooth", feature = "split-driver-ble"))]
+        let contents = contents.append(embedded_text::TextBox::with_textbox_style(
+            &battery_level,
+            bounding_box,
+            DEFAULT_STYLE,
+            DEFAULT_TEXTBOX_STYLE,
+        ));
+
+        // Mode
+        #[cfg(all(feature = "usb", feature = "bluetooth"))]
+        let contents = contents.append(embedded_text::TextBox::with_textbox_style(
+            if crate::usb::USB_STATE.get().await {
+                "MODE: USB"
+            } else {
+                "MODE: BT"
+            },
+            bounding_box,
+            DEFAULT_STYLE,
+            DEFAULT_TEXTBOX_STYLE,
+        ));
+
+        embedded_layout::layout::linear::LinearLayout::$direction(contents)
+            .with_spacing(embedded_layout::layout::linear::FixedMargin($margin))
+            .align_to(
+                &bounding_box,
+                embedded_layout::prelude::horizontal::Left,
+                embedded_layout::prelude::vertical::Top,
+            )
+            .arrange()
+            .draw($display)
+            .unwrap();
+    };
+}
+
+pub(crate) use on_update_default;
+
 #[rumcake_macros::task]
 pub async fn display_task<K: DisplayDevice>(mut display: impl DisplayDriver<K>) {
     let mut ticker = if K::FPS > 0 {
