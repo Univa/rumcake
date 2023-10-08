@@ -29,7 +29,11 @@ pub async fn display_task<K: DisplayDevice>(mut display: impl DisplayDriver<K>) 
     };
 
     // Tracks the state of the display so that we don't repeatedly send extra "turn_on" commands.
+    display.turn_on().await;
     let mut display_on = true;
+
+    // Render a frame after turning on
+    display.on_update().await;
 
     loop {
         let update_fut = async {
@@ -57,23 +61,23 @@ pub async fn display_task<K: DisplayDevice>(mut display: impl DisplayDriver<K>) 
                         0 | 1 => {
                             // Turn the display on in the event of a tick, or change in USB state.
                             if !display_on {
-                                display.turn_on();
+                                display.turn_on().await;
                                 display_on = true;
                             }
                         }
                         _ => {}
                     };
 
-                    display.on_update();
+                    display.on_update().await;
                 }
                 Either::Second(_) => {
-                    display.turn_off();
+                    display.turn_off().await;
                     display_on = false;
                 }
             };
         } else {
             update_fut.await;
-            display.on_update();
+            display.on_update().await;
         }
     }
 }
