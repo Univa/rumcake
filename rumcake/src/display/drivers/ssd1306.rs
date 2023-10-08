@@ -1,12 +1,16 @@
 use core::fmt::Debug;
 
-use embedded_graphics::mono_font::ascii::FONT_5X8;
+use embedded_graphics::mono_font::ascii::FONT_6X10;
 use embedded_graphics::mono_font::{MonoTextStyle, MonoTextStyleBuilder};
 use embedded_graphics::pixelcolor::BinaryColor;
-use embedded_graphics::prelude::{DrawTarget, Point};
-use embedded_graphics::text::Text;
+use embedded_graphics::prelude::{Dimensions, DrawTarget};
 use embedded_graphics::Drawable;
 use embedded_hal::blocking::i2c::Write;
+use embedded_layout::layout::linear::{FixedMargin, LinearLayout};
+use embedded_layout::prelude::{horizontal, vertical, Align, Chain};
+use embedded_text::alignment::HorizontalAlignment;
+use embedded_text::style::{HeightMode, TextBoxStyle, TextBoxStyleBuilder};
+use embedded_text::TextBox;
 use heapless::String;
 use ssd1306::mode::BufferedGraphicsMode;
 use ssd1306::prelude::{DisplayConfig, I2CInterface};
@@ -27,8 +31,18 @@ pub mod driver {
 }
 
 pub static DEFAULT_STYLE: MonoTextStyle<'_, BinaryColor> = MonoTextStyleBuilder::new()
-    .font(&FONT_5X8)
+    .font(&FONT_6X10)
     .text_color(BinaryColor::On)
+    .build();
+
+pub static DEFAULT_TEXTBOX_STYLE: TextBoxStyle = TextBoxStyleBuilder::new()
+    .height_mode(HeightMode::FitToText)
+    .alignment(HorizontalAlignment::Left)
+    .build();
+
+pub static DEFAULT_HEADER_STYLE: TextBoxStyle = TextBoxStyleBuilder::new()
+    .height_mode(HeightMode::FitToText)
+    .alignment(HorizontalAlignment::Center)
     .build();
 
 pub trait Ssd1306I2cDisplayDriver<S: DisplaySize = DisplaySize128x32>: DisplayDevice {
@@ -48,47 +62,52 @@ pub trait Ssd1306I2cDisplayDriver<S: DisplaySize = DisplaySize128x32>: DisplayDe
             BufferedGraphicsMode<S>,
         >,
     ) {
+        let bounding_box = display.bounding_box();
+
+        let contents = Chain::new(TextBox::with_textbox_style(
+            "INFO",
+            bounding_box,
+            DEFAULT_STYLE,
+            DEFAULT_HEADER_STYLE,
+        ));
+
         // Battery level
-        #[cfg(feature = "bluetooth")]
-        {
-            Text::with_baseline(
-                "BAT:",
-                Point::new(0, 0),
-                DEFAULT_STYLE,
-                embedded_graphics::text::Baseline::Top,
-            )
-            .draw(display)
-            .unwrap();
-            Text::with_baseline(
-                &String::<3>::from(BATTERY_LEVEL_STATE.get().await),
-                Point::new(0, 10),
-                DEFAULT_STYLE,
-                embedded_graphics::text::Baseline::Top,
-            )
-            .draw(display)
-            .unwrap();
-        }
+        #[cfg(any(feature = "bluetooth", feature = "split-driver-ble"))]
+        let battery_level = {
+            let mut string: String<8> = String::from("BAT: ");
+            string
+                .push_str(&String::<3>::from(BATTERY_LEVEL_STATE.get().await))
+                .unwrap();
+            string
+        };
+
+        #[cfg(any(feature = "bluetooth", feature = "split-driver-ble"))]
+        let contents = contents.append(TextBox::with_textbox_style(
+            &battery_level,
+            bounding_box,
+            DEFAULT_STYLE,
+            DEFAULT_TEXTBOX_STYLE,
+        ));
 
         // Mode
         #[cfg(all(feature = "usb", feature = "bluetooth"))]
-        {
-            Text::with_baseline(
-                "MODE:",
-                Point::new(0, 26),
-                DEFAULT_STYLE,
-                embedded_graphics::text::Baseline::Top,
-            )
+        let contents = contents.append(TextBox::with_textbox_style(
+            if USB_STATE.get().await {
+                "MODE: USB"
+            } else {
+                "MODE: BT"
+            },
+            bounding_box,
+            DEFAULT_STYLE,
+            DEFAULT_TEXTBOX_STYLE,
+        ));
+
+        LinearLayout::vertical(contents)
+            .with_spacing(FixedMargin(8))
+            .align_to(&bounding_box, horizontal::Left, vertical::Top)
+            .arrange()
             .draw(display)
             .unwrap();
-            Text::with_baseline(
-                &String::<3>::from(if USB_STATE.get().await { "USB" } else { "BT" }),
-                Point::new(0, 36),
-                DEFAULT_STYLE,
-                embedded_graphics::text::Baseline::Top,
-            )
-            .draw(display)
-            .unwrap();
-        }
     }
 }
 
