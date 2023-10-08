@@ -60,6 +60,12 @@ impl Ssd1306I2cDisplayDriver for MyKeyboard {
 
 ## Custom graphics
 
+By default, the display will show information about the keyboard depending on
+what features are being used. If you're using any bluetooth features (e.g. `split-driver-ble`
+or `bluetooth`), then the battery level will be displayed. If you are communicating
+with your host device over USB and Bluetooth (`usb` and `bluetooth` enabled),
+then it will also show the operation mode.
+
 You are also able to display custom content using the `embedded-graphics` crate.
 In every driver trait, you can change the default implementation of `on_update`,
 which is called either every frame if you set `DisplayDevice::FPS` to a value
