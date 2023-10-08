@@ -55,17 +55,11 @@ pub trait Ssd1306I2cDisplayDriver<S: DisplaySize = DisplaySize128x32>: DisplayDe
         >,
     ) {
         match Self::ROTATION {
-            DisplayRotation::Rotate0 => {
-                on_update_default!(display, horizontal, 8);
+            DisplayRotation::Rotate0 | DisplayRotation::Rotate180 => {
+                on_update_default!(display, "HORIZONTAL", 12);
             }
-            DisplayRotation::Rotate90 => {
-                on_update_default!(display, vertical, 8);
-            }
-            DisplayRotation::Rotate180 => {
-                on_update_default!(display, horizontal, 8);
-            }
-            DisplayRotation::Rotate270 => {
-                on_update_default!(display, vertical, 8);
+            DisplayRotation::Rotate90 | DisplayRotation::Rotate270 => {
+                on_update_default!(display, "VERTICAL", 8);
             }
         }
     }

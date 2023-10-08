@@ -20,22 +20,45 @@ pub trait DisplayDevice {
     const TIMEOUT: usize = 30;
 }
 
-// TODO: fix horizontal layouts
+macro_rules! text_box {
+    ($box:expr, "textbox", $text:expr) => {
+        embedded_text::TextBox::with_textbox_style(
+            $text,
+            $box,
+            DEFAULT_STYLE,
+            DEFAULT_TEXTBOX_STYLE,
+        )
+    };
+    ($box:expr, "text", $text:expr) => {
+        embedded_graphics::text::Text::new(
+            $text,
+            embedded_graphics::prelude::Point::zero(),
+            DEFAULT_STYLE,
+        )
+    };
+}
+
+// TODO: fix default horizontal layout overflow if "FlowLayout" ever gets implemented: https://github.com/bugadani/embedded-layout/issues/8
 macro_rules! on_update_default {
-    ($display:ident, $direction:ident, $margin:literal) => {
+    ($display:ident, "HORIZONTAL", $margin:literal) => {
+        on_update_default!($display, horizontal, $margin, "text")
+    };
+    ($display:ident, "VERTICAL", $margin:literal) => {
+        on_update_default!($display, vertical, $margin, "textbox")
+    };
+    ($display:ident, $direction:ident, $margin:literal, $text_type:tt) => {
         use embedded_graphics::prelude::Dimensions;
         use embedded_graphics::Drawable;
         use embedded_layout::prelude::Align;
 
         let bounding_box = $display.bounding_box();
 
-        let contents =
-            embedded_layout::prelude::Chain::new(embedded_text::TextBox::with_textbox_style(
-                "INFO",
-                bounding_box,
-                DEFAULT_STYLE,
-                DEFAULT_HEADER_STYLE,
-            ));
+        // Empty chain
+        let contents = embedded_layout::prelude::Chain::new(embedded_graphics::text::Text::new(
+            "",
+            embedded_graphics::prelude::Point::zero(),
+            DEFAULT_STYLE,
+        ));
 
         // Battery level
         #[cfg(any(feature = "bluetooth", feature = "split-driver-ble"))]
@@ -50,24 +73,22 @@ macro_rules! on_update_default {
         };
 
         #[cfg(any(feature = "bluetooth", feature = "split-driver-ble"))]
-        let contents = contents.append(embedded_text::TextBox::with_textbox_style(
-            &battery_level,
+        let contents = contents.append(crate::display::text_box!(
             bounding_box,
-            DEFAULT_STYLE,
-            DEFAULT_TEXTBOX_STYLE,
+            $text_type,
+            &battery_level
         ));
 
         // Mode
         #[cfg(all(feature = "usb", feature = "bluetooth"))]
-        let contents = contents.append(embedded_text::TextBox::with_textbox_style(
+        let contents = contents.append(crate::display::text_box!(
+            bounding_box,
+            $text_type,
             if crate::usb::USB_STATE.get().await {
                 "MODE: USB"
             } else {
                 "MODE: BT"
-            },
-            bounding_box,
-            DEFAULT_STYLE,
-            DEFAULT_TEXTBOX_STYLE,
+            }
         ));
 
         embedded_layout::layout::linear::LinearLayout::$direction(contents)
@@ -84,6 +105,7 @@ macro_rules! on_update_default {
 }
 
 pub(crate) use on_update_default;
+pub(crate) use text_box;
 
 #[rumcake_macros::task]
 pub async fn display_task<K: DisplayDevice>(mut display: impl DisplayDriver<K>) {
