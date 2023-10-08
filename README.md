@@ -76,6 +76,7 @@ The following features are _working_, but may not be stable or has missing compo
 - Backlighting
 - Underglow
 - Split keyboards over BLE
+- Displays (e.g. SSD1306)
 
 ### Not yet working, WIP
 
@@ -85,7 +86,6 @@ The following features are _working_, but may not be stable or has missing compo
 ### Planned
 
 - Media keys
-- Displays (e.g. SSD1306)
 - Encoders
 
 ## Why "rumcake"
