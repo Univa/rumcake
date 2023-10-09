@@ -51,11 +51,15 @@ struct MyKeyboardLeftHalf;
 
 // Split central setup
 use rumcake::split::drivers::nrf_ble::central::NRFBLECentralDevice;
-impl NRFBLECentralDevice for MyKeyboardLeftHalf {
-    // Only one peripheral is supported for now
-    // These addresses can be whatever you want
+// NRFBLECentralDevice<2>: This central device can connect to two different peripherals
+impl NRFBLECentralDevice<2> for MyKeyboardLeftHalf {
+    // These addresses can be whatever you want, as long as they are valid "Random Static" bluetooth addresses.
+    // See "Random Static Address" in this link: https://novelbits.io/bluetooth-address-privacy-ble/
     const BLUETOOTH_ADDRESS: [u8; 6] = [0x41, 0x5A, 0xE3, 0x1E, 0x83, 0xE7];
-    const PERIPHERAL_ADDRESSES: [u8; 6] = [0x92, 0x32, 0x98, 0xC7, 0xF6, 0xF8];
+    const PERIPHERAL_ADDRESSES: [[u8; 6]; 2] = [
+        [0x92, 0x32, 0x98, 0xC7, 0xF6, 0xF8],
+        [0x15, 0xD6, 0x88, 0x85, 0x98, 0xF7],
+    ];
 }
 ```
 
