@@ -97,6 +97,5 @@ impl NRFBLEPeripheralDevice for MyKeyboardRightHalf {
 ## To-do List
 
 - [ ] Disable keyboard matrix tasks for dongles
-- [ ] Variable number of peripherals
 - [ ] Serial (half duplex) driver
 - [ ] I2C driver
