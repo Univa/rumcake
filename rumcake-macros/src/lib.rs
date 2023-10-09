@@ -218,7 +218,7 @@ pub fn main(
 
     #[cfg(feature = "split-central")]
     initialization.extend(quote! {
-        let split_central_driver = rumcake::split::drivers::setup_split_central_driver::<#kb_name>();
+        let split_central_driver = rumcake::split::drivers::setup_split_central_driver(#kb_name);
         spawner.spawn(rumcake::central_task!((#kb_name), (split_central_driver, layout))).unwrap();
     });
 
@@ -242,7 +242,7 @@ pub fn main(
         feature = "split-central"
     ))]
     initialization.extend(quote! {
-        spawner.spawn(rumcake::nrf_ble_central_task!((#kb_name), (sd))).unwrap();
+        spawner.spawn(rumcake::nrf_ble_central_task!(#kb_name, sd)).unwrap();
     });
 
     #[cfg(all(

@@ -6,6 +6,7 @@ pub mod central {
     use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
     use embassy_sync::channel::Channel;
     use embassy_sync::pubsub::{PubSubChannel, Publisher};
+    use heapless::Vec;
     use nrf_softdevice::ble::central::connect;
     use nrf_softdevice::ble::gatt_client::{self, discover};
     use nrf_softdevice::ble::{central, set_address, Address, AddressType};
@@ -17,10 +18,10 @@ pub mod central {
         publisher: Publisher<'a, ThreadModeRawMutex, MessageToPeripheral, 4, 4, 1>,
     }
 
-    pub trait NRFBLECentralDevice {
+    pub trait NRFBLECentralDevice<const N: usize = 1> {
         const NUM_PERIPHERALS: usize = 1;
         const BLUETOOTH_ADDRESS: [u8; 6];
-        const PERIPHERAL_ADDRESSES: [u8; 6];
+        const PERIPHERAL_ADDRESSES: [[u8; 6]; N];
     }
 
     pub static BLE_MESSAGES_FROM_PERIPHERALS: Channel<ThreadModeRawMutex, MessageToCentral, 4> =
@@ -34,7 +35,9 @@ pub mod central {
         1,
     > = PubSubChannel::new();
 
-    pub fn setup_split_central_driver<K: NRFBLECentralDevice>() -> NRFBLECentralDriver<'static> {
+    pub fn setup_split_central_driver<const N: usize, K: NRFBLECentralDevice<N>>(
+        _k: K,
+    ) -> NRFBLECentralDriver<'static> {
         NRFBLECentralDriver {
             publisher: BLE_MESSAGES_TO_PERIPHERALS.publisher().unwrap(),
         }
@@ -71,13 +74,23 @@ pub mod central {
     }
 
     #[rumcake_macros::task]
-    pub async fn nrf_ble_central_task<K: NRFBLECentralDevice>(sd: &'static Softdevice) {
+    pub async fn nrf_ble_central_task<const N: usize, K: NRFBLECentralDevice<N>>(
+        _k: K,
+        sd: &'static Softdevice,
+    ) {
         set_address(
             sd,
             &Address::new(AddressType::RandomStatic, K::BLUETOOTH_ADDRESS),
         );
 
-        let peripheral_addr = Address::new(AddressType::RandomStatic, K::PERIPHERAL_ADDRESSES);
+        // Create addresses
+        let whitelist: Vec<Address, N> = K::PERIPHERAL_ADDRESSES
+            .iter()
+            .map(|addr| Address::new(AddressType::RandomStatic, *addr))
+            .collect();
+
+        // Borrow addresses
+        let whitelist: Vec<&Address, N> = whitelist.iter().map(|addr| addr).collect();
 
         let mut subscriber = BLE_MESSAGES_TO_PERIPHERALS.subscriber().unwrap();
 
@@ -85,7 +98,6 @@ pub mod central {
 
         loop {
             let mut config = central::ConnectConfig::default();
-            let whitelist = [&peripheral_addr];
             config.scan_config.whitelist = Some(&whitelist);
             config.conn_params.min_conn_interval = 6;
             config.conn_params.max_conn_interval = 6;
