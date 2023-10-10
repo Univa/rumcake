@@ -78,10 +78,6 @@ backlight = []
 
 display = []
 
-# Split keyboard features
-split-peripheral = ["rumcake-macros/split-peripheral", "nrf-softdevice?/ble-peripheral", "nrf-softdevice?/ble-gatt-server"]
-split-central = ["rumcake-macros/split-central", "nrf-softdevice?/ble-central", "nrf-softdevice?/ble-gatt-client"]
-
-split-driver-serial = []
-split-driver-ble = ["rumcake-macros/split-driver-ble"]
+split-peripheral = []
+split-central = []
 

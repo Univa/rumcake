@@ -1,17 +1,3 @@
-#[cfg(feature = "split-driver-serial")]
-pub mod serial;
-#[cfg(all(feature = "split-driver-serial", feature = "split-central"))]
-pub use serial::central::setup_split_central_driver;
-#[cfg(all(feature = "split-driver-serial", feature = "split-peripheral"))]
-pub use serial::peripheral::setup_split_peripheral_driver;
-
-#[cfg(feature = "split-driver-ble")]
-pub mod nrf_ble;
-#[cfg(all(feature = "split-driver-ble", feature = "split-central"))]
-pub use nrf_ble::central::setup_split_central_driver;
-#[cfg(all(feature = "split-driver-ble", feature = "split-peripheral"))]
-pub use nrf_ble::peripheral::setup_split_peripheral_driver;
-
 use core::fmt::Debug;
 
 use super::MessageToCentral;

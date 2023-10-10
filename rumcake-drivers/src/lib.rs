@@ -92,6 +92,14 @@ macro_rules! on_update_default {
 pub(crate) use on_update_default;
 pub(crate) use text_box;
 
+pub use embassy_executor;
+
 pub mod is31fl3731;
+pub mod nrf_ble;
 pub mod ssd1306;
 pub mod ws2812_bitbang;
+
+pub mod tasks {
+    pub use crate::nrf_ble::central::__nrf_ble_central_task_task;
+    pub use crate::nrf_ble::peripheral::__nrf_ble_peripheral_task_task;
+}

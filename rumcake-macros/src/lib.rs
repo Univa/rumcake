@@ -177,17 +177,42 @@ pub fn derive_cycle(e: proc_macro::TokenStream) -> proc_macro::TokenStream {
 #[derive(Debug, FromMeta)]
 struct KeyboardArgs {
     #[darling(default)]
+    bluetooth: bool,
+    #[darling(default)]
+    usb: bool,
+    #[darling(default)]
     backlight: Option<String>,
     #[darling(default)]
     underglow: Option<String>,
     #[darling(default)]
     display: Option<String>,
     #[darling(default)]
-    split: Option<String>,
+    split_peripheral: Option<String>,
     #[darling(default)]
-    split_peripheral: bool,
-    #[darling(default)]
-    split_central: bool,
+    split_central: Option<String>,
+}
+
+enum SplitRole {
+    Central,
+    Peripheral,
+}
+
+fn setup_split_driver(kb_name: &Ident, driver: &str, role: SplitRole) -> Option<TokenStream> {
+    match driver {
+        #[cfg(feature = "nrf")]
+        "ble" => match role {
+            SplitRole::Central => Some(quote! {
+                spawner.spawn(rumcake_drivers::nrf_ble_central_task!(#kb_name, sd)).unwrap();
+                let split_central_driver = rumcake_drivers::nrf_ble::central::setup_split_central_driver(#kb_name);
+            }),
+            SplitRole::Peripheral => Some(quote! {
+                let peripheral_server = rumcake_drivers::nrf_ble::peripheral::PeripheralDeviceServer::new(sd).unwrap();
+                spawner.spawn(rumcake_drivers::nrf_ble_peripheral_task!((#kb_name), (sd, peripheral_server))).unwrap();
+                let split_peripheral_driver = rumcake_drivers::nrf_ble::peripheral::setup_split_peripheral_driver::<#kb_name>();
+            }),
+        },
+        _ => None,
+    }
 }
 
 fn setup_underglow_driver(kb_name: &Ident, driver: &str) -> Option<TokenStream> {
@@ -214,7 +239,7 @@ fn setup_backlight_driver(kb_name: &Ident, driver: &str) -> Option<TokenStream> 
 fn setup_display_driver(kb_name: &Ident, driver: &str) -> Option<TokenStream> {
     match driver {
         "ssd1306" => Some(quote! {
-            let display_driver = rumcake_drivers::ssd1306::setup_display_driver::<#kb_name>().await;
+            let display_driver = rumcake_drivers::ssd1306::setup_display_driver(#kb_name).await;
         }),
         _ => None,
     }
@@ -232,6 +257,7 @@ pub fn main(
     let keyboard = KeyboardArgs::from_list(&args).unwrap();
 
     let mut initialization = TokenStream::new();
+    let mut spawning = TokenStream::new();
 
     // Setup microcontroller
     initialization.extend(quote! {
@@ -241,86 +267,102 @@ pub fn main(
     // Keyboard setup, and matrix polling task
     initialization.extend(quote! {
         let (matrix, debouncer) = rumcake::setup_keyboard_matrix!(#kb_name);
+    });
+    spawning.extend(quote! {
         spawner
             .spawn(rumcake::matrix_poll!((#kb_name), (matrix, debouncer)))
             .unwrap();
     });
 
     #[cfg(feature = "nrf")]
-    initialization.extend(quote! {
-        spawner.spawn(rumcake::adc_task!()).unwrap();
-    });
+    {
+        spawning.extend(quote! {
+            spawner.spawn(rumcake::adc_task!()).unwrap();
+        });
 
-    #[cfg(any(feature = "bluetooth", feature = "usb"))]
-    initialization.extend(quote! {
-        let layout = rumcake::setup_keyboard_layout!(#kb_name);
-        spawner.spawn(rumcake::layout_collect!((#kb_name), (layout))).unwrap();
-        spawner
-            .spawn(rumcake::layout_register!((#kb_name), (layout)))
-            .unwrap();
-    });
+        if keyboard.bluetooth
+            || keyboard
+                .split_peripheral
+                .as_ref()
+                .is_some_and(|driver| driver == "ble")
+            || keyboard
+                .split_central
+                .as_ref()
+                .is_some_and(|driver| driver == "ble")
+        {
+            initialization.extend(quote! {
+                let sd = rumcake::hw::mcu::setup_softdevice::<#kb_name>();
+            });
+            spawning.extend(quote! {
+                spawner.spawn(rumcake::softdevice_task!(sd)).unwrap();
+            });
+        }
+    }
 
-    #[cfg(feature = "split-peripheral")]
-    initialization.extend(quote! {
-        let split_peripheral_driver = rumcake::split::drivers::setup_split_peripheral_driver::<#kb_name>();
-        spawner.spawn(rumcake::peripheral_task!((#kb_name), (split_peripheral_driver))).unwrap();
-    });
+    if keyboard.bluetooth || keyboard.usb {
+        initialization.extend(quote! {
+            let layout = rumcake::setup_keyboard_layout!(#kb_name);
+        });
+        spawning.extend(quote! {
+            spawner.spawn(rumcake::layout_collect!((#kb_name), (layout))).unwrap();
+            spawner
+                .spawn(rumcake::layout_register!((#kb_name), (layout)))
+                .unwrap();
+        })
+    }
 
-    #[cfg(feature = "split-central")]
-    initialization.extend(quote! {
-        let split_central_driver = rumcake::split::drivers::setup_split_central_driver(#kb_name);
-        spawner.spawn(rumcake::central_task!((#kb_name), (split_central_driver, layout))).unwrap();
-    });
+    // Split keyboard setup
+    if let Some(ref driver) = keyboard.split_peripheral {
+        match setup_split_driver(&kb_name, driver.as_str(), SplitRole::Peripheral) {
+            Some(driver_setup) => {
+                initialization.extend(driver_setup);
+                spawning.extend(quote! {
+                    spawner.spawn(rumcake::peripheral_task!((#kb_name), (split_peripheral_driver))).unwrap();
+                });
+            }
+            None => {
+                initialization.extend(quote_spanned! {
+                    keyboard.split_peripheral.span() => compile_error!("Unknown split peripheral device driver.");
+                });
+            }
+        }
+    }
 
-    #[cfg(all(
-        feature = "nrf",
-        any(feature = "bluetooth", feature = "split-driver-ble")
-    ))]
-    initialization.extend(quote! {
-        let sd = rumcake::hw::mcu::setup_softdevice::<#kb_name>();
-    });
+    if let Some(ref driver) = keyboard.split_central {
+        match setup_split_driver(&kb_name, driver.as_str(), SplitRole::Central) {
+            Some(driver_setup) => {
+                initialization.extend(driver_setup);
+                spawning.extend(quote! {
+                    spawner.spawn(rumcake::central_task!((#kb_name), (split_central_driver, layout))).unwrap();
+                });
+            }
+            None => {
+                initialization.extend(quote_spanned! {
+                    keyboard.split_central.span() => compile_error!("Unknown split central device driver.");
+                });
+            }
+        }
+    }
 
-    #[cfg(all(feature = "nrf", feature = "bluetooth"))]
-    initialization.extend(quote! {
-        let hid_server = rumcake::nrf_ble::Server::new(sd).unwrap();
-        spawner.spawn(rumcake::nrf_ble_task!((#kb_name), (sd, hid_server))).unwrap();
-    });
-
-    #[cfg(all(
-        feature = "nrf",
-        feature = "split-driver-ble",
-        feature = "split-central"
-    ))]
-    initialization.extend(quote! {
-        spawner.spawn(rumcake::nrf_ble_central_task!(#kb_name, sd)).unwrap();
-    });
-
-    #[cfg(all(
-        feature = "nrf",
-        feature = "split-driver-ble",
-        feature = "split-peripheral"
-    ))]
-    initialization.extend(quote! {
-        let peripheral_server = rumcake::split::drivers::nrf_ble::peripheral::PeripheralDeviceServer::new(sd).unwrap();
-        spawner.spawn(rumcake::nrf_ble_peripheral_task!((#kb_name), (sd, peripheral_server))).unwrap();
-    });
-
-    #[cfg(all(
-        feature = "nrf",
-        any(feature = "bluetooth", feature = "split-driver-ble")
-    ))]
-    initialization.extend(quote! {
-        spawner.spawn(rumcake::softdevice_task!(sd)).unwrap();
-    });
+    #[cfg(feature = "nrf")]
+    if keyboard.bluetooth {
+        initialization.extend(quote! {
+            let hid_server = rumcake::nrf_ble::Server::new(sd).unwrap();
+        });
+        spawning.extend(quote! {
+            spawner.spawn(rumcake::nrf_ble_task!((#kb_name), (sd, hid_server))).unwrap();
+        });
+    }
 
     // USB Configuration
-    #[cfg(feature = "usb")]
-    initialization.extend(quote! {
-        let mut builder = rumcake::hw::mcu::setup_usb_driver::<#kb_name>();
+    if keyboard.usb {
+        initialization.extend(quote! {
+            let mut builder = rumcake::hw::mcu::setup_usb_driver::<#kb_name>();
 
-        // HID Class setup
-        let kb_class = rumcake::usb::setup_usb_hid_nkro_writer(&mut builder);
-    });
+            // HID Class setup
+            let kb_class = rumcake::usb::setup_usb_hid_nkro_writer(&mut builder);
+        });
+    }
 
     #[cfg(feature = "eeprom")]
     initialization.extend(quote! {
@@ -330,24 +372,27 @@ pub fn main(
 
     // The appropriate via/vial request handler built by `setup_raw_hid_request_handler` is chosen based on the feature flags set on `rumcake`.
     #[cfg(feature = "via")]
-    initialization.extend(quote! {
-        // Via HID setup
-        let (via_reader, via_writer) =
-            rumcake::via::setup_usb_via_hid_reader_writer(&mut builder).split();
-
-        // HID raw report (for VIA) reading and writing
-        spawner
-            .spawn(rumcake::usb_hid_via_read_task!(via_reader))
-            .unwrap();
-    });
+    {
+        initialization.extend(quote! {
+            // Via HID setup
+            let (via_reader, via_writer) =
+                rumcake::via::setup_usb_via_hid_reader_writer(&mut builder).split();
+        });
+        spawning.extend(quote! {
+            // HID raw report (for VIA) reading and writing
+            spawner
+                .spawn(rumcake::usb_hid_via_read_task!(via_reader))
+                .unwrap();
+        })
+    }
 
     #[cfg(all(feature = "via", not(feature = "vial")))]
-    initialization.extend(quote! {
+    spawning.extend(quote! {
         spawner.spawn(rumcake::usb_hid_via_write_task!((#kb_name), (debouncer, raw_hid_flash, via_writer))).unwrap();
     });
 
     #[cfg(feature = "vial")]
-    initialization.extend(quote! {
+    spawning.extend(quote! {
         spawner
             .spawn(rumcake::usb_hid_vial_write_task!(
                 (
@@ -362,7 +407,7 @@ pub fn main(
 
     // Finish setting up USB
     #[cfg(feature = "usb")]
-    initialization.extend(quote! {
+    spawning.extend(quote! {
         let usb = builder.build();
 
         // Task spawning
@@ -378,7 +423,7 @@ pub fn main(
         match setup_underglow_driver(&kb_name, driver.as_str()) {
             Some(driver_setup) => {
                 initialization.extend(driver_setup);
-                initialization.extend(quote! {
+                spawning.extend(quote! {
                     spawner.spawn(rumcake::underglow_task!((#kb_name), (underglow_driver))).unwrap();
                 });
             }
@@ -395,9 +440,9 @@ pub fn main(
         match setup_backlight_driver(&kb_name, driver.as_str()) {
             Some(driver_setup) => {
                 initialization.extend(driver_setup);
-                initialization.extend(quote! {
-                spawner.spawn(rumcake::backlight_task!((#kb_name), (backlight_driver))).unwrap();
-            });
+                spawning.extend(quote! {
+                    spawner.spawn(rumcake::backlight_task!((#kb_name), (backlight_driver))).unwrap();
+                });
             }
             None => {
                 initialization.extend(quote_spanned! {
@@ -412,7 +457,7 @@ pub fn main(
         match setup_display_driver(&kb_name, driver.as_str()) {
             Some(driver_setup) => {
                 initialization.extend(driver_setup);
-                initialization.extend(quote! {
+                spawning.extend(quote! {
                     spawner.spawn(rumcake::display_task!((#kb_name), (display_driver))).unwrap();
                 });
             }
@@ -428,6 +473,7 @@ pub fn main(
         #[rumcake::embassy_executor::main]
         async fn main(spawner: rumcake::embassy_executor::Spawner) {
             #initialization
+            #spawning
         }
 
         #str
