@@ -77,23 +77,27 @@ pub async fn setup_display_driver<S: DisplaySize, K: Ssd1306I2cDisplayDriver<S>>
     .into_buffered_graphics_mode();
     display.init().unwrap();
 
-    display
+    RumcakeSsd1306I2cDisplayDriver { driver: display }
 }
 
-impl<DI: Write<Error = impl Debug>, S: DisplaySize, K: Ssd1306I2cDisplayDriver<S>> DisplayDriver<K>
-    for Ssd1306<I2CInterface<DI>, S, BufferedGraphicsMode<S>>
+pub struct RumcakeSsd1306I2cDisplayDriver<E: Debug, DI: Write<Error = E>, S: DisplaySize> {
+    driver: Ssd1306<I2CInterface<DI>, S, BufferedGraphicsMode<S>>,
+}
+
+impl<E: Debug, DI: Write<Error = E>, S: DisplaySize, K: Ssd1306I2cDisplayDriver<S>> DisplayDriver<K>
+    for RumcakeSsd1306I2cDisplayDriver<E, DI, S>
 {
     async fn on_update(&mut self) {
-        self.clear(BinaryColor::Off).unwrap();
-        K::on_update(self).await;
-        self.flush().unwrap();
+        self.driver.clear(BinaryColor::Off).unwrap();
+        K::on_update(&mut self.driver).await;
+        self.driver.flush().unwrap();
     }
 
     async fn turn_off(&mut self) {
-        self.set_display_on(false).unwrap();
+        self.driver.set_display_on(false).unwrap();
     }
 
     async fn turn_on(&mut self) {
-        self.set_display_on(true).unwrap();
+        self.driver.set_display_on(true).unwrap();
     }
 }
