@@ -1,7 +1,7 @@
-#[cfg(feature = "display-driver-ssd1306")]
-pub mod ssd1306;
-#[cfg(feature = "display-driver-ssd1306")]
-pub use ssd1306::setup_display_driver;
+// #[cfg(feature = "display-driver-ssd1306")]
+// pub mod ssd1306;
+// #[cfg(feature = "display-driver-ssd1306")]
+// pub use ssd1306::setup_display_driver;
 
 use super::DisplayDevice;
 

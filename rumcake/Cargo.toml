@@ -16,9 +16,6 @@ embassy-time = { git = "https://github.com/embassy-rs/embassy", features = ["def
 embassy-usb = { git = "https://github.com/embassy-rs/embassy", features = ["defmt"] }
 embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", features = ["defmt", "memory-x", "nightly", "unstable-pac", "unstable-traits"], optional = true }
 embassy-nrf = { git = "https://github.com/embassy-rs/embassy", features = ["defmt", "nightly", "nfc-pins-as-gpio", "unstable-traits", "time-driver-rtc1"], optional = true }
-embedded-graphics = { version = "0.8.1", featuers = ["defmt"] }
-embedded-layout = "0.3.2"
-embedded-text = "0.6.2"
 nrf-softdevice = { git = "https://github.com/Univa/nrf-softdevice", optional = true }
 keyberon = { git = "https://github.com/TeXitoi/keyberon", branch = "master" }
 lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
@@ -44,9 +41,6 @@ smart-leds = "0.3.0"
 
 # third party drivers for backlight
 is31fl3731 = { git = "https://github.com/Univa/is31fl3731", features = ["async"] }
-
-# third party drivers for display
-ssd1306 = "0.8.2"
 
 rumcake-macros = { path = "../rumcake-macros" }
 

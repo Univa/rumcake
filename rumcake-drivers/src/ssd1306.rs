@@ -14,9 +14,10 @@ use ssd1306::rotation::DisplayRotation;
 use ssd1306::size::{DisplaySize, DisplaySize128x32};
 use ssd1306::{I2CDisplayInterface, Ssd1306};
 
-use crate::display::{on_update_default, DisplayDevice};
+use crate::on_update_default;
 
-use super::DisplayDriver;
+use rumcake::display::drivers::DisplayDriver;
+use rumcake::display::DisplayDevice;
 
 pub mod driver {
     pub use ssd1306::*;
