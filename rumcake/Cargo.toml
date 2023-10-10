@@ -72,28 +72,11 @@ vial = ["via", "rumcake-macros/vial"]
 usb = ["rumcake-macros/usb"]
 bluetooth = ["rumcake-macros/bluetooth", "nrf-softdevice?/ble-peripheral", "nrf-softdevice?/ble-gatt-server"]
 
-# Underglow features
-underglow = ["rumcake-macros/underglow"]
+underglow = []
 
-underglow-driver-ws2812-timer = ["underglow"]
-underglow-driver-ws2812-bitbang = ["underglow"]
+backlight = []
 
-# Backlight features
-backlight = ["rumcake-macros/backlight"]
-
-simple-backlight-driver-is31fl3731 = ["backlight"]
-simple-backlight-driver-ws2812-bitbang = ["backlight"]
-
-simple-backlight-matrix-driver-is31fl3731 = ["backlight"]
-simple-backlight-matrix-driver-ws2812-bitbang = ["backlight"]
-
-rgb-backlight-matrix-driver-is31fl3731 = ["backlight"]
-rgb-backlight-matrix-driver-ws2812-bitbang = ["backlight"]
-
-# Display
-display = ["rumcake-macros/display"]
-
-display-driver-ssd1306 = ["display"]
+display = []
 
 # Split keyboard features
 split-peripheral = ["rumcake-macros/split-peripheral", "nrf-softdevice?/ble-peripheral", "nrf-softdevice?/ble-gatt-server"]

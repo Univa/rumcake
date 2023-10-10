@@ -1,3 +1,4 @@
+use darling::FromMeta;
 use heck::{ToShoutySnakeCase, ToSnakeCase};
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote, quote_spanned};
@@ -173,13 +174,62 @@ pub fn derive_cycle(e: proc_macro::TokenStream) -> proc_macro::TokenStream {
     .into()
 }
 
+#[derive(Debug, FromMeta)]
+struct KeyboardArgs {
+    #[darling(default)]
+    backlight: Option<String>,
+    #[darling(default)]
+    underglow: Option<String>,
+    #[darling(default)]
+    display: Option<String>,
+    #[darling(default)]
+    split: Option<String>,
+    #[darling(default)]
+    split_peripheral: bool,
+    #[darling(default)]
+    split_central: bool,
+}
+
+fn setup_underglow_driver(kb_name: &Ident, driver: &str) -> Option<TokenStream> {
+    match driver {
+        "ws2812_bitbang" => Some(quote! {
+            let underglow_driver = rumcake_drivers::ws2812_bitbang::setup_underglow_driver::<#kb_name>().await;
+        }),
+        _ => None,
+    }
+}
+
+fn setup_backlight_driver(kb_name: &Ident, driver: &str) -> Option<TokenStream> {
+    match driver {
+        "is31fl3731" => Some(quote! {
+            let backlight_driver = rumcake_drivers::is31fl3731::setup_backlight_driver::<#kb_name>().await;
+        }),
+        "ws2812_bitbang" => Some(quote! {
+            let backlight_driver = rumcake_drivers::ws2812_bitbang::setup_backlight_driver::<#kb_name>().await;
+        }),
+        _ => None,
+    }
+}
+
+fn setup_display_driver(kb_name: &Ident, driver: &str) -> Option<TokenStream> {
+    match driver {
+        "ssd1306" => Some(quote! {
+            let display_driver = rumcake_drivers::ssd1306::setup_display_driver::<#kb_name>().await;
+        }),
+        _ => None,
+    }
+}
+
 #[proc_macro_attribute]
 pub fn main(
-    _args: proc_macro::TokenStream,
+    args: proc_macro::TokenStream,
     str: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     let str = parse_macro_input!(str as ItemStruct);
     let kb_name = str.ident.clone();
+
+    let args = darling::ast::NestedMeta::parse_meta_list(args.into()).unwrap();
+    let keyboard = KeyboardArgs::from_list(&args).unwrap();
 
     let mut initialization = TokenStream::new();
 
@@ -324,24 +374,55 @@ pub fn main(
     });
 
     // Underglow setup
-    #[cfg(feature = "underglow")]
-    initialization.extend(quote! {
-        let underglow_driver = rumcake::underglow::drivers::setup_underglow_driver::<#kb_name>().await;
-        spawner.spawn(rumcake::underglow_task!((#kb_name), (underglow_driver))).unwrap();
-    });
+    if let Some(ref driver) = keyboard.underglow {
+        match setup_underglow_driver(&kb_name, driver.as_str()) {
+            Some(driver_setup) => {
+                initialization.extend(driver_setup);
+                initialization.extend(quote! {
+                    spawner.spawn(rumcake::underglow_task!((#kb_name), (underglow_driver))).unwrap();
+                });
+            }
+            None => {
+                initialization.extend(quote_spanned! {
+                    keyboard.underglow.span() => compile_error!("Unknown underglow driver.");
+                });
+            }
+        }
+    }
 
     // Backlight setup
-    #[cfg(feature = "backlight")]
-    initialization.extend(quote! {
-        let backlight_driver = rumcake::backlight::drivers::setup_backlight_driver::<#kb_name>().await;
-        spawner.spawn(rumcake::backlight_task!((#kb_name), (backlight_driver))).unwrap();
-    });
+    if let Some(ref driver) = keyboard.backlight {
+        match setup_backlight_driver(&kb_name, driver.as_str()) {
+            Some(driver_setup) => {
+                initialization.extend(driver_setup);
+                initialization.extend(quote! {
+                spawner.spawn(rumcake::backlight_task!((#kb_name), (backlight_driver))).unwrap();
+            });
+            }
+            None => {
+                initialization.extend(quote_spanned! {
+                    keyboard.backlight.span() => compile_error!("Unknown backlight driver.");
+                });
+            }
+        }
+    }
 
-    #[cfg(feature = "display")]
-    initialization.extend(quote! {
-        let display_driver = rumcake::display::drivers::setup_display_driver(#kb_name).await;
-        spawner.spawn(rumcake::display_task!((#kb_name), (display_driver))).unwrap();
-    });
+    // Display setup
+    if let Some(ref driver) = keyboard.display {
+        match setup_display_driver(&kb_name, driver.as_str()) {
+            Some(driver_setup) => {
+                initialization.extend(driver_setup);
+                initialization.extend(quote! {
+                    spawner.spawn(rumcake::display_task!((#kb_name), (display_driver))).unwrap();
+                });
+            }
+            None => {
+                initialization.extend(quote_spanned! {
+                    keyboard.display.span() => compile_error!("Unknown display driver.");
+                });
+            }
+        }
+    }
 
     quote! {
         #[rumcake::embassy_executor::main]
