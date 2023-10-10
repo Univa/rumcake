@@ -198,7 +198,7 @@ pub fn main(
 
     #[cfg(feature = "nrf")]
     initialization.extend(quote! {
-        spawner.spawn(rumcake::adc_task!());
+        spawner.spawn(rumcake::adc_task!()).unwrap();
     });
 
     #[cfg(any(feature = "bluetooth", feature = "usb"))]
@@ -218,7 +218,7 @@ pub fn main(
 
     #[cfg(feature = "split-central")]
     initialization.extend(quote! {
-        let split_central_driver = rumcake::split::drivers::setup_split_central_driver::<#kb_name>();
+        let split_central_driver = rumcake::split::drivers::setup_split_central_driver(#kb_name);
         spawner.spawn(rumcake::central_task!((#kb_name), (split_central_driver, layout))).unwrap();
     });
 
@@ -242,7 +242,7 @@ pub fn main(
         feature = "split-central"
     ))]
     initialization.extend(quote! {
-        spawner.spawn(rumcake::nrf_ble_central_task!((#kb_name), (sd))).unwrap();
+        spawner.spawn(rumcake::nrf_ble_central_task!(#kb_name, sd)).unwrap();
     });
 
     #[cfg(all(
@@ -335,6 +335,12 @@ pub fn main(
     initialization.extend(quote! {
         let backlight_driver = rumcake::backlight::drivers::setup_backlight_driver::<#kb_name>().await;
         spawner.spawn(rumcake::backlight_task!((#kb_name), (backlight_driver))).unwrap();
+    });
+
+    #[cfg(feature = "display")]
+    initialization.extend(quote! {
+        let display_driver = rumcake::display::drivers::setup_display_driver(#kb_name).await;
+        spawner.spawn(rumcake::display_task!((#kb_name), (display_driver))).unwrap();
     });
 
     quote! {

@@ -2,14 +2,16 @@
 pub mod central {
     use crate::split::{MessageToCentral, MessageToPeripheral};
     use defmt::{debug, error, info, warn, Debug2Format};
-    use embassy_futures::select::{select, Either};
+    use embassy_futures::select::{select, select_slice, Either};
     use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
     use embassy_sync::channel::Channel;
     use embassy_sync::pubsub::{PubSubChannel, Publisher};
-    use nrf_softdevice::ble::central::connect;
+    use embassy_time::{Duration, Timer};
+    use heapless::Vec;
+    use nrf_softdevice::ble::central::{connect, ConnectError};
     use nrf_softdevice::ble::gatt_client::{self, discover};
     use nrf_softdevice::ble::{central, set_address, Address, AddressType};
-    use nrf_softdevice::Softdevice;
+    use nrf_softdevice::{RawError, Softdevice};
 
     use super::super::{CentralDeviceDriver, CentralDeviceError};
 
@@ -17,10 +19,10 @@ pub mod central {
         publisher: Publisher<'a, ThreadModeRawMutex, MessageToPeripheral, 4, 4, 1>,
     }
 
-    pub trait NRFBLECentralDevice {
+    pub trait NRFBLECentralDevice<const N: usize = 1> {
         const NUM_PERIPHERALS: usize = 1;
         const BLUETOOTH_ADDRESS: [u8; 6];
-        const PERIPHERAL_ADDRESSES: [u8; 6];
+        const PERIPHERAL_ADDRESSES: [[u8; 6]; N];
     }
 
     pub static BLE_MESSAGES_FROM_PERIPHERALS: Channel<ThreadModeRawMutex, MessageToCentral, 4> =
@@ -34,7 +36,9 @@ pub mod central {
         1,
     > = PubSubChannel::new();
 
-    pub fn setup_split_central_driver<K: NRFBLECentralDevice>() -> NRFBLECentralDriver<'static> {
+    pub fn setup_split_central_driver<const N: usize, K: NRFBLECentralDevice<N>>(
+        _k: K,
+    ) -> NRFBLECentralDriver<'static> {
         NRFBLECentralDriver {
             publisher: BLE_MESSAGES_TO_PERIPHERALS.publisher().unwrap(),
         }
@@ -71,120 +75,146 @@ pub mod central {
     }
 
     #[rumcake_macros::task]
-    pub async fn nrf_ble_central_task<K: NRFBLECentralDevice>(sd: &'static Softdevice) {
+    pub async fn nrf_ble_central_task<const N: usize, K: NRFBLECentralDevice<N>>(
+        _k: K,
+        sd: &'static Softdevice,
+    ) {
+        if N > 4 {
+            panic!("You can not have more than 4 peripherals.");
+        }
+
         set_address(
             sd,
             &Address::new(AddressType::RandomStatic, K::BLUETOOTH_ADDRESS),
         );
 
-        let peripheral_addr = Address::new(AddressType::RandomStatic, K::PERIPHERAL_ADDRESSES);
-
-        let mut subscriber = BLE_MESSAGES_TO_PERIPHERALS.subscriber().unwrap();
-
         info!("[SPLIT_BT_DRIVER] Bluetooth services started");
 
-        loop {
-            let mut config = central::ConnectConfig::default();
-            let whitelist = [&peripheral_addr];
-            config.scan_config.whitelist = Some(&whitelist);
-            config.conn_params.min_conn_interval = 6;
-            config.conn_params.max_conn_interval = 6;
-            let connection = match connect(sd, &config).await {
-                Ok(connection) => {
-                    info!("[SPLIT_BT_DRIVER] Connection established with peripheral");
-                    connection
-                }
-                Err(error) => {
-                    warn!(
-                        "[SPLIT_BT_DRIVER] BLE connection error, disconnecting and retrying: {}",
-                        Debug2Format(&error)
-                    );
-                    continue;
-                }
-            };
-            let client: SplitServiceClient = match discover(&connection).await {
-                Ok(client) => client,
-                Err(error) => {
-                    warn!(
-                        "[SPLIT_BT_DRIVER] BLE GATT discovery error, retrying: {}",
-                        Debug2Format(&error)
-                    );
-                    continue;
-                }
-            };
-
-            let client_fut = async {
-                // Enable notifications from the peripherals
-                gatt_client::write(
-                    &connection,
-                    client.message_to_central_cccd_handle,
-                    &[0x01, 0x00],
-                )
-                .await
-                .unwrap();
-
-                gatt_client::run(&connection, &client, |event| match event {
-                    SplitServiceClientEvent::MessageToCentralNotification(mut message) => {
-                        let message = postcard::from_bytes_cobs(&mut message).unwrap();
-
-                        match BLE_MESSAGES_FROM_PERIPHERALS.try_send(message) {
-                            Ok(()) => {
-                                debug!(
-                                    "[SPLIT_BT_DRIVER] Consumed notification from peripheral: {:?}",
-                                    Debug2Format(&message)
-                                )
-                            }
-                            Err(err) => {
-                                error!(
-                                    "[SPLIT_BT_DRIVER] Could not consume notification from peripheral. data: {:?} error: {:?}",
-                                    Debug2Format(&message),
-                                    Debug2Format(&err)
-                                )
-                            }
-                        };
-                    }
-                }).await
-            };
-
-            let subscriber_fut = async {
-                // Discard any reports that haven't been processed due to lack of a connection
-                while subscriber.try_next_message_pure().is_some() {}
-
+        let peripheral_fut = |peripheral_addr: &'static [u8; 6]| {
+            async {
                 loop {
-                    let message = subscriber.next_message_pure().await;
+                    let whitelist = [&Address::new(AddressType::RandomStatic, *peripheral_addr)];
+                    let mut subscriber = BLE_MESSAGES_TO_PERIPHERALS.subscriber().unwrap();
 
-                    let mut buf = [0; 7];
-                    postcard::to_slice_cobs(&message, &mut buf).unwrap();
+                    let mut config = central::ConnectConfig::default();
+                    config.scan_config.whitelist = Some(&whitelist);
+                    config.conn_params.min_conn_interval = 6;
+                    config.conn_params.max_conn_interval = 6;
 
-                    debug!(
+                    let connection = match connect(sd, &config).await {
+                        Ok(connection) => {
+                            info!("[SPLIT_BT_DRIVER] Connection established with peripheral");
+                            connection
+                        }
+                        Err(error) => {
+                            let ConnectError::Raw(RawError::BleGapWhitelistInUse) = error else {
+                                warn!(
+                                    "[SPLIT_BT_DRIVER] BLE connection error, disconnecting and retrying in 5 seconds: {}",
+                                    Debug2Format(&error)
+                                );
+                                Timer::after(Duration::from_secs(5)).await;
+                                continue;
+                            };
+
+                            // We ignore whitelist errors, immediately retry if that's the case
+                            Timer::after(Duration::from_secs(5)).await;
+                            continue;
+                        }
+                    };
+
+                    let client: SplitServiceClient = match discover(&connection).await {
+                        Ok(client) => client,
+                        Err(error) => {
+                            warn!(
+                                "[SPLIT_BT_DRIVER] BLE GATT discovery error, retrying: {}",
+                                Debug2Format(&error)
+                            );
+                            continue;
+                        }
+                    };
+
+                    let client_fut = async {
+                        // Enable notifications from the peripherals
+                        client.message_to_central_cccd_write(true).await.unwrap();
+
+                        gatt_client::run(&connection, &client, |event| match event {
+                            SplitServiceClientEvent::MessageToCentralNotification(mut message) => {
+                                let message = postcard::from_bytes_cobs(&mut message).unwrap();
+
+                                match BLE_MESSAGES_FROM_PERIPHERALS.try_send(message) {
+                                    Ok(()) => {
+                                        debug!(
+                                            "[SPLIT_BT_DRIVER] Consumed notification from peripheral: {:?}",
+                                            Debug2Format(&message)
+                                        )
+                                    }
+                                    Err(err) => {
+                                        error!(
+                                            "[SPLIT_BT_DRIVER] Could not consume notification from peripheral. data: {:?} error: {:?}",
+                                            Debug2Format(&message),
+                                            Debug2Format(&err)
+                                        )
+                                    }
+                                };
+                            }
+                        }).await
+                    };
+
+                    let subscriber_fut = async {
+                        // Discard any reports that haven't been processed due to lack of a connection
+                        while subscriber.try_next_message_pure().is_some() {}
+
+                        loop {
+                            let message = subscriber.next_message_pure().await;
+
+                            let mut buf = [0; 7];
+                            postcard::to_slice_cobs(&message, &mut buf).unwrap();
+
+                            debug!(
                         "[SPLIT_BT_DRIVER] Notifying split keyboard message to peripheral: {:?}",
                         Debug2Format(&message)
                     );
 
-                    if let Err(err) = client
-                        .message_to_peripheral_write_without_response(&buf)
-                        .await
-                    {
-                        error!(
-                            "[SPLIT_BT_DRIVER] Couldn't write message to peripheral: {:?}",
-                            Debug2Format(&err)
-                        );
-                    }
-                }
-            };
+                            if let Err(err) = client
+                                .message_to_peripheral_write_without_response(&buf)
+                                .await
+                            {
+                                error!(
+                                    "[SPLIT_BT_DRIVER] Couldn't write message to peripheral: {:?}",
+                                    Debug2Format(&err)
+                                );
+                            }
+                        }
+                    };
 
-            match select(client_fut, subscriber_fut).await {
-                Either::First(error) => {
-                    warn!(
+                    match select(client_fut, subscriber_fut).await {
+                        Either::First(error) => {
+                            warn!(
                         "[SPLIT_BT_DRIVER] Connection to peripheral lost. Attempting to reconnect. Error: {}",
                         Debug2Format(&error)
                     );
-                }
-                Either::Second(_) => {
-                    error!("[SPLIT_BT_DRIVER] Subscriber task failed. This should not happen.")
+                        }
+                        Either::Second(_) => {
+                            error!(
+                                "[SPLIT_BT_DRIVER] Subscriber task failed. This should not happen."
+                            )
+                        }
+                    }
                 }
             }
-        }
+        };
+
+        select_slice(
+            &mut K::PERIPHERAL_ADDRESSES
+                .iter()
+                .map(|addr| peripheral_fut(addr))
+                .collect::<Vec<_, N>>(),
+        )
+        .await;
+
+        error!(
+            "[SPLIT_BT_DRIVER] A peripheral connection task has completed. This should not happen."
+        );
     }
 }
 
