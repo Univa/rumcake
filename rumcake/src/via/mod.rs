@@ -552,6 +552,7 @@ pub async fn process_via_command<K: ViaKeyboard>(
                                 };
                             }
                             ViaCommandId::CustomSave => {
+                                #[cfg(feature = "eeprom")]
                                 crate::backlight::BACKLIGHT_COMMAND_CHANNEL
                                     .send(
                                         crate::backlight::animations::BacklightCommand::SaveConfig,
@@ -618,6 +619,7 @@ pub async fn process_via_command<K: ViaKeyboard>(
                                 };
                             }
                             ViaCommandId::CustomSave => {
+                                #[cfg(feature = "eeprom")]
                                 crate::backlight::BACKLIGHT_COMMAND_CHANNEL
                                     .send(
                                         crate::backlight::animations::BacklightCommand::SaveConfig,
@@ -693,6 +695,7 @@ pub async fn process_via_command<K: ViaKeyboard>(
                                 };
                             }
                             ViaCommandId::CustomSave => {
+                                #[cfg(feature = "eeprom")]
                                 crate::backlight::BACKLIGHT_COMMAND_CHANNEL
                                     .send(
                                         crate::backlight::animations::BacklightCommand::SaveConfig,
@@ -771,6 +774,7 @@ pub async fn process_via_command<K: ViaKeyboard>(
                                 };
                             }
                             ViaCommandId::CustomSave => {
+                                #[cfg(feature = "eeprom")]
                                 crate::underglow::UNDERGLOW_COMMAND_CHANNEL
                                     .send(
                                         crate::underglow::animations::UnderglowCommand::SaveConfig,
