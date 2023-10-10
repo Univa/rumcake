@@ -143,18 +143,4 @@ pub mod tasks {
 
     #[cfg(all(feature = "nrf", feature = "bluetooth"))]
     pub use crate::nrf_ble::__nrf_ble_task_task;
-
-    #[cfg(all(
-        feature = "nrf",
-        feature = "split-driver-ble",
-        feature = "split-central"
-    ))]
-    pub use crate::split::drivers::nrf_ble::central::__nrf_ble_central_task_task;
-
-    #[cfg(all(
-        feature = "nrf",
-        feature = "split-driver-ble",
-        feature = "split-peripheral"
-    ))]
-    pub use crate::split::drivers::nrf_ble::peripheral::__nrf_ble_peripheral_task_task;
 }
