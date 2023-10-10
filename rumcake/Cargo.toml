@@ -39,9 +39,6 @@ postcard = "1.0.7"
 # third party utilities for dealing with rgb values
 smart-leds = "0.3.0"
 
-# third party drivers for backlight
-is31fl3731 = { git = "https://github.com/Univa/is31fl3731", features = ["async"] }
-
 rumcake-macros = { path = "../rumcake-macros" }
 
 [features]
