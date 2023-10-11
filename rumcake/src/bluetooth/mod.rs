@@ -5,6 +5,14 @@ use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::signal::Signal;
 
+use crate::keyboard::Keyboard;
+
+pub trait BluetoothKeyboard: Keyboard {
+    const BLE_VID: u16;
+    const BLE_PID: u16;
+    const BLE_PRODUCT_VERSION: &'static str = Self::HARDWARE_REVISION;
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum BluetoothCommand {
     #[cfg(feature = "usb")]

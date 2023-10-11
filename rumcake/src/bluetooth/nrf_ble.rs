@@ -26,20 +26,15 @@ use usbd_human_interface_device::device::keyboard::{
 };
 
 use crate::hw::BATTERY_LEVEL_STATE;
-use crate::keyboard::{Keyboard, KEYBOARD_REPORT_HID_SEND_CHANNEL};
+use crate::keyboard::KEYBOARD_REPORT_HID_SEND_CHANNEL;
 
 #[cfg(feature = "usb")]
 use crate::usb::USB_STATE;
 
 use crate::bluetooth::{
-    BluetoothCommand, BATTERY_LEVEL_LISTENER, BLUETOOTH_COMMAND_CHANNEL, USB_STATE_LISTENER,
+    BluetoothCommand, BluetoothKeyboard, BATTERY_LEVEL_LISTENER, BLUETOOTH_COMMAND_CHANNEL,
+    USB_STATE_LISTENER,
 };
-
-pub trait NRFBluetoothKeyboard: Keyboard {
-    const BLE_VID: u16;
-    const BLE_PID: u16;
-    const BLE_PRODUCT_VERSION: &'static str = Self::HARDWARE_REVISION;
-}
 
 #[derive(Clone, Copy)]
 struct Peer {
@@ -531,7 +526,7 @@ pub struct Server {
 }
 
 #[rumcake_macros::task]
-pub async fn nrf_ble_task<K: NRFBluetoothKeyboard>(sd: &'static Softdevice, server: Server)
+pub async fn nrf_ble_task<K: BluetoothKeyboard>(sd: &'static Softdevice, server: Server)
 where
     [(); K::PRODUCT.len() + 15]:,
 {
