@@ -311,39 +311,6 @@ pub fn main(
         })
     }
 
-    // Split keyboard setup
-    if let Some(ref driver) = keyboard.split_peripheral {
-        match setup_split_driver(&kb_name, driver.as_str(), SplitRole::Peripheral) {
-            Some(driver_setup) => {
-                initialization.extend(driver_setup);
-                spawning.extend(quote! {
-                    spawner.spawn(rumcake::peripheral_task!((#kb_name), (split_peripheral_driver))).unwrap();
-                });
-            }
-            None => {
-                initialization.extend(quote_spanned! {
-                    keyboard.split_peripheral.span() => compile_error!("Unknown split peripheral device driver.");
-                });
-            }
-        }
-    }
-
-    if let Some(ref driver) = keyboard.split_central {
-        match setup_split_driver(&kb_name, driver.as_str(), SplitRole::Central) {
-            Some(driver_setup) => {
-                initialization.extend(driver_setup);
-                spawning.extend(quote! {
-                    spawner.spawn(rumcake::central_task!((#kb_name), (split_central_driver, layout))).unwrap();
-                });
-            }
-            None => {
-                initialization.extend(quote_spanned! {
-                    keyboard.split_central.span() => compile_error!("Unknown split central device driver.");
-                });
-            }
-        }
-    }
-
     #[cfg(feature = "nrf")]
     if keyboard.bluetooth {
         initialization.extend(quote! {
@@ -414,6 +381,39 @@ pub fn main(
             ))
             .unwrap();
     });
+
+    // Split keyboard setup
+    if let Some(ref driver) = keyboard.split_peripheral {
+        match setup_split_driver(&kb_name, driver.as_str(), SplitRole::Peripheral) {
+            Some(driver_setup) => {
+                initialization.extend(driver_setup);
+                spawning.extend(quote! {
+                    spawner.spawn(rumcake::peripheral_task!((#kb_name), (split_peripheral_driver))).unwrap();
+                });
+            }
+            None => {
+                initialization.extend(quote_spanned! {
+                    keyboard.split_peripheral.span() => compile_error!("Unknown split peripheral device driver.");
+                });
+            }
+        }
+    }
+
+    if let Some(ref driver) = keyboard.split_central {
+        match setup_split_driver(&kb_name, driver.as_str(), SplitRole::Central) {
+            Some(driver_setup) => {
+                initialization.extend(driver_setup);
+                spawning.extend(quote! {
+                    spawner.spawn(rumcake::central_task!((#kb_name), (split_central_driver, layout))).unwrap();
+                });
+            }
+            None => {
+                initialization.extend(quote_spanned! {
+                    keyboard.split_central.span() => compile_error!("Unknown split central device driver.");
+                });
+            }
+        }
+    }
 
     // Underglow setup
     if let Some(ref driver) = keyboard.underglow {
