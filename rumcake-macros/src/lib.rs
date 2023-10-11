@@ -406,17 +406,18 @@ pub fn main(
     });
 
     // Finish setting up USB
-    #[cfg(feature = "usb")]
-    spawning.extend(quote! {
-        let usb = builder.build();
+    if keyboard.usb {
+        spawning.extend(quote! {
+            let usb = builder.build();
 
-        // Task spawning
-        // Initialize USB device
-        spawner.spawn(rumcake::start_usb!(usb)).unwrap();
+            // Task spawning
+            // Initialize USB device
+            spawner.spawn(rumcake::start_usb!(usb)).unwrap();
 
-        // HID Keyboard Report sending
-        spawner.spawn(rumcake::usb_hid_kb_write_task!(kb_class)).unwrap();
-    });
+            // HID Keyboard Report sending
+            spawner.spawn(rumcake::usb_hid_kb_write_task!(kb_class)).unwrap();
+        });
+    }
 
     // Underglow setup
     if let Some(ref driver) = keyboard.underglow {
