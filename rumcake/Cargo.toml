@@ -9,6 +9,9 @@ embedded-hal = "0.2.7"
 embedded-hal-async = "1.0.0-rc.1"
 embedded-storage = "0.3.0"
 embedded-io-async = "0.5.0"
+embedded-graphics = { version = "0.8.1", featuers = ["defmt"] }
+embedded-layout = "0.3.2"
+embedded-text = "0.6.2"
 embassy-sync = { git = "https://github.com/embassy-rs/embassy", features = ["defmt"] }
 embassy-futures = { git = "https://github.com/embassy-rs/embassy" }
 embassy-executor = { git = "https://github.com/embassy-rs/embassy", features = ["defmt", "integrated-timers", "executor-thread", "nightly"] }

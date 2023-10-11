@@ -10,8 +10,6 @@ defmt = "0.3"
 embedded-hal = "0.2.7"
 embedded-hal-async = "1.0.0-rc.1"
 embedded-graphics = { version = "0.8.1", featuers = ["defmt"] }
-embedded-layout = "0.3.2"
-embedded-text = "0.6.2"
 nrf-softdevice = { path = "../../nrf-softdevice/nrf-softdevice", features = ["defmt", "ble-sec", "critical-section-impl", "ble-gatt-client", "ble-gatt-server", "ble-peripheral", "ble-central"] }
 embassy-executor = { git = "https://github.com/embassy-rs/embassy", features = ["defmt", "integrated-timers", "executor-thread", "nightly"] }
 embassy-sync = { git = "https://github.com/embassy-rs/embassy", features = ["defmt"] }
