@@ -32,5 +32,3 @@ vial = ["via"]
 
 split-peripheral = []
 split-central = []
-
-split-driver-ble = []
