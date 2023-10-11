@@ -3,6 +3,7 @@ pub mod central {
     use embassy_futures::select::{select, select_slice, Either};
     use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
     use embassy_sync::channel::Channel;
+    use embassy_sync::mutex::Mutex;
     use embassy_sync::pubsub::{PubSubChannel, Publisher};
     use embassy_time::{Duration, Timer};
     use heapless::Vec;
@@ -33,6 +34,8 @@ pub mod central {
         4,
         1,
     > = PubSubChannel::new();
+
+    pub static BLUETOOTH_CONNECTION_MUTEX: Mutex<ThreadModeRawMutex, ()> = Mutex::new(());
 
     pub fn setup_split_central_driver<const N: usize, K: NRFBLECentralDevice<N>>(
         _k: K,
@@ -94,24 +97,26 @@ pub mod central {
                     config.conn_params.min_conn_interval = 6;
                     config.conn_params.max_conn_interval = 6;
 
-                    let connection = match connect(sd, &config).await {
-                        Ok(connection) => {
-                            info!("[SPLIT_BT_DRIVER] Connection established with peripheral");
-                            connection
-                        }
-                        Err(error) => {
-                            let ConnectError::Raw(RawError::BleGapWhitelistInUse) = error else {
-                                warn!(
+                    let connection = {
+                        let _lock = BLUETOOTH_CONNECTION_MUTEX.lock().await;
+                        match connect(sd, &config).await {
+                            Ok(connection) => {
+                                info!("[SPLIT_BT_DRIVER] Connection established with peripheral");
+                                connection
+                            }
+                            Err(error) => {
+                                let ConnectError::Raw(RawError::BleGapWhitelistInUse) = error
+                                else {
+                                    warn!(
                                     "[SPLIT_BT_DRIVER] BLE connection error, disconnecting and retrying in 5 seconds: {}",
                                     Debug2Format(&error)
                                 );
-                                Timer::after(Duration::from_secs(5)).await;
-                                continue;
-                            };
+                                    continue;
+                                };
 
-                            // We ignore whitelist errors, immediately retry if that's the case
-                            Timer::after(Duration::from_secs(5)).await;
-                            continue;
+                                // We don't log whitelist errors
+                                continue;
+                            }
                         }
                     };
 
@@ -220,6 +225,7 @@ pub mod peripheral {
     use nrf_softdevice::ble::peripheral::{advertise_connectable, ConnectableAdvertisement};
     use nrf_softdevice::ble::{Address, AddressType};
     use nrf_softdevice::Softdevice;
+    use rumcake::hw::mcu::BLUETOOTH_ADVERTISING_MUTEX;
     use rumcake::split::drivers::{PeripheralDeviceDriver, PeripheralDeviceError};
     use rumcake::split::{MessageToCentral, MessageToPeripheral};
 
@@ -285,7 +291,8 @@ pub mod peripheral {
             let advertisement = ConnectableAdvertisement::NonscannableDirected {
                 peer: Address::new(AddressType::RandomStatic, K::CENTRAL_ADDRESS),
             };
-            let connection =
+            let connection = {
+                let _lock = BLUETOOTH_ADVERTISING_MUTEX.lock().await;
                 match advertise_connectable(sd, advertisement, &Default::default()).await {
                     Ok(connection) => {
                         info!("[SPLIT_BT_DRIVER] Connection established with central");
@@ -298,7 +305,8 @@ pub mod peripheral {
                         );
                         continue;
                     }
-                };
+                }
+            };
 
             set_sys_attrs(&connection, None).unwrap();
 

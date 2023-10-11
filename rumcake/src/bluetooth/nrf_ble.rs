@@ -25,6 +25,7 @@ use usbd_human_interface_device::device::keyboard::{
     NKROBootKeyboardReport, NKRO_BOOT_KEYBOARD_REPORT_DESCRIPTOR,
 };
 
+use crate::hw::mcu::BLUETOOTH_ADVERTISING_MUTEX;
 use crate::hw::BATTERY_LEVEL_STATE;
 use crate::keyboard::KEYBOARD_REPORT_HID_SEND_CHANNEL;
 
@@ -583,7 +584,8 @@ where
                 scan_data: &scan_data,
             };
 
-            let connection =
+            let connection = {
+                let _lock = BLUETOOTH_ADVERTISING_MUTEX.lock().await;
                 match advertise_pairable(sd, advertisement, &Default::default(), bonder).await {
                     Ok(connection) => {
                         info!("[BT_HID] Connection established with host device");
@@ -593,7 +595,8 @@ where
                         warn!("[BT_HID] BLE advertising error: {}", Debug2Format(&error));
                         continue;
                     }
-                };
+                }
+            };
 
             let conn_fut = run(&connection, &server, |event| match event {
                 ServerEvent::Bas(bas_event) => match bas_event {

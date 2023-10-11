@@ -197,6 +197,9 @@ macro_rules! setup_i2c_blocking {
 }
 
 #[cfg(feature = "nrf-ble")]
+pub static BLUETOOTH_ADVERTISING_MUTEX: Mutex<ThreadModeRawMutex, ()> = Mutex::new(());
+
+#[cfg(feature = "nrf-ble")]
 pub trait BluetoothDevice {
     const BLUETOOTH_ADDRESS: [u8; 6];
 }
