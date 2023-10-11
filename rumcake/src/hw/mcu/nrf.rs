@@ -197,10 +197,18 @@ macro_rules! setup_i2c_blocking {
 }
 
 #[cfg(feature = "nrf-ble")]
-pub fn setup_softdevice<K: crate::keyboard::Keyboard>() -> &'static mut nrf_softdevice::Softdevice
+pub trait BluetoothDevice {
+    const BLUETOOTH_ADDRESS: [u8; 6];
+}
+
+#[cfg(feature = "nrf-ble")]
+pub fn setup_softdevice<K: BluetoothDevice + crate::keyboard::Keyboard>(
+) -> &'static mut nrf_softdevice::Softdevice
 where
     [(); K::PRODUCT.len()]:,
 {
+    use nrf_softdevice::ble::{set_address, Address, AddressType};
+
     let config = nrf_softdevice::Config {
         clock: Some(nrf_softdevice::raw::nrf_clock_lf_cfg_t {
             source: nrf_softdevice::raw::NRF_CLOCK_LF_SRC_XTAL as u8,
@@ -235,7 +243,14 @@ where
         ..Default::default()
     };
 
-    nrf_softdevice::Softdevice::enable(&config)
+    let sd = nrf_softdevice::Softdevice::enable(&config);
+
+    set_address(
+        sd,
+        &Address::new(AddressType::RandomStatic, K::BLUETOOTH_ADDRESS),
+    );
+
+    sd
 }
 
 #[cfg(feature = "nrf-ble")]

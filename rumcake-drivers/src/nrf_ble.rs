@@ -8,7 +8,7 @@ pub mod central {
     use heapless::Vec;
     use nrf_softdevice::ble::central::{connect, ConnectError};
     use nrf_softdevice::ble::gatt_client::{self, discover};
-    use nrf_softdevice::ble::{central, set_address, Address, AddressType};
+    use nrf_softdevice::ble::{central, Address, AddressType};
     use nrf_softdevice::{RawError, Softdevice};
 
     use rumcake::split::drivers::{CentralDeviceDriver, CentralDeviceError};
@@ -20,7 +20,6 @@ pub mod central {
 
     pub trait NRFBLECentralDevice<const N: usize = 1> {
         const NUM_PERIPHERALS: usize = 1;
-        const BLUETOOTH_ADDRESS: [u8; 6];
         const PERIPHERAL_ADDRESSES: [[u8; 6]; N];
     }
 
@@ -81,11 +80,6 @@ pub mod central {
         if N > 4 {
             panic!("You can not have more than 4 peripherals.");
         }
-
-        set_address(
-            sd,
-            &Address::new(AddressType::RandomStatic, K::BLUETOOTH_ADDRESS),
-        );
 
         info!("[SPLIT_BT_DRIVER] Bluetooth services started");
 
@@ -224,13 +218,12 @@ pub mod peripheral {
     use embassy_sync::channel::Channel;
     use nrf_softdevice::ble::gatt_server::{run, set_sys_attrs};
     use nrf_softdevice::ble::peripheral::{advertise_connectable, ConnectableAdvertisement};
-    use nrf_softdevice::ble::{set_address, Address, AddressType};
+    use nrf_softdevice::ble::{Address, AddressType};
     use nrf_softdevice::Softdevice;
     use rumcake::split::drivers::{PeripheralDeviceDriver, PeripheralDeviceError};
     use rumcake::split::{MessageToCentral, MessageToPeripheral};
 
     pub trait NRFBLEPeripheralDevice {
-        const BLUETOOTH_ADDRESS: [u8; 6];
         const CENTRAL_ADDRESS: [u8; 6];
     }
 
@@ -286,11 +279,6 @@ pub mod peripheral {
         sd: &'static Softdevice,
         server: PeripheralDeviceServer,
     ) {
-        set_address(
-            sd,
-            &Address::new(AddressType::RandomStatic, K::BLUETOOTH_ADDRESS),
-        );
-
         info!("[SPLIT_BT_DRIVER] Bluetooth services started");
 
         loop {
