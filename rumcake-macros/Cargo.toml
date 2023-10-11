@@ -19,16 +19,11 @@ keyberon = { git = "https://github.com/TeXitoi/keyberon", branch = "master" }
 embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", features = ["defmt", "memory-x", "stm32f303cb", "nightly", "time-driver-any", "exti"] }
 
 [features]
-usb = []
-bluetooth = []
-
 stm32 = []
 nrf = []
 
 eeprom = []
 
-via = ["usb", "eeprom"]
+via = ["eeprom"]
 vial = ["via"]
 
-split-peripheral = []
-split-central = []

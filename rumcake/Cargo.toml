@@ -72,8 +72,8 @@ via = ["usb", "eeprom", "rumcake-macros/via"]
 vial = ["via", "rumcake-macros/vial"]
 
 # Host communication
-usb = ["rumcake-macros/usb"]
-bluetooth = ["rumcake-macros/bluetooth", "nrf-softdevice?/ble-peripheral", "nrf-softdevice?/ble-gatt-server"]
+usb = []
+bluetooth = ["nrf-softdevice?/ble-peripheral", "nrf-softdevice?/ble-gatt-server"]
 
 underglow = []
 
