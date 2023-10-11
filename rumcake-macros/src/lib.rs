@@ -314,7 +314,7 @@ pub fn main(
     #[cfg(feature = "nrf")]
     if keyboard.bluetooth {
         initialization.extend(quote! {
-            let hid_server = rumcake::nrf_ble::Server::new(sd).unwrap();
+            let hid_server = rumcake::bluetooth::nrf_ble::Server::new(sd).unwrap();
         });
         spawning.extend(quote! {
             spawner.spawn(rumcake::nrf_ble_task!((#kb_name), (sd, hid_server))).unwrap();

@@ -22,7 +22,7 @@ pub static USB_STATE: State<bool> = State::new(
         #[cfg(feature = "display")]
         &crate::display::USB_STATE_LISTENER,
         #[cfg(feature = "bluetooth")]
-        &crate::nrf_ble::USB_STATE_LISTENER,
+        &crate::bluetooth::USB_STATE_LISTENER,
     ],
 );
 

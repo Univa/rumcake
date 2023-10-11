@@ -98,8 +98,8 @@ pub mod vial;
 #[cfg(any(feature = "split-peripheral", feature = "split-central"))]
 pub mod split;
 
-#[cfg(all(feature = "nrf", feature = "bluetooth"))]
-pub mod nrf_ble;
+#[cfg(feature = "bluetooth")]
+pub mod bluetooth;
 
 #[cfg(feature = "display")]
 pub mod display;
@@ -142,5 +142,5 @@ pub mod tasks {
     pub use crate::hw::mcu::__softdevice_task_task;
 
     #[cfg(all(feature = "nrf", feature = "bluetooth"))]
-    pub use crate::nrf_ble::__nrf_ble_task_task;
+    pub use crate::bluetooth::nrf_ble::__nrf_ble_task_task;
 }

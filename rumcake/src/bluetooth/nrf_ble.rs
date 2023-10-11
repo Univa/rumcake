@@ -3,9 +3,6 @@ use core::cell::{Cell, RefCell};
 use defmt::{debug, error, info, warn, Debug2Format};
 use embassy_futures::join;
 use embassy_futures::select::{self, select, select3};
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::channel::Channel;
-use embassy_sync::signal::Signal;
 use heapless::Vec;
 use nrf_softdevice::ble::gatt_server::builder::ServiceBuilder;
 use nrf_softdevice::ble::gatt_server::characteristic::{Attribute, Metadata, Properties};
@@ -33,6 +30,10 @@ use crate::keyboard::{Keyboard, KEYBOARD_REPORT_HID_SEND_CHANNEL};
 
 #[cfg(feature = "usb")]
 use crate::usb::USB_STATE;
+
+use crate::bluetooth::{
+    BluetoothCommand, BATTERY_LEVEL_LISTENER, BLUETOOTH_COMMAND_CHANNEL, USB_STATE_LISTENER,
+};
 
 pub trait NRFBluetoothKeyboard: Keyboard {
     const BLE_VID: u16;
@@ -528,19 +529,6 @@ pub struct Server {
     dis: DeviceInformationService,
     hids: HIDService,
 }
-
-// TODO: move the stuff below to a different file
-#[derive(Debug, Clone, Copy)]
-pub enum BluetoothCommand {
-    #[cfg(feature = "usb")]
-    ToggleUSB, // Switch between bluetooth and USB operation
-}
-
-pub static BLUETOOTH_COMMAND_CHANNEL: Channel<ThreadModeRawMutex, BluetoothCommand, 2> =
-    Channel::new();
-
-pub static USB_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();
-pub static BATTERY_LEVEL_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();
 
 #[rumcake_macros::task]
 pub async fn nrf_ble_task<K: NRFBluetoothKeyboard>(sd: &'static Softdevice, server: Server)

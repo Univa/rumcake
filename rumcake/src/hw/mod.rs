@@ -15,6 +15,6 @@ pub static BATTERY_LEVEL_STATE: State<u8> = State::new(
         #[cfg(feature = "display")]
         &crate::display::BATTERY_LEVEL_LISTENER,
         #[cfg(feature = "bluetooth")]
-        &crate::nrf_ble::BATTERY_LEVEL_LISTENER,
+        &crate::bluetooth::BATTERY_LEVEL_LISTENER,
     ],
 );
