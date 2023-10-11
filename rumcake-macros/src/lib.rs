@@ -362,6 +362,16 @@ pub fn main(
             // HID Class setup
             let kb_class = rumcake::usb::setup_usb_hid_nkro_writer(&mut builder);
         });
+        spawning.extend(quote! {
+            let usb = builder.build();
+
+            // Task spawning
+            // Initialize USB device
+            spawner.spawn(rumcake::start_usb!(usb)).unwrap();
+
+            // HID Keyboard Report sending
+            spawner.spawn(rumcake::usb_hid_kb_write_task!(kb_class)).unwrap();
+        });
     }
 
     #[cfg(feature = "eeprom")]
@@ -404,20 +414,6 @@ pub fn main(
             ))
             .unwrap();
     });
-
-    // Finish setting up USB
-    if keyboard.usb {
-        spawning.extend(quote! {
-            let usb = builder.build();
-
-            // Task spawning
-            // Initialize USB device
-            spawner.spawn(rumcake::start_usb!(usb)).unwrap();
-
-            // HID Keyboard Report sending
-            spawner.spawn(rumcake::usb_hid_kb_write_task!(kb_class)).unwrap();
-        });
-    }
 
     // Underglow setup
     if let Some(ref driver) = keyboard.underglow {
