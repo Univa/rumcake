@@ -5,7 +5,9 @@
 - [Setup](#setup)
   - [Required Cargo features](#required-cargo-features)
   - [Required code](#required-code)
-- [USB host communication interoperability](#usb-host-communication-interoperability)
+- [Keycodes](#keycodes)
+- [USB host communication interoperability (`ToggleUSB`)](#usb-host-communication-interoperability-toggleusb)
+- [To-do List](#to-do-list)
 <!--toc:end-->
 
 ## Setup
@@ -27,17 +29,24 @@ cortex-m = { version = "0.7.6" }
 
 ### Required code
 
-To set up your keyboard for bluetooth host communication, your keyboard must implement the `NRFBluetoothKeyboard` trait:
+To set up your keyboard for bluetooth host communication, you must add `bluetooth` to your `#[keyboard]` macro invocation, and your keyboard must implement the `BluetoothKeyboard` and `BluetoothDevice` trait:
 
 ```rust
 use rumcake::keyboard;
 
-#[keyboard]
+#[keyboard(bluetooth)]
 struct MyKeyboard;
 
+use rumcake::hw::mcu::BluetoothDevice;
+impl BluetoothDevice for WingpairLeft {
+    // This addresses can be whatever you want, as long as it is a valid "Random Static" bluetooth addresses.
+    // See "Random Static Address" in this link: https://novelbits.io/bluetooth-address-privacy-ble/
+    const BLUETOOTH_ADDRESS: [u8; 6] = [0x41, 0x5A, 0xE3, 0x1E, 0x83, 0xE7]; // TODO: Change this
+}
+
 // Bluetooth configuration
-use rumcake::nrf_ble::NRFBluetoothKeyboard;
-impl NRFBluetoothKeyboard for MyKeyboard {
+use rumcake::bluetooth::BluetoothKeyboard;
+impl BluetoothKeyboard for MyKeyboard {
     const BLE_VID: u16 = 0x0000; // Change this
     const BLE_PID: u16 = 0x0000; // Change this
 }

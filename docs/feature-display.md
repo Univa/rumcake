@@ -14,18 +14,17 @@
 
 You must enable the following `rumcake` features:
 
-- `display-driver-<driver>` (e.g. `display-driver-ssd1306`)
-  - `driver` is one of:
-    - `ssd1306`
+- `display`
+- `drivers` (optional built-in drivers to power displays)
 
 ### Required code
 
-To set up your display, your keyboard must implement the `DisplayDevice` trait:
+To set up your display, you must add `display = "<driver>"` to your `#[keyboard]` macro invocation, your keyboard must implement the `DisplayDevice` trait:
 
 ```rust
 use rumcake::keyboard;
 
-#[keyboard]
+#[keyboard(display = "ssd1306")] // TODO: change this to your desired display driver, and implement the appropriate trait (info below)
 struct MyKeyboard;
 
 // Underglow configuration
@@ -37,12 +36,12 @@ impl DisplayDevice for MyKeyboard {
 }
 ```
 
-Lastly, you must also implement the appropriate trait that corresponds to your chosen driver.
+Lastly, you must also implement the appropriate trait that corresponds to your chosen driver in the `#[keyboard]` macro.
 For example, with `ssd1306`, you must implement `Ssd1306I2cDisplayDriver`:
 
 ```rust
-use rumcake::display::drivers::ssd1306::driver::size::DisplaySize128x32;
-use rumcake::display::drivers::ssd1306::Ssd1306I2cDisplayDriver;
+use rumcake::drivers::ssd1306::driver::size::DisplaySize128x32;
+use rumcake::drivers::ssd1306::display::Ssd1306I2cDisplayDriver;
 impl Ssd1306I2cDisplayDriver for MyKeyboard {
     const SIZE: DisplaySize128x32 = DisplaySize128x32;
 
@@ -80,11 +79,11 @@ use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::Point;
 use embedded_graphics::text::Text;
 use embedded_graphics::Drawable;
-use rumcake::display::drivers::ssd1306::driver::mode::BufferedGraphicsMode;
-use rumcake::display::drivers::ssd1306::driver::prelude::I2CInterface;
-use rumcake::display::drivers::ssd1306::driver::size::DisplaySize128x32;
-use rumcake::display::drivers::ssd1306::driver::Ssd1306;
-use rumcake::display::drivers::ssd1306::Ssd1306I2cDisplayDriver;
+use rumcake::drivers::ssd1306::driver::mode::BufferedGraphicsMode;
+use rumcake::drivers::ssd1306::driver::prelude::I2CInterface;
+use rumcake::drivers::ssd1306::driver::size::DisplaySize128x32;
+use rumcake::drivers::ssd1306::driver::Ssd1306;
+use rumcake::drivers::ssd1306::display::Ssd1306I2cDisplayDriver;
 
 pub static DEFAULT_STYLE: MonoTextStyle<'_, BinaryColor> = MonoTextStyleBuilder::new()
     .font(&FONT_5X8)

@@ -33,29 +33,32 @@ Typically, the central device could be a dongle (good for saving battery life), 
 You must compile a binary with the following `rumcake` features:
 
 - `split-central`
-- `split-driver-<driver>` (e.g. `split-driver-ble`)
-  - `driver` is one of:
-    - `ble` (only for nRF-based keyboards, also requires the `nrf-ble` feature)
-    - `serial` (not yet working)
+- `drivers` (optional built-in drivers to power your split device)
 
 ### Required code for central device
 
-To set up the split-central device, your keyboard must implement the appropriate trait for the driver you're using.
-For example, with `split-driver-ble`, you must implement `NRFBLECentralDevice`:
+To set up the split-central device, you must add `split_central = "<driver>"` to your `#[keyboard]` macro invocation, and your keyboard must implement the appropriate trait for the driver you're using.
+For example, with `ble` and an nRF5x chip selected, you must implement `NRFBLECentralDevice`, and `BluetoothDevice`:
 
 ```rust
 use rumcake::keyboard;
 
-#[keyboard]
+#[keyboard(split_central = "ble")] // TODO: change this to your desired split driver, and implement the appropriate trait
 struct MyKeyboardLeftHalf;
+
+// Bluetooth device setup
+use rumcake::hw::mcu::BluetoothDevice;
+impl BluetoothDevice for MyKeyboardLeftHalf {
+    // This addresses can be whatever you want, as long as it is a valid "Random Static" bluetooth addresses.
+    // See "Random Static Address" in this link: https://novelbits.io/bluetooth-address-privacy-ble/
+    const BLUETOOTH_ADDRESS: [u8; 6] = [0x41, 0x5A, 0xE3, 0x1E, 0x83, 0xE7]; // TODO: Change this to something else
+}
 
 // Split central setup
 use rumcake::split::drivers::nrf_ble::central::NRFBLECentralDevice;
 // NRFBLECentralDevice<2>: This central device can connect to two different peripherals
 impl NRFBLECentralDevice<2> for MyKeyboardLeftHalf {
-    // These addresses can be whatever you want, as long as they are valid "Random Static" bluetooth addresses.
-    // See "Random Static Address" in this link: https://novelbits.io/bluetooth-address-privacy-ble/
-    const BLUETOOTH_ADDRESS: [u8; 6] = [0x41, 0x5A, 0xE3, 0x1E, 0x83, 0xE7];
+    // Must be valid "Random Static" bluetooth addresses.
     const PERIPHERAL_ADDRESSES: [[u8; 6]; 2] = [
         [0x92, 0x32, 0x98, 0xC7, 0xF6, 0xF8],
         [0x15, 0xD6, 0x88, 0x85, 0x98, 0xF7],
@@ -73,23 +76,30 @@ If the split keyboard also uses extra features, then all the peripherals should 
 You must compile a binary with the following `rumcake` features:
 
 - `split-peripheral`
-- `split-driver-<driver>` (same as previous)
+- `drivers` (optional built-in drivers to power your split device)
 
 ### Required code for peripheral device
 
-To set up the split-central device, your keyboard must implement the appropriate trait for the driver you're using.
-For example, with `split-driver-ble`, you must implement `NRFBLEPeripheralDevice`:
+To set up the split-central device, you must add `split_peripheral = "<driver>"` to your `#[keyboard]` macro invocation, your keyboard must implement the appropriate trait for the driver you're using.
+For example, with `ble` and an nRF5x chip selected, you must implement `NRFBLEPeripheralDevice`, and `BluetoothDevice`:
 
 ```rust
 use rumcake::keyboard;
 
-#[keyboard]
+#[keyboard(split_peripheral = "ble")] // TODO: change this to your desired split driver, and implement the appropriate trait below
 struct MyKeyboardRightHalf;
+
+// Bluetooth device setup
+use rumcake::hw::mcu::BluetoothDevice;
+impl BluetoothDevice for WingpairLeft {
+    // Must be valid "Random Static" bluetooth address.
+    const BLUETOOTH_ADDRESS: [u8; 6] = [0x92, 0x32, 0x98, 0xC7, 0xF6, 0xF8]; // TODO: Change this to something else
+}
 
 // Split peripheral setup
 use rumcake::split::drivers::nrf_ble::peripheral::NRFBLEPeripheralDevice;
 impl NRFBLEPeripheralDevice for MyKeyboardRightHalf {
-    const BLUETOOTH_ADDRESS: [u8; 6] = [0x92, 0x32, 0x98, 0xC7, 0xF6, 0xF8];
+    // Must be valid "Random Static" bluetooth address.
     const CENTRAL_ADDRESS: [u8; 6] = [0x41, 0x5A, 0xE3, 0x1E, 0x83, 0xE7]; // Must match the address specified in the left half
 }
 ```

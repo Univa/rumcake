@@ -15,26 +15,19 @@
 You must enable the following `rumcake` features:
 
 - `backlight`
-- `<backlight_type>-driver-<driver>` (e.g. `simple-backlight-driver-is31fl3731`)
-  - `backlight_type` is one of:
-    - `simple-backlight`
-    - `simple-backlight-matrix`
-    - `rgb-backlight-matrix`
-  - `driver` is one of:
-    - `is31fl3731` (available for all backlight types)
-    - `ws2812-bitbang` (available for all backlight types)
+- `drivers` (optional built-in drivers to power backlighting)
 - `eeprom` (optional, if you want to save your backlight settings)
 
 Some drivers may not be able to support all backlight types.
 
 ### Required code
 
-To set up backlighting, your keyboard must implement the `BacklightDevice` trait:
+To set up backlighting, you must add `backlight = "<driver>"` to your `#[keyboard]` macro invocation, your keyboard must implement the `BacklightDevice` trait:
 
 ```rust
 use rumcake::keyboard;
 
-#[keyboard]
+#[keyboard(backlight = "is31fl3731")] // TODO: change this to your desired backlight driver, and implement the appropriate trait (info below)
 struct MyKeyboard;
 
 // Backlight configuration
@@ -70,10 +63,11 @@ impl BacklightMatrixDevice for MyKeyboard {
 }
 ```
 
-Lastly, you must also implement the appropriate trait that corresponds to your chosen driver. For example, with `is31fl3731`, you must implement `IS31FL3731BacklightDriver`:
+Lastly, you must also implement the appropriate trait that corresponds to your chosen driver in the `#[keyboard]` macro. For example, with `is31fl3731`, you must implement `IS31FL3731BacklightDriver`:
 
 ```rust
 use rumcake::{setup_i2c, get_led_from_matrix_coordinates};
+use rumcake::drivers::is31fl3731::backlight::IS31FL3731BacklightDriver;
 impl IS31FL3731BacklightDriver for MyKeyboard {
     const LED_DRIVER_ADDR: u32 = 0b1110100; // see https://github.com/qmk/qmk_firmware/blob/d9fa80c0b0044bb951694aead215d72e4a51807c/docs/feature_rgb_matrix.md#is31fl3731-idis31fl3731
     setup_i2c! {

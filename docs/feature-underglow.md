@@ -15,20 +15,17 @@
 You must enable the following `rumcake` features:
 
 - `underglow`
-- `underglow-driver-<driver>`
-  - `driver` is one of:
-    - `ws2812-timer` (not yet working)
-    - `ws2812-bitbang`
+- `drivers` (optional built-in drivers to power underglow)
 - `eeprom` (optional, if you want to save your backlight settings)
 
 ### Required code
 
-To set up underglow, your keyboard must implement the `UnderglowDevice` trait:
+To set up underglow, you must add `underglow = "<driver>"` to your `#[keyboard]` macro invocation, your keyboard must implement the `UnderglowDevice` trait:
 
 ```rust
 use rumcake::keyboard;
 
-#[keyboard]
+#[keyboard(underglow = "ws2812_bitbang")] // TODO: change this to your desired underglow driver, and implement the appropriate trait (info below)
 struct MyKeyboard;
 
 // Underglow configuration
@@ -39,10 +36,10 @@ impl UnderglowDevice for MyKeyboard {
 }
 ```
 
-Lastly, you must also implement the appropriate trait that corresponds to your chosen driver. For example, with `ws2812-bitbang`, you must implement `WS2812BitbangUnderglowDriver`:
+Lastly, you must also implement the appropriate trait that corresponds to your chosen driver in the `#[keyboard]` macro. For example, with `ws2812_bitbang`, you must implement `WS2812BitbangUnderglowDriver`:
 
 ```rust
-use rumcake::underglow::drivers::ws2812_bitbang::WS2812BitbangUnderglowDriver;
+use rumcake::drivers::ws2812_bitbang::underglow::WS2812BitbangUnderglowDriver;
 impl WS2812BitbangUnderglowDriver for MyKeyboard {
     ws2812_pin! { PA10 }
 }

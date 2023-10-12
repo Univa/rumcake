@@ -21,7 +21,7 @@ To set up your keyboard for USB host communication, your keyboard must implement
 ```rust
 use rumcake::keyboard;
 
-#[keyboard]
+#[keyboard(usb)]
 struct MyKeyboard;
 
 // USB configuration
