@@ -8,7 +8,6 @@ use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Timer};
 use embedded_storage::nor_flash::NorFlash;
-use lazy_static::lazy_static;
 use static_cell::StaticCell;
 
 use crate::hw::BATTERY_LEVEL_STATE;
@@ -52,7 +51,7 @@ macro_rules! output_pin {
 }
 
 #[cfg(feature = "nrf-ble")]
-lazy_static! {
+lazy_static::lazy_static! {
     static ref VBUS_DETECT: embassy_nrf::usb::vbus_detect::SoftwareVbusDetect =
         embassy_nrf::usb::vbus_detect::SoftwareVbusDetect::new(true, true);
 }
