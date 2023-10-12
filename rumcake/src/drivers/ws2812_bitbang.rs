@@ -36,7 +36,11 @@ const fn gcd(a: u64, b: u64) -> u64 {
     }
 }
 
+#[cfg(not(feature = "stm32f072cb"))]
 const NOP_FUDGE: f64 = 0.6;
+
+#[cfg(feature = "stm32f072cb")]
+const NOP_FUDGE: f64 = 0.4;
 
 const TICK_CONV_FACTOR: f64 = (SYSCLK as u64 / gcd(SYSCLK as u64, 1_000_000_000)) as f64
     / (1_000_000_000 / gcd(SYSCLK as u64, 1_000_000_000)) as f64;
