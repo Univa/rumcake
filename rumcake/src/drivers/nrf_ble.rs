@@ -1,6 +1,6 @@
 #[cfg(feature = "split-central")]
 pub mod central {
-    use defmt::{debug, error, info, warn, Debug2Format};
+    use defmt::{assert, debug, error, info, warn, Debug2Format};
     use embassy_futures::select::{select, select_slice, Either};
     use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
     use embassy_sync::channel::Channel;
@@ -19,9 +19,9 @@ pub mod central {
         publisher: Publisher<'a, ThreadModeRawMutex, MessageToPeripheral, 4, 4, 1>,
     }
 
-    pub trait NRFBLECentralDevice<const N: usize = 1> {
+    pub trait NRFBLECentralDevice {
         const NUM_PERIPHERALS: usize = 1;
-        const PERIPHERAL_ADDRESSES: [[u8; 6]; N];
+        const PERIPHERAL_ADDRESSES: &'static [[u8; 6]];
     }
 
     pub static BLE_MESSAGES_FROM_PERIPHERALS: Channel<ThreadModeRawMutex, MessageToCentral, 4> =
@@ -37,7 +37,7 @@ pub mod central {
 
     pub static BLUETOOTH_CONNECTION_MUTEX: Mutex<ThreadModeRawMutex, ()> = Mutex::new(());
 
-    pub fn setup_split_central_driver<const N: usize, K: NRFBLECentralDevice<N>>(
+    pub fn setup_split_central_driver<K: NRFBLECentralDevice>(
         _k: K,
     ) -> NRFBLECentralDriver<'static> {
         NRFBLECentralDriver {
@@ -76,13 +76,14 @@ pub mod central {
     }
 
     #[rumcake_macros::task]
-    pub async fn nrf_ble_central_task<const N: usize, K: NRFBLECentralDevice<N>>(
-        _k: K,
-        sd: &'static Softdevice,
-    ) {
-        if N > 4 {
-            panic!("You can not have more than 4 peripherals.");
-        }
+    pub async fn nrf_ble_central_task<K: NRFBLECentralDevice>(_k: K, sd: &'static Softdevice)
+    where
+        [(); { K::PERIPHERAL_ADDRESSES.len() }]:,
+    {
+        assert!(
+            K::PERIPHERAL_ADDRESSES.len() <= 4,
+            "You can not have more than 4 peripherals."
+        );
 
         info!("[SPLIT_BT_DRIVER] Bluetooth services started");
 
@@ -206,7 +207,7 @@ pub mod central {
             &mut K::PERIPHERAL_ADDRESSES
                 .iter()
                 .map(|addr| peripheral_fut(addr))
-                .collect::<Vec<_, N>>(),
+                .collect::<Vec<_, { K::PERIPHERAL_ADDRESSES.len() }>>(),
         )
         .await;
 
