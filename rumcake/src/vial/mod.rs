@@ -41,16 +41,16 @@ pub enum VialCommandId {
     DynamicEntryOp,
 }
 
-pub trait VialKeyboard<const N: usize, const U: usize>: ViaKeyboard {
+pub trait VialKeyboard: ViaKeyboard {
     const VIAL_ENABLED: bool = true;
     const VIAL_INSECURE: bool = false;
     const VIAL_KEYBOARD_UID: [u8; 8];
-    const VIAL_UNLOCK_COMBO: [(u8, u8); U]; // Matrix positions to use as the unlock combo for Vial
-    const KEYBOARD_DEFINITION: [u8; N];
+    const VIAL_UNLOCK_COMBO: &'static [(u8, u8)]; // Matrix positions to use as the unlock combo for Vial
+    const KEYBOARD_DEFINITION: &'static [u8];
     const VIALRGB_ENABLE: bool = true;
 }
 
-pub async fn process_vial_command<const N: usize, const U: usize, K: VialKeyboard<N, U>>(
+pub async fn process_vial_command<K: VialKeyboard>(
     debouncer: &'static Mutex<
         ThreadModeRawMutex,
         Debouncer<[[bool; K::LAYOUT_COLS]; K::LAYOUT_ROWS]>,
@@ -170,7 +170,7 @@ pub async fn process_vial_command<const N: usize, const U: usize, K: VialKeyboar
 }
 
 #[rumcake_macros::task]
-pub async fn usb_hid_vial_write_task<const N: usize, const U: usize, K: VialKeyboard<N, U>>(
+pub async fn usb_hid_vial_write_task<K: VialKeyboard>(
     _k: K,
     debouncer: &'static Mutex<
         ThreadModeRawMutex,
@@ -185,7 +185,7 @@ pub async fn usb_hid_vial_write_task<const N: usize, const U: usize, K: VialKeyb
         let mut report = VIA_REPORT_HID_SEND_CHANNEL.receive().await;
 
         if K::VIAL_ENABLED && K::VIA_ENABLED {
-            process_vial_command::<N, U, K>(debouncer, flash, &mut vial_state, &mut report).await;
+            process_vial_command::<K>(debouncer, flash, &mut vial_state, &mut report).await;
 
             debug!("[VIAL] Writing HID raw report {:?}", Debug2Format(&report));
             if let Err(err) = hid.write(&report).await {

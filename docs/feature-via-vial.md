@@ -48,10 +48,10 @@ You must also follow the instructions in the [VIAL Definitions](#vial-definition
 include!(concat!(env!("OUT_DIR"), "/_generated.rs"));
 
 use rumcake::vial::VialKeyboard;
-impl VialKeyboard<{ GENERATED_KEYBOARD_DEFINITION.len() }, 2> for MyKeyboard {
+impl VialKeyboard for MyKeyboard {
     const VIAL_KEYBOARD_UID: [u8; 8] = [0; 8]; // Set this to whatever you want
-    const VIAL_UNLOCK_COMBO: [(u8, u8); 2] = [(0, 1), (0, 0)]; // Matrix positions used to unlock VIAL (row, col)
-    const KEYBOARD_DEFINITION: [u8; GENERATED_KEYBOARD_DEFINITION.len()] = GENERATED_KEYBOARD_DEFINITION;
+    const VIAL_UNLOCK_COMBO: &'static [(u8, u8)] = [(0, 1), (0, 0)]; // Matrix positions used to unlock VIAL (row, col), set it to whatever you want
+    const KEYBOARD_DEFINITION: &'static [u8] = &GENERATED_KEYBOARD_DEFINITION;
 }
 ```
 
