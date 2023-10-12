@@ -177,6 +177,8 @@ pub fn derive_cycle(e: proc_macro::TokenStream) -> proc_macro::TokenStream {
 #[derive(Debug, FromMeta)]
 struct KeyboardArgs {
     #[darling(default)]
+    no_matrix: bool,
+    #[darling(default)]
     bluetooth: bool,
     #[darling(default)]
     usb: bool,
@@ -265,14 +267,16 @@ pub fn main(
     });
 
     // Keyboard setup, and matrix polling task
-    initialization.extend(quote! {
-        let (matrix, debouncer) = rumcake::setup_keyboard_matrix!(#kb_name);
-    });
-    spawning.extend(quote! {
-        spawner
-            .spawn(rumcake::matrix_poll!((#kb_name), (matrix, debouncer)))
-            .unwrap();
-    });
+    if !keyboard.no_matrix {
+        initialization.extend(quote! {
+            let (matrix, debouncer) = rumcake::setup_keyboard_matrix!(#kb_name);
+        });
+        spawning.extend(quote! {
+            spawner
+                .spawn(rumcake::matrix_poll!((#kb_name), (matrix, debouncer)))
+                .unwrap();
+        });
+    }
 
     #[cfg(feature = "nrf")]
     {
