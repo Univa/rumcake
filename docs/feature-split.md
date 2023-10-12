@@ -56,10 +56,10 @@ impl BluetoothDevice for MyKeyboardLeftHalf {
 
 // Split central setup
 use rumcake::split::drivers::nrf_ble::central::NRFBLECentralDevice;
-// NRFBLECentralDevice<2>: This central device can connect to two different peripherals
-impl NRFBLECentralDevice<2> for MyKeyboardLeftHalf {
+impl NRFBLECentralDevice for MyKeyboardLeftHalf {
     // Must be valid "Random Static" bluetooth addresses.
-    const PERIPHERAL_ADDRESSES: [[u8; 6]; 2] = [
+    // This central device can connect to two different peripherals
+    const PERIPHERAL_ADDRESSES: &'static [[u8; 6]] = [
         [0x92, 0x32, 0x98, 0xC7, 0xF6, 0xF8],
         [0x15, 0xD6, 0x88, 0x85, 0x98, 0xF7],
     ];
