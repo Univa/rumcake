@@ -12,13 +12,13 @@ embedded-io-async = "0.5.0"
 embedded-graphics = { version = "0.8.1", featuers = ["defmt"] }
 embedded-layout = "0.3.2"
 embedded-text = "0.6.2"
-embassy-sync = { git = "https://github.com/embassy-rs/embassy", features = ["defmt"] }
-embassy-futures = { git = "https://github.com/embassy-rs/embassy" }
-embassy-executor = { git = "https://github.com/embassy-rs/embassy", features = ["defmt", "integrated-timers", "executor-thread", "nightly"] }
-embassy-time = { git = "https://github.com/embassy-rs/embassy", features = ["defmt", "defmt-timestamp-uptime", "nightly"] }
-embassy-usb = { git = "https://github.com/embassy-rs/embassy", features = ["defmt"] }
-embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", features = ["defmt", "memory-x", "nightly", "unstable-pac", "unstable-traits"], optional = true }
-embassy-nrf = { git = "https://github.com/embassy-rs/embassy", features = ["defmt", "nightly", "nfc-pins-as-gpio", "unstable-traits", "time-driver-rtc1"], optional = true }
+embassy-sync = { git = "https://github.com/embassy-rs/embassy", rev = "b1abaa38", features = ["defmt"] }
+embassy-futures = { git = "https://github.com/embassy-rs/embassy", rev = "b1abaa38" }
+embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "b1abaa38", features = ["defmt", "integrated-timers", "executor-thread", "nightly"] }
+embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "b1abaa38", features = ["defmt", "defmt-timestamp-uptime", "nightly"] }
+embassy-usb = { git = "https://github.com/embassy-rs/embassy", rev = "b1abaa38", features = ["defmt"] }
+embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", rev = "b1abaa38", features = ["defmt", "memory-x", "nightly", "unstable-pac", "unstable-traits"], optional = true }
+embassy-nrf = { git = "https://github.com/embassy-rs/embassy", rev = "b1abaa38", features = ["defmt", "nightly", "nfc-pins-as-gpio", "unstable-traits", "time-driver-rtc1"], optional = true }
 nrf-softdevice = { git = "https://github.com/Univa/nrf-softdevice", optional = true }
 keyberon = { git = "https://github.com/TeXitoi/keyberon", branch = "master" }
 lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
