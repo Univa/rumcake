@@ -125,6 +125,7 @@ pub static BACKLIGHT_STATE: Signal<ThreadModeRawMutex, BacklightConfig> = Signal
 
 #[rumcake_macros::task]
 pub async fn backlight_task<D: BacklightMatrixDevice>(
+    _k: D,
     driver: impl SimpleBacklightMatrixDriver<D> + 'static,
 ) where
     [(); D::MATRIX_COLS]:,

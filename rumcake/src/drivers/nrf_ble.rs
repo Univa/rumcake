@@ -284,6 +284,7 @@ pub mod peripheral {
 
     #[rumcake_macros::task]
     pub async fn nrf_ble_peripheral_task<K: NRFBLEPeripheralDevice>(
+        _k: K,
         sd: &'static Softdevice,
         server: PeripheralDeviceServer,
     ) {

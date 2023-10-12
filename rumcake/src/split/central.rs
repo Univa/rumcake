@@ -18,6 +18,7 @@ pub static MESSAGE_TO_PERIPHERALS: Channel<ThreadModeRawMutex, MessageToPeripher
 // Multiple instances of this task may run in order to send and receive messages from other peripherals
 #[rumcake_macros::task]
 pub async fn central_task<K: KeyboardLayout>(
+    _k: K,
     mut driver: impl CentralDeviceDriver,
     layout: &'static Mutex<
         ThreadModeRawMutex,

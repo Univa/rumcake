@@ -209,7 +209,7 @@ fn setup_split_driver(kb_name: &Ident, driver: &str, role: SplitRole) -> Option<
             }),
             SplitRole::Peripheral => Some(quote! {
                 let peripheral_server = rumcake::drivers::nrf_ble::peripheral::PeripheralDeviceServer::new(sd).unwrap();
-                spawner.spawn(rumcake::nrf_ble_peripheral_task!((#kb_name), (sd, peripheral_server))).unwrap();
+                spawner.spawn(rumcake::nrf_ble_peripheral_task!(#kb_name, sd, peripheral_server)).unwrap();
                 let split_peripheral_driver = rumcake::drivers::nrf_ble::peripheral::setup_split_peripheral_driver::<#kb_name>();
             }),
         },
@@ -273,7 +273,7 @@ pub fn main(
         });
         spawning.extend(quote! {
             spawner
-                .spawn(rumcake::matrix_poll!((#kb_name), (matrix, debouncer)))
+                .spawn(rumcake::matrix_poll!(#kb_name, matrix, debouncer))
                 .unwrap();
         });
     }
@@ -308,9 +308,9 @@ pub fn main(
             let layout = rumcake::setup_keyboard_layout!(#kb_name);
         });
         spawning.extend(quote! {
-            spawner.spawn(rumcake::layout_collect!((#kb_name), (layout))).unwrap();
+            spawner.spawn(rumcake::layout_collect!(#kb_name, layout)).unwrap();
             spawner
-                .spawn(rumcake::layout_register!((#kb_name), (layout)))
+                .spawn(rumcake::layout_register!(#kb_name, layout))
                 .unwrap();
         })
     }
@@ -321,7 +321,7 @@ pub fn main(
             let hid_server = rumcake::bluetooth::nrf_ble::Server::new(sd).unwrap();
         });
         spawning.extend(quote! {
-            spawner.spawn(rumcake::nrf_ble_task!((#kb_name), (sd, hid_server))).unwrap();
+            spawner.spawn(rumcake::nrf_ble_task!(#kb_name, sd, hid_server)).unwrap();
         });
     }
 
@@ -369,20 +369,13 @@ pub fn main(
 
     #[cfg(all(feature = "via", not(feature = "vial")))]
     spawning.extend(quote! {
-        spawner.spawn(rumcake::usb_hid_via_write_task!((#kb_name), (debouncer, raw_hid_flash, via_writer))).unwrap();
+        spawner.spawn(rumcake::usb_hid_via_write_task!(#kb_name, debouncer, raw_hid_flash, via_writer)).unwrap();
     });
 
     #[cfg(feature = "vial")]
     spawning.extend(quote! {
         spawner
-            .spawn(rumcake::usb_hid_vial_write_task!(
-                (
-                    { #kb_name::KEYBOARD_DEFINITION.len() },
-                    { #kb_name::VIAL_UNLOCK_COMBO.len() },
-                    #kb_name
-                ),
-                (debouncer, raw_hid_flash, via_writer)
-            ))
+            .spawn(rumcake::usb_hid_vial_write_task!(#kb_name, debouncer, raw_hid_flash, via_writer))
             .unwrap();
     });
 
@@ -392,7 +385,7 @@ pub fn main(
             Some(driver_setup) => {
                 initialization.extend(driver_setup);
                 spawning.extend(quote! {
-                    spawner.spawn(rumcake::peripheral_task!((#kb_name), (split_peripheral_driver))).unwrap();
+                    spawner.spawn(rumcake::peripheral_task!(#kb_name, split_peripheral_driver)).unwrap();
                 });
             }
             None => {
@@ -408,7 +401,7 @@ pub fn main(
             Some(driver_setup) => {
                 initialization.extend(driver_setup);
                 spawning.extend(quote! {
-                    spawner.spawn(rumcake::central_task!((#kb_name), (split_central_driver, layout))).unwrap();
+                    spawner.spawn(rumcake::central_task!(#kb_name, split_central_driver, layout)).unwrap();
                 });
             }
             None => {
@@ -425,7 +418,7 @@ pub fn main(
             Some(driver_setup) => {
                 initialization.extend(driver_setup);
                 spawning.extend(quote! {
-                    spawner.spawn(rumcake::underglow_task!((#kb_name), (underglow_driver))).unwrap();
+                    spawner.spawn(rumcake::underglow_task!(#kb_name, underglow_driver)).unwrap();
                 });
             }
             None => {
@@ -442,7 +435,7 @@ pub fn main(
             Some(driver_setup) => {
                 initialization.extend(driver_setup);
                 spawning.extend(quote! {
-                    spawner.spawn(rumcake::backlight_task!((#kb_name), (backlight_driver))).unwrap();
+                    spawner.spawn(rumcake::backlight_task!(#kb_name, backlight_driver)).unwrap();
                 });
             }
             None => {
@@ -459,7 +452,7 @@ pub fn main(
             Some(driver_setup) => {
                 initialization.extend(driver_setup);
                 spawning.extend(quote! {
-                    spawner.spawn(rumcake::display_task!((#kb_name), (display_driver))).unwrap();
+                    spawner.spawn(rumcake::display_task!(#kb_name, display_driver)).unwrap();
                 });
             }
             None => {
@@ -491,21 +484,6 @@ pub fn task(
 
     // for the outer macro
     let task_ident = fun.sig.ident.clone();
-    // let generics = fun.sig.generics.clone();
-    let gen_names: Vec<Ident> = fun
-        .sig
-        .generics
-        .clone()
-        .params
-        .iter_mut()
-        .filter_map(|p| match p {
-            syn::GenericParam::Type(t) => Some(t.ident.clone()),
-            syn::GenericParam::Const(c) => Some(c.ident.clone()),
-            _ => None,
-        })
-        .collect();
-    // let args = fun.sig.inputs.clone();
-    // let wc = fun.sig.generics.where_clause.clone();
 
     // Copy the function and change the identifier
     let mut inner = fun.clone();
@@ -541,13 +519,6 @@ pub fn task(
 
         #[macro_export]
         macro_rules! #task_ident {
-            ((#($#gen_names:tt),*), (#($#arg_names:tt),*)) => {
-                {
-                    type Fut = impl ::core::future::Future + 'static;
-                    static POOL: $crate::embassy_executor::raw::TaskPool<Fut, 1> = $crate::embassy_executor::raw::TaskPool::new();
-                    unsafe { POOL._spawn_async_fn(|| $crate::tasks::#inner_ident::<#($#gen_names),*>(#($#arg_names,)*)) }
-                }
-            };
             (#($#arg_names:tt),*) => {
                 {
                     type Fut = impl ::core::future::Future + 'static;

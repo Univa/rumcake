@@ -527,7 +527,7 @@ pub struct Server {
 }
 
 #[rumcake_macros::task]
-pub async fn nrf_ble_task<K: BluetoothKeyboard>(sd: &'static Softdevice, server: Server)
+pub async fn nrf_ble_task<K: BluetoothKeyboard>(_k: K, sd: &'static Softdevice, server: Server)
 where
     [(); K::PRODUCT.len() + 15]:,
 {

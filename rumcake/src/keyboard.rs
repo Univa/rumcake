@@ -188,6 +188,7 @@ pub static POLLED_EVENTS_CHANNEL: Channel<ThreadModeRawMutex, Event, 1> = Channe
 
 #[rumcake_macros::task]
 pub async fn matrix_poll<K: KeyboardMatrix>(
+    _k: K,
     mut matrix: Matrix<
         impl InputPin<Error = Infallible>,
         impl OutputPin<Error = Infallible>,
@@ -241,6 +242,7 @@ pub static MATRIX_EVENTS: PubSubChannel<ThreadModeRawMutex, Event, 4, 4, 1> = Pu
 
 #[rumcake_macros::task]
 pub async fn layout_register<K: KeyboardLayout>(
+    _k: K,
     layout: &'static Mutex<
         ThreadModeRawMutex,
         Layout<{ K::LAYOUT_COLS }, { K::LAYOUT_ROWS }, { K::LAYERS }, Keycode>,
@@ -270,6 +272,7 @@ pub static KEYBOARD_REPORT_HID_SEND_CHANNEL: Channel<
 
 #[rumcake_macros::task]
 pub async fn layout_collect<K: KeyboardLayout>(
+    _k: K,
     layout: &'static Mutex<
         ThreadModeRawMutex,
         Layout<{ K::LAYOUT_COLS }, { K::LAYOUT_ROWS }, { K::LAYERS }, Keycode>,

@@ -9,7 +9,7 @@ use super::drivers::PeripheralDeviceDriver;
 
 // This task replaces the `layout_register` task, which is usually used on non-split keyboards for sending events to the keyboard layout
 #[rumcake_macros::task]
-pub async fn peripheral_task<K: KeyboardMatrix>(mut driver: impl PeripheralDeviceDriver) {
+pub async fn peripheral_task<K: KeyboardMatrix>(_k: K, mut driver: impl PeripheralDeviceDriver) {
     loop {
         match select(
             driver.receive_message_from_central(),

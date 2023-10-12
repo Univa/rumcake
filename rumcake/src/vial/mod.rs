@@ -171,6 +171,7 @@ pub async fn process_vial_command<const N: usize, const U: usize, K: VialKeyboar
 
 #[rumcake_macros::task]
 pub async fn usb_hid_vial_write_task<const N: usize, const U: usize, K: VialKeyboard<N, U>>(
+    _k: K,
     debouncer: &'static Mutex<
         ThreadModeRawMutex,
         Debouncer<[[bool; K::LAYOUT_COLS]; K::LAYOUT_ROWS]>,

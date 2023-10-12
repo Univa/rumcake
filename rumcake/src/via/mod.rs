@@ -871,6 +871,7 @@ pub async fn usb_hid_via_read_task(hid: HidReader<'static, impl Driver<'static>,
 
 #[rumcake_macros::task]
 pub async fn usb_hid_via_write_task<K: ViaKeyboard>(
+    _k: K,
     debouncer: &'static Mutex<
         ThreadModeRawMutex,
         Debouncer<[[bool; K::LAYOUT_COLS]; K::LAYOUT_ROWS]>,

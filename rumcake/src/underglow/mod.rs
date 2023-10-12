@@ -30,8 +30,10 @@ pub static UNDERGLOW_COMMAND_CHANNEL: Channel<ThreadModeRawMutex, UnderglowComma
 pub static UNDERGLOW_STATE: Signal<ThreadModeRawMutex, UnderglowConfig> = Signal::new();
 
 #[rumcake_macros::task]
-pub async fn underglow_task<D: UnderglowDevice>(driver: impl UnderglowDriver<D, Color = RGB8>)
-where
+pub async fn underglow_task<D: UnderglowDevice>(
+    _k: D,
+    driver: impl UnderglowDriver<D, Color = RGB8>,
+) where
     [(); D::NUM_LEDS]:,
 {
     // TODO: Get the default from EEPROM if possible
