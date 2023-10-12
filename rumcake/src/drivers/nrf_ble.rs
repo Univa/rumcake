@@ -1,3 +1,4 @@
+#[cfg(feature = "split-central")]
 pub mod central {
     use defmt::{debug, error, info, warn, Debug2Format};
     use embassy_futures::select::{select, select_slice, Either};
@@ -5,15 +6,14 @@ pub mod central {
     use embassy_sync::channel::Channel;
     use embassy_sync::mutex::Mutex;
     use embassy_sync::pubsub::{PubSubChannel, Publisher};
-    use embassy_time::{Duration, Timer};
     use heapless::Vec;
     use nrf_softdevice::ble::central::{connect, ConnectError};
     use nrf_softdevice::ble::gatt_client::{self, discover};
     use nrf_softdevice::ble::{central, Address, AddressType};
     use nrf_softdevice::{RawError, Softdevice};
 
-    use rumcake::split::drivers::{CentralDeviceDriver, CentralDeviceError};
-    use rumcake::split::{MessageToCentral, MessageToPeripheral};
+    use crate::split::drivers::{CentralDeviceDriver, CentralDeviceError};
+    use crate::split::{MessageToCentral, MessageToPeripheral};
 
     pub struct NRFBLECentralDriver<'a> {
         publisher: Publisher<'a, ThreadModeRawMutex, MessageToPeripheral, 4, 4, 1>,
@@ -216,6 +216,7 @@ pub mod central {
     }
 }
 
+#[cfg(feature = "split-peripheral")]
 pub mod peripheral {
     use defmt::{debug, error, info, warn, Debug2Format};
     use embassy_futures::select::{select, Either};
@@ -225,9 +226,10 @@ pub mod peripheral {
     use nrf_softdevice::ble::peripheral::{advertise_connectable, ConnectableAdvertisement};
     use nrf_softdevice::ble::{Address, AddressType};
     use nrf_softdevice::Softdevice;
-    use rumcake::hw::mcu::BLUETOOTH_ADVERTISING_MUTEX;
-    use rumcake::split::drivers::{PeripheralDeviceDriver, PeripheralDeviceError};
-    use rumcake::split::{MessageToCentral, MessageToPeripheral};
+
+    use crate::hw::mcu::BLUETOOTH_ADVERTISING_MUTEX;
+    use crate::split::drivers::{PeripheralDeviceDriver, PeripheralDeviceError};
+    use crate::split::{MessageToCentral, MessageToPeripheral};
 
     pub trait NRFBLEPeripheralDevice {
         const CENTRAL_ADDRESS: [u8; 6];

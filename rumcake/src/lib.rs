@@ -106,6 +106,9 @@ pub mod display;
 
 pub mod hw;
 
+#[cfg(feature = "drivers")]
+pub mod drivers;
+
 pub mod tasks {
     pub use crate::keyboard::{__layout_collect_task, __layout_register_task, __matrix_poll_task};
 
@@ -143,4 +146,9 @@ pub mod tasks {
 
     #[cfg(all(feature = "nrf", feature = "bluetooth"))]
     pub use crate::bluetooth::nrf_ble::__nrf_ble_task_task;
+
+    #[cfg(all(feature = "drivers", feature = "split-central"))]
+    pub use crate::drivers::nrf_ble::central::__nrf_ble_central_task_task;
+    #[cfg(all(feature = "drivers", feature = "split-peripheral"))]
+    pub use crate::drivers::nrf_ble::peripheral::__nrf_ble_peripheral_task_task;
 }

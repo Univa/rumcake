@@ -42,10 +42,18 @@ postcard = "1.0.7"
 # third party utilities for dealing with rgb values
 smart-leds = "0.3.0"
 
+# third party drivers for backlight
+is31fl3731 = { git = "https://github.com/Univa/is31fl3731", features = ["async"] }
+
+# third party drivers for display
+ssd1306 = "0.8.2"
+
 rumcake-macros = { path = "../rumcake-macros" }
 
 [features]
 default = []
+
+drivers = []
 
 #
 # Chips
@@ -81,6 +89,6 @@ backlight = []
 
 display = []
 
-split-peripheral = []
-split-central = []
+split-peripheral = ["nrf-softdevice?/ble-peripheral", "nrf-softdevice?/ble-gatt-server"]
+split-central = ["nrf-softdevice?/ble-central", "nrf-softdevice?/ble-gatt-client"]
 

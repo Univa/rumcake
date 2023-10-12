@@ -202,13 +202,13 @@ fn setup_split_driver(kb_name: &Ident, driver: &str, role: SplitRole) -> Option<
         #[cfg(feature = "nrf")]
         "ble" => match role {
             SplitRole::Central => Some(quote! {
-                spawner.spawn(rumcake_drivers::nrf_ble_central_task!(#kb_name, sd)).unwrap();
-                let split_central_driver = rumcake_drivers::nrf_ble::central::setup_split_central_driver(#kb_name);
+                spawner.spawn(rumcake::nrf_ble_central_task!(#kb_name, sd)).unwrap();
+                let split_central_driver = rumcake::drivers::nrf_ble::central::setup_split_central_driver(#kb_name);
             }),
             SplitRole::Peripheral => Some(quote! {
-                let peripheral_server = rumcake_drivers::nrf_ble::peripheral::PeripheralDeviceServer::new(sd).unwrap();
-                spawner.spawn(rumcake_drivers::nrf_ble_peripheral_task!((#kb_name), (sd, peripheral_server))).unwrap();
-                let split_peripheral_driver = rumcake_drivers::nrf_ble::peripheral::setup_split_peripheral_driver::<#kb_name>();
+                let peripheral_server = rumcake::drivers::nrf_ble::peripheral::PeripheralDeviceServer::new(sd).unwrap();
+                spawner.spawn(rumcake::nrf_ble_peripheral_task!((#kb_name), (sd, peripheral_server))).unwrap();
+                let split_peripheral_driver = rumcake::drivers::nrf_ble::peripheral::setup_split_peripheral_driver::<#kb_name>();
             }),
         },
         _ => None,
@@ -218,7 +218,7 @@ fn setup_split_driver(kb_name: &Ident, driver: &str, role: SplitRole) -> Option<
 fn setup_underglow_driver(kb_name: &Ident, driver: &str) -> Option<TokenStream> {
     match driver {
         "ws2812_bitbang" => Some(quote! {
-            let underglow_driver = rumcake_drivers::ws2812_bitbang::setup_underglow_driver::<#kb_name>().await;
+            let underglow_driver = rumcake::drivers::ws2812_bitbang::underglow::setup_underglow_driver::<#kb_name>().await;
         }),
         _ => None,
     }
@@ -227,10 +227,10 @@ fn setup_underglow_driver(kb_name: &Ident, driver: &str) -> Option<TokenStream> 
 fn setup_backlight_driver(kb_name: &Ident, driver: &str) -> Option<TokenStream> {
     match driver {
         "is31fl3731" => Some(quote! {
-            let backlight_driver = rumcake_drivers::is31fl3731::setup_backlight_driver::<#kb_name>().await;
+            let backlight_driver = rumcake::drivers::is31fl3731::backlight::setup_backlight_driver::<#kb_name>().await;
         }),
         "ws2812_bitbang" => Some(quote! {
-            let backlight_driver = rumcake_drivers::ws2812_bitbang::setup_backlight_driver::<#kb_name>().await;
+            let backlight_driver = rumcake::drivers::ws2812_bitbang::backlight::setup_backlight_driver::<#kb_name>().await;
         }),
         _ => None,
     }
@@ -239,7 +239,7 @@ fn setup_backlight_driver(kb_name: &Ident, driver: &str) -> Option<TokenStream> 
 fn setup_display_driver(kb_name: &Ident, driver: &str) -> Option<TokenStream> {
     match driver {
         "ssd1306" => Some(quote! {
-            let display_driver = rumcake_drivers::ssd1306::setup_display_driver(#kb_name).await;
+            let display_driver = rumcake::drivers::ssd1306::display::setup_display_driver(#kb_name).await;
         }),
         _ => None,
     }
