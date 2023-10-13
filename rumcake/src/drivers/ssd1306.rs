@@ -6,9 +6,7 @@
 //! To use this driver for the display feature, keyboards must implement
 //! [`Ssd1306I2cDisplayDriver`](display::Ssd1306I2cDisplayDriver).
 
-pub mod driver {
-    pub use ssd1306::*;
-}
+pub use ssd1306 as driver;
 
 #[cfg(feature = "display")]
 /// SSD1306 display driver implementations

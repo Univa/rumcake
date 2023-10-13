@@ -7,6 +7,8 @@
 //!
 //! To use this driver for backlighting, keyboards must implement [`IS31FL3731BacklightDriver`](backlight::IS31FL3731BacklightDriver).
 
+pub use is31fl3731 as driver;
+
 #[repr(u8)]
 #[allow(missing_docs)]
 /// Possible positions on an IS31FL3731-backed charlieplexed matrix. Consult the datasheet for more details.
