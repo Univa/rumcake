@@ -47,13 +47,17 @@ impl<'a, T: Clone + PartialEq> State<'a, T> {
     }
 
     async fn set(&self, value: T) {
-        let mut data = self.data.lock().await;
-        if *data != value {
+        let changed = {
+            let mut data = self.data.lock().await;
+            let changed = *data != value;
+            *data = value;
+            changed
+        };
+        if changed {
             for listener in self.listeners.iter() {
                 listener.signal(());
             }
         }
-        *data = value;
     }
 }
 
