@@ -5,6 +5,8 @@
 #![feature(type_alias_impl_trait)]
 #![feature(return_position_impl_trait_in_trait)]
 #![feature(async_fn_in_trait)]
+#![warn(missing_docs)]
+#![doc = include_str!("../../README.md")]
 
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;

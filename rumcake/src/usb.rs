@@ -1,3 +1,7 @@
+//! USB host communication.
+//!
+//! To use USB host communication, keyboards must implement [`USBKeyboard`].
+
 use defmt::{debug, error, info, Debug2Format};
 use embassy_futures::select::{self, select};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
@@ -26,12 +30,18 @@ pub static USB_STATE: State<bool> = State::new(
     ],
 );
 
+/// A trait that keyboards must implement to communicate with host devices over USB.
 pub trait USBKeyboard: Keyboard + KeyboardLayout {
-    // USB Configuration
+    /// Vendor ID for the keyboard.
     const USB_VID: u16;
+
+    /// Product ID for the keyboard.
     const USB_PID: u16;
 }
 
+/// Configure the HID report writer, using boot-specification-compatible NKRO keyboard reports.
+///
+/// The HID writer produced should be passed to [`usb_hid_kb_write_task`].
 pub fn setup_usb_hid_nkro_writer(
     b: &mut Builder<'static, impl Driver<'static>>,
 ) -> HidWriter<

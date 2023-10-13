@@ -1,3 +1,11 @@
+//! Features for the "peripheral" device in a split keyboard setup.
+//!
+//! The "peripheral" device in a split keyboard setup defines a [`KeyboardMatrix`], and sends
+//! matrix events to the central device (see [`MessageToCentral`](crate::split::MessageToCentral)).
+//! A split keyboard setup could have more than one peripheral. If the split keyboard also uses
+//! extra features, then all the peripherals should receive the related commands from the central
+//! device (see [`MessageToPeripheral`]).
+
 use defmt::{error, Debug2Format};
 use embassy_futures::select::{select, Either};
 use embassy_sync::pubsub::PubSubBehavior;

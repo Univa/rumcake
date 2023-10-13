@@ -1,3 +1,5 @@
+//! A set of traits that display drivers must implement, and utilities that can be used by drivers.
+
 use super::DisplayDevice;
 use core::fmt::Debug;
 
@@ -8,19 +10,16 @@ use embedded_text::alignment::HorizontalAlignment;
 use embedded_text::style::{HeightMode, TextBoxStyle, TextBoxStyleBuilder};
 use heapless::String;
 
+/// Default style for text. The default style uses [`BinaryColor`], and [`FONT_6X10`].
 pub static DEFAULT_STYLE: MonoTextStyle<'_, BinaryColor> = MonoTextStyleBuilder::new()
     .font(&FONT_6X10)
     .text_color(BinaryColor::On)
     .build();
 
+/// Default style for text boxes. The default style uses [`HeightMode::FitToText`], and [`HorizontalAlignment::Left`]
 pub static DEFAULT_TEXTBOX_STYLE: TextBoxStyle = TextBoxStyleBuilder::new()
     .height_mode(HeightMode::FitToText)
     .alignment(HorizontalAlignment::Left)
-    .build();
-
-pub static DEFAULT_HEADER_STYLE: TextBoxStyle = TextBoxStyleBuilder::new()
-    .height_mode(HeightMode::FitToText)
-    .alignment(HorizontalAlignment::Center)
     .build();
 
 macro_rules! text_box {
@@ -104,11 +103,20 @@ macro_rules! on_update_default {
 
 use embedded_graphics::prelude::DrawTarget;
 
+/// Possible orientations for a display.
 pub enum Orientation {
+    /// Vertical/portrait orientation.
     Vertical,
+    /// Horizontal/landscape orientation.
     Horizontal,
 }
 
+/// Default implementation for a display.
+///
+/// The default contents of the display will depend on what feature flags are
+/// enabled. A list of possible data that may be shown includes:
+/// - Battery level (BAT): `nrf-ble` must be enabled.
+/// - Mode: `usb` and `bluetooth` enabled at the same time. See [`rumcake::bluetooth::BluetoothCommand::ToggleUSB`]
 pub async fn on_update_default(
     display: &mut impl DrawTarget<Color = BinaryColor, Error = impl Debug>,
     orientation: Orientation,
@@ -124,14 +132,20 @@ pub async fn on_update_default(
     }
 }
 
+/// Trait that drivers must implement to work with the display task.
 pub trait DisplayDriver<K: DisplayDevice> {
-    /// Called every time a data source updates, or every frame if DisplayDevice::FPS is non-zero.
+    /// Use the driver to update the display with new information.
+    ///
+    /// Called every time a data source updates, or every frame if [`DisplayDevice::FPS`] is non-zero.
     async fn on_update(&mut self);
 
-    /// Called when the screen is being turned off.
-    /// This usually occurs after DisplayDevice::TIMEOUT seconds.
+    /// Use the driver to turn the display off.
+    ///
+    /// Called when the screen is being turned off. This usually occurs after [`DisplayDevice::TIMEOUT`] seconds.
     async fn turn_off(&mut self);
 
+    /// Use the driver to turn the display on.
+    ///
     /// Called when the screen is being turned back on after being turned off.
     async fn turn_on(&mut self);
 }

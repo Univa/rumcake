@@ -1,3 +1,8 @@
+//! Underglow features.
+//!
+//! To use underglow features, keyboards must implement [`UnderglowDevice`], and the trait
+//! corresponding to a driver that implements [`drivers::UnderglowDriver`].
+
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::signal::Signal;
@@ -14,15 +19,31 @@ use self::drivers::UnderglowDriver;
 pub mod animations;
 pub mod drivers;
 
+/// A trait that keyboards must implement to use the underglow feature.
 pub trait UnderglowDevice {
+    /// How fast the LEDs refresh to display a new animation frame.
+    ///
+    /// It is recommended to set this value to a value that your driver can handle,
+    /// otherwise your animations will appear to be slowed down.
+    ///
+    /// **This does not have any effect if the selected animation is static.**
     const FPS: usize = 30;
+
+    /// The number of LEDs used for underglow.
+    ///
+    /// This number will be used to determine the size of the frame buffer for underglow
+    /// animations.
     const NUM_LEDS: usize;
 
     // Effect settings
     underglow_effect_items!();
 }
 
-// Channel for sending and receiving underglow commands.
+/// Channel for sending underglow commands.
+///
+/// Channel messages should be consumed by the [`underglow_task`], so user-level
+/// level code should **not** attempt to receive messages from the channel, otherwise
+/// commands may not be processed appropriately. You should only send to this channel.
 pub static UNDERGLOW_COMMAND_CHANNEL: Channel<ThreadModeRawMutex, UnderglowCommand, 2> =
     Channel::new();
 

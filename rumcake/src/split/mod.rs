@@ -1,3 +1,5 @@
+//! Split keyboard features.
+
 use keyberon::layout::Event;
 use serde::{Deserialize, Serialize};
 
@@ -10,8 +12,11 @@ pub mod central;
 pub mod peripheral;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+/// Possible messages that can be sent to a central device.
 pub enum MessageToCentral {
+    /// Key press in the form of (row, col).
     KeyPress(u8, u8),
+    /// Key release in the form of (row, col).
     KeyRelease(u8, u8),
 }
 
@@ -36,9 +41,12 @@ impl TryFrom<MessageToCentral> for Event {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+/// Possible messages that can be sent to a peripheral device.
 pub enum MessageToPeripheral {
     #[cfg(feature = "backlight")]
+    /// A [`BacklightCommand`](crate::backlight::animations::BacklightCommand) to be processed by the peripheral's backlight animator.
     Backlight(crate::backlight::animations::BacklightCommand),
     #[cfg(feature = "underglow")]
+    /// An [`UnderglowCommand`](crate::underglow::animations::UnderglowCommand) to be processed by the peripheral's backlight animator.
     Underglow(crate::underglow::animations::UnderglowCommand),
 }

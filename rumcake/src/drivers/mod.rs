@@ -1,3 +1,5 @@
+//! An optional set of built-in drivers which implement rumcake's driver traits, so they can be used with rumcake tasks.
+
 pub mod is31fl3731;
 pub mod nrf_ble;
 pub mod ssd1306;

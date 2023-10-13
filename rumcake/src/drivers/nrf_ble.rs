@@ -1,4 +1,15 @@
+//! Rumcake driver implementations for [`nrf-softdevice`].
+//!
+//! This driver provides implementations for
+//! [`CentralDeviceDriver`](`crate::split::drivers::CentralDeviceDriver`), and
+//! [`PeripheralDeviceDriver`](`crate::split::drivers::PeripheralDeviceDriver`).
+//!
+//! To use this driver for split keyboards, central devices must implement
+//! [`NRFBLECentralDevice`](central::NRFBLECentralDevice), and peripheral devices must implement
+//! [`NRFBLEPeripheralDevice`](peripheral::NRFBLEPeripheralDevice).
+
 #[cfg(feature = "split-central")]
+/// nrf-softdevice central device driver implementations
 pub mod central {
     use defmt::{assert, debug, error, info, warn, Debug2Format};
     use embassy_futures::select::{select, select_slice, Either};
@@ -19,8 +30,9 @@ pub mod central {
         publisher: Publisher<'a, ThreadModeRawMutex, MessageToPeripheral, 4, 4, 1>,
     }
 
+    /// A trait that nRF-based keyboards must implement to use bluetooth to drive central devices in a split keyboard setup.
     pub trait NRFBLECentralDevice {
-        const NUM_PERIPHERALS: usize = 1;
+        /// A list of "Random Static" bluetooth addresses that this central device can connect to.
         const PERIPHERAL_ADDRESSES: &'static [[u8; 6]];
     }
 
@@ -37,6 +49,7 @@ pub mod central {
 
     pub static BLUETOOTH_CONNECTION_MUTEX: Mutex<ThreadModeRawMutex, ()> = Mutex::new(());
 
+    /// Create an instance of the nRF bluetooth central device driver based on the implementation of [`NRFBLECentralDevice`].
     pub fn setup_split_central_driver<K: NRFBLECentralDevice>(
         _k: K,
     ) -> NRFBLECentralDriver<'static> {
@@ -78,7 +91,7 @@ pub mod central {
     #[rumcake_macros::task]
     pub async fn nrf_ble_central_task<K: NRFBLECentralDevice>(_k: K, sd: &'static Softdevice)
     where
-        [(); { K::PERIPHERAL_ADDRESSES.len() }]:,
+        [(); K::PERIPHERAL_ADDRESSES.len()]:,
     {
         assert!(
             K::PERIPHERAL_ADDRESSES.len() <= 4,
@@ -218,6 +231,7 @@ pub mod central {
 }
 
 #[cfg(feature = "split-peripheral")]
+/// nrf-softdevice peripheral device driver implementations
 pub mod peripheral {
     use defmt::{debug, error, info, warn, Debug2Format};
     use embassy_futures::select::{select, Either};
@@ -232,7 +246,9 @@ pub mod peripheral {
     use crate::split::drivers::{PeripheralDeviceDriver, PeripheralDeviceError};
     use crate::split::{MessageToCentral, MessageToPeripheral};
 
+    /// A trait that nRF-based keyboards must implement to use bluetooth to drive peripheral devices in a split keyboard setup.
     pub trait NRFBLEPeripheralDevice {
+        /// A "Random Static" bluetooth address of the central device that this peripheral will connect to.
         const CENTRAL_ADDRESS: [u8; 6];
     }
 
@@ -244,6 +260,7 @@ pub mod peripheral {
     pub static BLE_MESSAGES_FROM_CENTRAL: Channel<ThreadModeRawMutex, MessageToPeripheral, 4> =
         Channel::new();
 
+    /// Create an instance of the nRF bluetooth central device driver.
     pub fn setup_split_peripheral_driver<K: NRFBLEPeripheralDevice>() -> NRFBLEPeripheralDriver {
         NRFBLEPeripheralDriver {}
     }

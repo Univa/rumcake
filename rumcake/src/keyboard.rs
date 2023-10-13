@@ -1,3 +1,8 @@
+//! Basic keyboard traits and tasks.
+//!
+//! Generally, keyboards will implement [`KeyboardLayout`] and [`KeyboardMatrix`] as needed.
+//! Keyboard layouts and matrices are implemented with the help of [TeXitoi's `keyberon` crate](`keyberon`).
+
 use core::convert::Infallible;
 use defmt::{debug, info, warn, Debug2Format};
 use embassy_sync::pubsub::{PubSubBehavior, PubSubChannel};
@@ -38,6 +43,7 @@ macro_rules! remap_matrix {
     };
 }
 
+/// Basic keyboard trait that must be implemented to use rumcake. Defines basic keyboard information.
 pub trait Keyboard {
     const MANUFACTURER: &'static str;
     const PRODUCT: &'static str;
@@ -46,14 +52,28 @@ pub trait Keyboard {
     const FIRMWARE_REVISION: &'static str = "1";
 }
 
+/// A trait that must be implemented on a device that communicates with the host device.
 pub trait KeyboardLayout {
-    // Features
     const NUM_ENCODERS: u8 = 0; // Only for VIA compatibility, no proper encoder support. This is the default if not set in QMK
 
-    // Layout settings
+    /// Number of columns in the layout.
+    ///
+    /// It is recommended to use [`build_layout`] to set this constant.
     const LAYOUT_COLS: usize;
+
+    /// Number of rows in the layout.
+    ///
+    /// It is recommended to use [`build_layout`] to set this constant.
     const LAYOUT_ROWS: usize;
+
+    /// Number of layers in the layout.
+    ///
+    /// It is recommended to use [`build_layout`] to set this constant.
     const LAYERS: usize;
+
+    /// Create the default keyboard layout.
+    ///
+    /// It is recommended to use [`build_layout`] to implement this function.
     fn build_layout(
     ) -> &'static Layers<{ Self::LAYOUT_COLS }, { Self::LAYOUT_ROWS }, { Self::LAYERS }, Keycode>;
 }
@@ -105,13 +125,24 @@ macro_rules! setup_keyboard_layout {
     }};
 }
 
+/// A trait that must be implemented for any device that needs to poll a switch matrix.
 pub trait KeyboardMatrix {
-    // Debounce settings
+    /// Debounce setting.
     const DEBOUNCE_MS: u16 = 5;
 
-    // Matrix settings
+    /// Number of matrix columns.
+    ///
+    /// It is recommended to use [`build_matrix`] to set this constant.
     const MATRIX_COLS: usize;
+
+    /// Number of matrix rows.
+    ///
+    /// It is recommended to use [`build_matrix`] to set this constant.
     const MATRIX_ROWS: usize;
+
+    /// Create the keyboard matrix by initializing a set of GPIO pins to use for columns and rows.
+    ///
+    /// It is recommended to use [`build_matrix`] to implement this function.
     fn build_matrix() -> Result<
         Matrix<
             impl InputPin<Error = Infallible>,
@@ -122,6 +153,10 @@ pub trait KeyboardMatrix {
         Infallible,
     >;
 
+    /// Optional function to remap a matrix position to a position on the keyboard layout defined by [`KeyboardLayout::build_layout`].
+    ///
+    /// This is useful in split keyboard setups, where all peripherals have a matrix, but only one
+    /// of the devices stores the overall keyboard layout.
     fn remap_to_layout(row: u8, col: u8) -> (u8, u8) {
         (row, col)
     }
@@ -171,19 +206,26 @@ macro_rules! setup_keyboard_matrix {
     }};
 }
 
-// Custom keycodes to be interact with other rumcake features.
+/// Custom keycodes used to interact with other rumcake features.
+///
+/// These can be used in your keyboard layout, defined in [`KeyboardLayout::build_layout`]
 #[derive(Debug, Clone, Copy)]
 pub enum Keycode {
     #[cfg(feature = "underglow")]
+    /// Underglow keycode, which can be any variant in [`crate::underglow::animations::UnderglowCommand`]
     Underglow(crate::underglow::animations::UnderglowCommand),
     #[cfg(feature = "backlight")]
+    /// Backlight keycode, which can be any variant in [`crate::backlight::animations::BacklightCommand`]
     Backlight(crate::backlight::animations::BacklightCommand),
     #[cfg(feature = "bluetooth")]
+    /// Bluetooth keycode, which can be any variant in [`crate::bluetooth::BluetoothCommand`]
     Bluetooth(crate::bluetooth::BluetoothCommand),
 }
 
-// Channel with keyboard events after polling the matrix
-// The coordinates received will be remapped according to the implementation of `remap_to_layout`
+/// Channel with keyboard events polled from the swtich matrix
+///
+/// The coordinates received will be remapped according to the implementation of
+/// [`KeyboardMatrix::remap_to_layout`].
 pub static POLLED_EVENTS_CHANNEL: Channel<ThreadModeRawMutex, Event, 1> = Channel::new();
 
 #[rumcake_macros::task]
@@ -236,8 +278,13 @@ pub async fn matrix_poll<K: KeyboardMatrix>(
     }
 }
 
-// A PubSubChannel used to send matrix events to be used by other features (e.g. underglow or backlight reactive effects)
-// The coordinates received will be remapped according to the implementation of `remap_to_layout`
+/// A [`PubSubChannel`] used to send matrix events to be consumed by other tasks (e.g. underglow or
+/// backlight reactive effects) The coordinates received will be remapped according to the
+/// implementation of [`KeyboardMatrix::remap_to_layout`].
+///
+/// There can be a maximum of 4 subscribers, and the number of subscribers actually used
+/// depend on what features you have enabled. With underglow and backlight enabled, 2 subscriber
+/// slots will be used.
 pub static MATRIX_EVENTS: PubSubChannel<ThreadModeRawMutex, Event, 4, 4, 1> = PubSubChannel::new();
 
 #[rumcake_macros::task]
@@ -263,7 +310,11 @@ pub async fn layout_register<K: KeyboardLayout>(
     }
 }
 
-// Channel with data to send to PC
+/// Channel for sending NKRO HID keyboard reports.
+///
+/// Channel messages should be consumed by the bluetooth task or USB task, so user-level code
+/// should **not** attempt to receive messages from the channel, otherwise commands may not be
+/// processed appropriately. You should only send to this channel.
 pub static KEYBOARD_REPORT_HID_SEND_CHANNEL: Channel<
     ThreadModeRawMutex,
     NKROBootKeyboardReport,

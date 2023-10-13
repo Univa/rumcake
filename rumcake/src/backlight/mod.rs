@@ -1,3 +1,11 @@
+//! Backlighting features.
+//!
+//! To use backlighting features, keyboards must implement [`BacklightDevice`]
+//! (and optionally [`BacklightMatrixDevice`], if a backlight matrix is desired),
+//! along with the trait corresponding to a driver that implements one of
+//! [`drivers::SimpleBacklightDriver`], [`drivers::SimpleBacklightMatrixDriver`] or
+//! [`drivers::RGBBacklightMatrixDriver`], depending on the desired type of backlighting.
+
 use bitflags::bitflags;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
@@ -15,16 +23,38 @@ pub mod drivers;
 pub mod simple_matrix_animations;
 pub use simple_matrix_animations as animations;
 
+/// A trait that keyboards must implement to use backlight features.
 pub trait BacklightDevice: KeyboardMatrix {
+    /// How fast the LEDs refresh to display a new animation frame.
+    ///
+    /// It is recommended to set this value to a value that your driver can handle,
+    /// otherwise your animations will appear to be slowed down.
+    ///
+    /// **This does not have any effect if the selected animation is static.**
     const FPS: usize = 20;
 }
 
+/// An additional trait that keyboards must implement to use a backlight matrix.
 pub trait BacklightMatrixDevice: BacklightDevice
 where
     [(); Self::MATRIX_COLS]:,
     [(); Self::MATRIX_ROWS]:,
 {
+    /// The **physical** position of each LED on your keyboard.
+    ///
+    /// It is assumed that the LED matrix is the same size as the switch matrix, so
+    /// [`KeyboardMatrix::MATRIX_COLS`], and [`KeyboardMatrix::MATRIX_ROWS`], will determine the
+    /// size of the frame buffer used for LED matrix animations.
+    ///
+    /// A given X or Y coordinate value must fall between 0-255. If any matrix
+    /// positions are unused, you can use `None`. It is recommended to use the
+    /// [led_layout] macro to set this constant.
     const LED_LAYOUT: [[Option<(u8, u8)>; Self::MATRIX_COLS]; Self::MATRIX_ROWS];
+
+    /// The flags of each LED on your keyboard.
+    ///
+    /// You can use any combination of [LEDFlags] for each LED. It is recommended
+    /// to use the [led_flags] macro to set this constant.
     const LED_FLAGS: [[LEDFlags; Self::MATRIX_COLS]; Self::MATRIX_ROWS];
 
     // Effect settings
@@ -106,8 +136,10 @@ macro_rules! led_flags {
     };
 }
 
-// Bits used for the flags correspond to QMK's implementation.
 bitflags! {
+    /// Flags used to mark the purpose of an LED in a backlight matrix.
+    ///
+    /// Bits used for the flags correspond to QMK's implementation.
     pub struct LEDFlags: u8 {
         const NONE = 0b00000000;
         const ALPHA = 0b00000001;
@@ -116,7 +148,11 @@ bitflags! {
     }
 }
 
-// Channel for sending and receiving underglow commands.
+/// Channel for sending backlight commands.
+///
+/// Channel messages should be consumed by the [`backlight_task`], so user-level
+/// level code should **not** attempt to receive messages from the channel, otherwise
+/// commands may not be processed appropriately. You should only send to this channel.
 pub static BACKLIGHT_COMMAND_CHANNEL: Channel<ThreadModeRawMutex, BacklightCommand, 2> =
     Channel::new();
 
