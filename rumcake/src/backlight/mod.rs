@@ -180,14 +180,22 @@ pub async fn backlight_task<D: BacklightMatrixDevice>(
             // We want to wait for a command if the animator is not rendering any animated effects. This allows the task to sleep when the LEDs are static.
             let command = BACKLIGHT_COMMAND_CHANNEL.receive().await;
             animator.process_command(command).await;
+
+            // Ignore any unprocessed matrix events
+            while let Some(_) = subscriber.try_next_message_pure() {}
+
+            // Reset the ticker so that it doesn't try to catch up on "missed" ticks.
+            ticker.reset();
         }
 
         while let Ok(command) = BACKLIGHT_COMMAND_CHANNEL.try_receive() {
             animator.process_command(command).await;
         }
 
-        if let Some(event) = subscriber.try_next_message_pure() {
-            animator.register_event(event);
+        while let Some(event) = subscriber.try_next_message_pure() {
+            if animator.is_reactive() {
+                animator.register_event(event);
+            }
         }
 
         animator.tick().await;
