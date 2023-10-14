@@ -92,6 +92,7 @@ pub enum UnderglowEffect {
     Twinkle,
 
     #[animated]
+    #[reactive]
     Reactive,
 }
 
@@ -133,6 +134,10 @@ where
 
     pub fn is_animated(&self) -> bool {
         self.config.enabled && self.config.effect.is_animated()
+    }
+
+    pub fn is_reactive(&self) -> bool {
+        self.config.enabled && self.config.effect.is_reactive()
     }
 
     pub async fn process_command(&mut self, command: UnderglowCommand) {
