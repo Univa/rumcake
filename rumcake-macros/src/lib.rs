@@ -97,37 +97,57 @@ pub fn generate_items_from_enum_variants(
     .into()
 }
 
-#[proc_macro_derive(LEDEffect, attributes(animated))]
+#[proc_macro_derive(LEDEffect, attributes(animated, reactive))]
 pub fn derive_ledeffect(e: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let item = parse_macro_input!(e as DeriveInput);
     let enum_name = item.ident.clone();
-    let variant_results: Vec<TokenStream> = if let syn::Data::Enum(e) = item.data {
-        e.variants
-            .clone()
-            .iter()
-            .map(|variant| {
-                let variant_name = variant.ident.clone();
-                let result = variant
-                    .attrs
-                    .iter()
-                    .any(|cur| cur.path().is_ident("animated"));
+    let (animated_results, reactive_results): (TokenStream, TokenStream) =
+        if let syn::Data::Enum(e) = item.data {
+            let mut animated_tokens = TokenStream::new();
+            let mut reactive_tokens = TokenStream::new();
 
-                quote! {
-                    #enum_name::#variant_name => #result
-                }
-            })
-            .collect()
-    } else {
-        vec![quote_spanned! {
-            item.span() => compile_error!("LEDEffect can only be derived on enums.")
-        }]
-    };
+            for variant in e.variants.clone().iter() {
+                let variant_name = variant.ident.clone();
+                let (is_animated, is_reactive) =
+                    variant.attrs.iter().fold((false, false), |mut acc, attr| {
+                        if attr.path().is_ident("animated") {
+                            acc.0 = true;
+                        }
+                        if attr.path().is_ident("reactive") {
+                            acc.1 = true;
+                        }
+                        acc
+                    });
+
+                animated_tokens.extend(quote! {
+                    #enum_name::#variant_name => #is_animated,
+                });
+                reactive_tokens.extend(quote! {
+                    #enum_name::#variant_name => #is_reactive,
+                })
+            }
+
+            (animated_tokens, reactive_tokens)
+        } else {
+            (
+                quote_spanned! {
+                    item.span() => _ => compile_error!("LEDEffect can only be derived on enums.")
+                },
+                TokenStream::new(),
+            )
+        };
 
     quote! {
         impl LEDEffect for #enum_name {
             fn is_animated(&self) -> bool {
                 match self {
-                    #(#variant_results),*
+                    #animated_results
+                }
+            }
+
+            fn is_reactive(&self) -> bool {
+                match self {
+                    #reactive_results
                 }
             }
         }

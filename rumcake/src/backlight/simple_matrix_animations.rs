@@ -91,30 +91,39 @@ pub enum BacklightEffect {
     WaveUpDown,
 
     #[animated]
+    #[reactive]
     Reactive,
 
     #[animated]
+    #[reactive]
     ReactiveWide,
 
     #[animated]
+    #[reactive]
     ReactiveMultiWide,
 
     #[animated]
+    #[reactive]
     ReactiveCross,
 
     #[animated]
+    #[reactive]
     ReactiveMultiCross,
 
     #[animated]
+    #[reactive]
     ReactiveNexus,
 
     #[animated]
+    #[reactive]
     ReactiveMultiNexus,
 
     #[animated]
+    #[reactive]
     ReactiveSplash,
 
     #[animated]
+    #[reactive]
     ReactiveMultiSplash,
 }
 
@@ -151,6 +160,10 @@ where
 
     pub fn is_animated(&self) -> bool {
         self.config.enabled && self.config.effect.is_animated()
+    }
+
+    pub fn is_reactive(&self) -> bool {
+        self.config.enabled && self.config.effect.is_reactive()
     }
 
     pub async fn process_command(&mut self, command: BacklightCommand) {

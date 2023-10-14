@@ -22,6 +22,7 @@ impl<T, const N: usize> StaticArray for [T; N] {
 
 trait LEDEffect {
     fn is_animated(&self) -> bool;
+    fn is_reactive(&self) -> bool;
 }
 
 trait Cycle {
