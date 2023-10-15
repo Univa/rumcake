@@ -141,17 +141,34 @@ pub mod underglow {
         Ws2812::new(K::ws2812_pin())
     }
 
-    impl<P: OutputPin, K: UnderglowDevice> UnderglowDriver<K> for Ws2812<P> {
-        type DriverError = ();
+    impl<P: OutputPin, K: UnderglowDevice> UnderglowDriver<K> for Ws2812<P>
+    where
+        [(); K::NUM_LEDS]:,
+    {
+        type DriverWriteError = ();
         type Color = RGB8;
 
-        async fn write<T, I>(&mut self, colors: T) -> Result<(), Self::DriverError>
+        async fn write<T, I>(&mut self, colors: T) -> Result<(), Self::DriverWriteError>
         where
             T: Iterator<Item = I>,
             I: Into<Self::Color>,
         {
             self.write_colors(gamma(colors.map(|c| c.into())));
 
+            Ok(())
+        }
+
+        type DriverEnableError = ();
+
+        async fn turn_on(&mut self) -> Result<(), Self::DriverEnableError> {
+            // Don't need to do anything special, just let the next tick() get called.
+            Ok(())
+        }
+
+        type DriverDisableError = ();
+
+        async fn turn_off(&mut self) -> Result<(), Self::DriverDisableError> {
+            self.write_colors([(0, 0, 0).into(); { K::NUM_LEDS }].iter().cloned());
             Ok(())
         }
     }
@@ -217,14 +234,32 @@ pub mod backlight {
         [(); K::MATRIX_ROWS]:,
         [(); K::MATRIX_ROWS * K::MATRIX_COLS]:,
     {
-        type DriverError = ();
+        type DriverWriteError = ();
 
-        async fn write(&mut self, brightness: u8) -> Result<(), Self::DriverError> {
+        async fn write(&mut self, brightness: u8) -> Result<(), Self::DriverWriteError> {
             let brightnesses =
                 [(brightness, brightness, brightness).into(); { K::MATRIX_ROWS * K::MATRIX_COLS }];
 
             self.write_colors(gamma(brightnesses.iter().cloned()));
 
+            Ok(())
+        }
+
+        type DriverEnableError = ();
+
+        async fn turn_on(&mut self) -> Result<(), Self::DriverEnableError> {
+            // Don't need to do anything special, just let the next tick() get called.
+            Ok(())
+        }
+
+        type DriverDisableError = ();
+
+        async fn turn_off(&mut self) -> Result<(), Self::DriverDisableError> {
+            self.write_colors(
+                [(0, 0, 0).into(); { K::MATRIX_ROWS * K::MATRIX_COLS }]
+                    .iter()
+                    .cloned(),
+            );
             Ok(())
         }
     }
@@ -235,12 +270,12 @@ pub mod backlight {
         [(); K::MATRIX_ROWS]:,
         [(); K::MATRIX_ROWS * K::MATRIX_COLS]:,
     {
-        type DriverError = ();
+        type DriverWriteError = ();
 
         async fn write(
             &mut self,
             buf: &[[u8; K::MATRIX_COLS]; K::MATRIX_ROWS],
-        ) -> Result<(), Self::DriverError> {
+        ) -> Result<(), Self::DriverWriteError> {
             let mut brightnesses = [RGB8::default(); { K::MATRIX_ROWS * K::MATRIX_COLS }];
 
             for (row_num, row) in buf.iter().enumerate() {
@@ -257,6 +292,24 @@ pub mod backlight {
 
             Ok(())
         }
+
+        type DriverEnableError = ();
+
+        async fn turn_on(&mut self) -> Result<(), Self::DriverEnableError> {
+            // Don't need to do anything special, just let the next tick() get called.
+            Ok(())
+        }
+
+        type DriverDisableError = ();
+
+        async fn turn_off(&mut self) -> Result<(), Self::DriverDisableError> {
+            self.write_colors(
+                [(0, 0, 0).into(); { K::MATRIX_ROWS * K::MATRIX_COLS }]
+                    .iter()
+                    .cloned(),
+            );
+            Ok(())
+        }
     }
 
     impl<P: OutputPin, K: WS2812BitbangBacklightDriver> RGBBacklightMatrixDriver<K> for Ws2812<P>
@@ -265,13 +318,13 @@ pub mod backlight {
         [(); K::MATRIX_ROWS]:,
         [(); K::MATRIX_ROWS * K::MATRIX_COLS]:,
     {
-        type DriverError = ();
         type Color = RGB8;
+        type DriverWriteError = ();
 
         async fn write(
             &mut self,
             buf: &[[Self::Color; K::MATRIX_COLS]; K::MATRIX_ROWS],
-        ) -> Result<(), Self::DriverError> {
+        ) -> Result<(), Self::DriverWriteError> {
             let mut colors = [RGB8::default(); { K::MATRIX_ROWS * K::MATRIX_COLS }];
 
             for (row_num, row) in buf.iter().enumerate() {
@@ -286,6 +339,24 @@ pub mod backlight {
 
             self.write_colors(gamma(colors.iter().cloned()));
 
+            Ok(())
+        }
+
+        type DriverEnableError = ();
+
+        async fn turn_on(&mut self) -> Result<(), Self::DriverEnableError> {
+            // Don't need to do anything special, just let the next tick() get called.
+            Ok(())
+        }
+
+        type DriverDisableError = ();
+
+        async fn turn_off(&mut self) -> Result<(), Self::DriverDisableError> {
+            self.write_colors(
+                [(0, 0, 0).into(); { K::MATRIX_ROWS * K::MATRIX_COLS }]
+                    .iter()
+                    .cloned(),
+            );
             Ok(())
         }
     }

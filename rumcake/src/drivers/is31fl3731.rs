@@ -275,12 +275,28 @@ pub mod backlight {
         [(); K::MATRIX_COLS]:,
         [(); K::MATRIX_ROWS]:,
     {
-        type DriverError = Error<I2CError>;
+        type DriverWriteError = Error<I2CError>;
 
-        async fn write(&mut self, brightness: u8) -> Result<(), Self::DriverError> {
+        async fn write(&mut self, brightness: u8) -> Result<(), Self::DriverWriteError> {
             let payload = [gamma(brightness); 144];
 
             self.all_pixels(&payload).await?;
+
+            Ok(())
+        }
+
+        type DriverEnableError = Error<I2CError>;
+
+        async fn turn_on(&mut self) -> Result<(), Self::DriverEnableError> {
+            self.sleep(false).await?;
+
+            Ok(())
+        }
+
+        type DriverDisableError = Error<I2CError>;
+
+        async fn turn_off(&mut self) -> Result<(), Self::DriverDisableError> {
+            self.sleep(true).await?;
 
             Ok(())
         }
@@ -292,12 +308,12 @@ pub mod backlight {
         [(); K::MATRIX_COLS]:,
         [(); K::MATRIX_ROWS]:,
     {
-        type DriverError = Error<I2CError>;
+        type DriverWriteError = Error<I2CError>;
 
         async fn write(
             &mut self,
             buf: &[[u8; K::MATRIX_COLS]; K::MATRIX_ROWS],
-        ) -> Result<(), Self::DriverError> {
+        ) -> Result<(), Self::DriverWriteError> {
             let mut payload = [0; 144];
 
             // Map the frame data to LED offsets and set the brightness of the LED in the payload
@@ -314,6 +330,22 @@ pub mod backlight {
 
             Ok(())
         }
+
+        type DriverEnableError = Error<I2CError>;
+
+        async fn turn_on(&mut self) -> Result<(), Self::DriverEnableError> {
+            self.sleep(false).await?;
+
+            Ok(())
+        }
+
+        type DriverDisableError = Error<I2CError>;
+
+        async fn turn_off(&mut self) -> Result<(), Self::DriverDisableError> {
+            self.sleep(true).await?;
+
+            Ok(())
+        }
     }
 
     impl<I2CError: Debug, I2C: I2c<Error = I2CError>, K: IS31FL3731BacklightDriver>
@@ -323,12 +355,12 @@ pub mod backlight {
         [(); K::MATRIX_ROWS]:,
     {
         type Color = RGB8;
-        type DriverError = Error<I2CError>;
+        type DriverWriteError = Error<I2CError>;
 
         async fn write(
             &mut self,
             buf: &[[Self::Color; K::MATRIX_COLS]; K::MATRIX_ROWS],
-        ) -> Result<(), Self::DriverError> {
+        ) -> Result<(), Self::DriverWriteError> {
             let mut payload = [0; 144];
 
             // Map the frame data to LED offsets and set the brightness of the LED in the payload
@@ -347,6 +379,22 @@ pub mod backlight {
             }
 
             self.all_pixels(&payload).await?;
+
+            Ok(())
+        }
+
+        type DriverEnableError = Error<I2CError>;
+
+        async fn turn_on(&mut self) -> Result<(), Self::DriverEnableError> {
+            self.sleep(false).await?;
+
+            Ok(())
+        }
+
+        type DriverDisableError = Error<I2CError>;
+
+        async fn turn_off(&mut self) -> Result<(), Self::DriverDisableError> {
+            self.sleep(true).await?;
 
             Ok(())
         }
