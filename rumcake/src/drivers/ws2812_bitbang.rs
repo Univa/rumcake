@@ -188,19 +188,19 @@ pub mod backlight {
 
     #[macro_export]
     macro_rules! ws2812_get_led_from_matrix_coordinates {
-    ($([$($no1:ident)* $($led:literal $($no2:ident)*)* ])*) => {
-        fn get_led_from_matrix_coordinates(x: u8, y: u8) -> Option<u8> {
-            let lookup: [[Option<u8>; Self::MATRIX_COLS]; Self::MATRIX_ROWS] = [
-                $([
-                    $(${ignore(no1)} None,)*
-                    $(Some($led), $(${ignore(no2)} None,)*)*
-                ]),*
-            ];
+        ($([$($no1:ident)* $($led:literal $($no2:ident)*)* ])*) => {
+            fn get_led_from_matrix_coordinates(x: u8, y: u8) -> Option<u8> {
+                let lookup: [[Option<u8>; Self::MATRIX_COLS]; Self::MATRIX_ROWS] = [
+                    $([
+                        $(${ignore(no1)} None,)*
+                        $(Some($led), $(${ignore(no2)} None,)*)*
+                    ]),*
+                ];
 
-            lookup[y as usize][x as usize]
-        }
-    };
-}
+                lookup[y as usize][x as usize]
+            }
+        };
+    }
 
     /// Create an instance of the WS2812 bitbang driver based on the implementation of [`WS2812BitbangBacklightDriver`].
     pub async fn setup_backlight_driver<K: WS2812BitbangBacklightDriver>() -> Ws2812<impl OutputPin>
