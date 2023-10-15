@@ -1,7 +1,7 @@
 use core::f32::consts::PI;
 
 use super::drivers::UnderglowDriver;
-use super::UnderglowDevice;
+use super::{UnderglowDevice, UNDERGLOW_CONFIG_STATE};
 use crate::math::sin;
 use crate::{Cycle, LEDEffect};
 use rumcake_macros::{generate_items_from_enum_variants, Cycle, LEDEffect};
@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use smart_leds::hsv::{hsv2rgb, Hsv};
 use smart_leds::RGB8;
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UnderglowConfig {
     pub enabled: bool,
     pub effect: UnderglowEffect,
@@ -25,8 +25,8 @@ pub struct UnderglowConfig {
     pub speed: u8,
 }
 
-impl Default for UnderglowConfig {
-    fn default() -> Self {
+impl UnderglowConfig {
+    pub const fn default() -> Self {
         UnderglowConfig {
             enabled: true,
             effect: UnderglowEffect::Solid,
@@ -35,6 +35,12 @@ impl Default for UnderglowConfig {
             val: 255,
             speed: 86,
         }
+    }
+}
+
+impl Default for UnderglowConfig {
+    fn default() -> Self {
+        Self::default()
     }
 }
 
@@ -59,7 +65,9 @@ pub enum UnderglowCommand {
 }
 
 #[generate_items_from_enum_variants("const {variant_shouty_snake_case}_ENABLED: bool = true")]
-#[derive(FromPrimitive, Serialize, Deserialize, Debug, Clone, Copy, LEDEffect, Cycle)]
+#[derive(
+    FromPrimitive, Serialize, Deserialize, Debug, Clone, Copy, LEDEffect, Cycle, PartialEq, Eq,
+)]
 pub enum UnderglowEffect {
     Solid,
 
@@ -100,13 +108,13 @@ pub struct UnderglowAnimator<R: UnderglowDriver<D, Color = RGB8>, D: UnderglowDe
 where
     [(); D::NUM_LEDS]:,
 {
-    config: UnderglowConfig,
-    buf: [RGB8; D::NUM_LEDS],
-    twinkle_state: [(Hsv, u8); D::NUM_LEDS], // For the twinkle effect specifically, tracks the lifespan of lit LEDs.
-    tick: u32,
-    time_of_last_press: u32,
-    driver: R,
-    rng: SmallRng,
+    pub(super) config: UnderglowConfig,
+    pub(super) buf: [RGB8; D::NUM_LEDS],
+    pub(super) twinkle_state: [(Hsv, u8); D::NUM_LEDS], // For the twinkle effect specifically, tracks the lifespan of lit LEDs.
+    pub(super) tick: u32,
+    pub(super) time_of_last_press: u32,
+    pub(super) driver: R,
+    pub(super) rng: SmallRng,
 }
 
 impl<R: UnderglowDriver<D, Color = RGB8>, D: UnderglowDevice> UnderglowAnimator<R, D>
@@ -132,25 +140,22 @@ where
         }
     }
 
-    pub fn is_animated(&self) -> bool {
-        self.config.enabled && self.config.effect.is_animated()
+    pub async fn turn_on(&mut self) {
+        if let Err(err) = self.driver.turn_on().await {
+            warn!("[UNDERGLOW] Animations have been enabled, but the underglow LEDs could not be turned on: {}", Debug2Format(&err));
+        };
     }
 
-    pub fn is_reactive(&self) -> bool {
-        self.config.enabled && self.config.effect.is_reactive()
+    pub async fn turn_off(&mut self) {
+        if let Err(err) = self.driver.turn_off().await {
+            warn!("[UNDERGLOW] Animations have been disabled, but the underglow LEDs could not be turned off: {}", Debug2Format(&err));
+        };
     }
 
-    pub async fn process_command(&mut self, command: UnderglowCommand) {
+    pub fn process_command(&mut self, command: UnderglowCommand) {
         match command {
             UnderglowCommand::Toggle => {
                 self.config.enabled = !self.config.enabled;
-                if let Err(err) = self
-                    .driver
-                    .write([RGB8::new(0, 0, 0); D::NUM_LEDS].iter().cloned())
-                    .await
-                {
-                    warn!("[UNDERGLOW] Animations have been disabled, but the underglow LEDs could not be turned off: {}", Debug2Format(&err));
-                };
             }
             UnderglowCommand::NextEffect => {
                 self.config.effect.increment();
@@ -199,22 +204,7 @@ where
             UnderglowCommand::SetTime(time) => {
                 self.tick = time;
             }
-        }
-
-        // Send commands to be consumed by the split peripherals
-        #[cfg(feature = "split-central")]
-        {
-            crate::split::central::MESSAGE_TO_PERIPHERALS
-                .send(crate::split::MessageToPeripheral::Underglow(
-                    UnderglowCommand::SetTime(self.tick),
-                ))
-                .await;
-            crate::split::central::MESSAGE_TO_PERIPHERALS
-                .send(crate::split::MessageToPeripheral::Underglow(
-                    UnderglowCommand::SetConfig(self.config),
-                ))
-                .await;
-        }
+        };
     }
 
     pub fn set_brightness_for_each_led(&mut self, calc: impl Fn(&mut Self, f32, u8) -> Hsv) {

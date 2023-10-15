@@ -7,9 +7,9 @@
 //! [`drivers::RGBBacklightMatrixDriver`], depending on the desired type of backlighting.
 
 use bitflags::bitflags;
+use embassy_futures::select::{select, Either};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
-use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Ticker};
 
 use self::drivers::SimpleBacklightMatrixDriver;
@@ -17,6 +17,7 @@ use self::simple_matrix_animations::{
     backlight_effect_items, BacklightAnimator, BacklightCommand, BacklightConfig,
 };
 use crate::keyboard::{KeyboardMatrix, MATRIX_EVENTS};
+use crate::{LEDEffect, State};
 
 pub mod drivers;
 // pub mod simple_animations;
@@ -156,8 +157,9 @@ bitflags! {
 pub static BACKLIGHT_COMMAND_CHANNEL: Channel<ThreadModeRawMutex, BacklightCommand, 2> =
     Channel::new();
 
-#[cfg(feature = "via")]
-pub static BACKLIGHT_STATE: Signal<ThreadModeRawMutex, BacklightConfig> = Signal::new();
+/// State that contains the current configuration for the backlight animator.
+pub static BACKLIGHT_CONFIG_STATE: State<BacklightConfig> =
+    State::new(BacklightConfig::default(), &[]);
 
 #[rumcake_macros::task]
 pub async fn backlight_task<D: BacklightMatrixDevice>(
@@ -167,39 +169,85 @@ pub async fn backlight_task<D: BacklightMatrixDevice>(
     [(); D::MATRIX_COLS]:,
     [(); D::MATRIX_ROWS]:,
 {
-    // TODO: Get the default from EEPROM if possible
-    let mut animator = BacklightAnimator::new(Default::default(), driver);
-    animator.tick().await; // Force a frame to be rendered in the event that the initial effect is static.
-
     let mut subscriber = MATRIX_EVENTS.subscriber().unwrap();
-
     let mut ticker = Ticker::every(Duration::from_millis(1000 / D::FPS as u64));
 
+    // TODO: Get the default from EEPROM if possible
+    // The animator has a local copy of the backlight config state so that it doesn't have to lock the config every frame
+    let mut animator = BacklightAnimator::new(BACKLIGHT_CONFIG_STATE.get().await, driver);
+    match animator.config.enabled {
+        true => animator.turn_on().await,
+        false => animator.turn_off().await,
+    }
+    animator.tick().await; // Force a frame to be rendered in the event that the initial effect is static.
+
     loop {
-        if !animator.is_animated() {
+        let command = if !(animator.config.enabled && animator.config.effect.is_animated()) {
             // We want to wait for a command if the animator is not rendering any animated effects. This allows the task to sleep when the LEDs are static.
-            let command = BACKLIGHT_COMMAND_CHANNEL.receive().await;
-            animator.process_command(command).await;
+            Some(BACKLIGHT_COMMAND_CHANNEL.receive().await)
+        } else {
+            match select(ticker.next(), BACKLIGHT_COMMAND_CHANNEL.receive()).await {
+                Either::First(()) => {
+                    while let Some(event) = subscriber.try_next_message_pure() {
+                        if animator.config.enabled && animator.config.effect.is_reactive() {
+                            animator.register_event(event);
+                        }
+                    }
+
+                    None
+                }
+                Either::Second(command) => Some(command),
+            }
+        };
+
+        // Process the command if one was received, otherwise continue to render
+        if let Some(command) = command {
+            // Update the config state, including the animator's own copy, check if it was enabled/disabled
+            let toggled = BACKLIGHT_CONFIG_STATE
+                .update(|config| {
+                    animator.process_command(command);
+
+                    // Process commands until there are no more to process
+                    while let Ok(command) = BACKLIGHT_COMMAND_CHANNEL.try_receive() {
+                        animator.process_command(command);
+                    }
+
+                    let toggled = config.enabled != animator.config.enabled;
+                    **config = animator.config;
+
+                    toggled
+                })
+                .await;
+
+            if toggled {
+                match animator.config.enabled {
+                    true => animator.turn_on().await,
+                    false => animator.turn_off().await,
+                }
+            }
+
+            // Send commands to be consumed by the split peripherals
+            #[cfg(feature = "split-central")]
+            {
+                crate::split::central::MESSAGE_TO_PERIPHERALS
+                    .send(crate::split::MessageToPeripheral::Backlight(
+                        BacklightCommand::SetTime(animator.tick),
+                    ))
+                    .await;
+                crate::split::central::MESSAGE_TO_PERIPHERALS
+                    .send(crate::split::MessageToPeripheral::Backlight(
+                        BacklightCommand::SetConfig(animator.config),
+                    ))
+                    .await;
+            }
 
             // Ignore any unprocessed matrix events
-            while let Some(_) = subscriber.try_next_message_pure() {}
+            while subscriber.try_next_message_pure().is_some() {}
 
             // Reset the ticker so that it doesn't try to catch up on "missed" ticks.
             ticker.reset();
         }
 
-        while let Ok(command) = BACKLIGHT_COMMAND_CHANNEL.try_receive() {
-            animator.process_command(command).await;
-        }
-
-        while let Some(event) = subscriber.try_next_message_pure() {
-            if animator.is_reactive() {
-                animator.register_event(event);
-            }
-        }
-
         animator.tick().await;
-
-        ticker.next().await;
     }
 }

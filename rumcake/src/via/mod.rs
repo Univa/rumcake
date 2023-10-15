@@ -507,7 +507,7 @@ pub async fn process_via_command<K: ViaKeyboard>(
                     Some(ViaChannelId::Backlight) => {
                         match command {
                             ViaCommandId::CustomGetValue => {
-                                let config = crate::backlight::BACKLIGHT_STATE.wait().await;
+                                let config = crate::backlight::BACKLIGHT_CONFIG_STATE.get().await;
 
                                 match num::FromPrimitive::from_u8(data[2]) {
                                     Some(ViaBacklightValue::Brightness) => {
@@ -566,7 +566,7 @@ pub async fn process_via_command<K: ViaKeyboard>(
                     Some(ViaChannelId::LEDMatrix) => {
                         match command {
                             ViaCommandId::CustomGetValue => {
-                                let config = crate::backlight::BACKLIGHT_STATE.wait().await;
+                                let config = crate::backlight::BACKLIGHT_CONFIG_STATE.get().await;
 
                                 match num::FromPrimitive::from_u8(data[2]) {
                                     Some(ViaLEDMatrixValue::Brightness) => {
@@ -709,7 +709,7 @@ pub async fn process_via_command<K: ViaKeyboard>(
                     Some(ViaChannelId::RGBLight) => {
                         match command {
                             ViaCommandId::CustomGetValue => {
-                                let config = crate::underglow::UNDERGLOW_STATE.wait().await;
+                                let config = crate::underglow::UNDERGLOW_CONFIG_STATE.get().await;
 
                                 match num::FromPrimitive::from_u8(data[2]) {
                                     Some(ViaRGBLightValue::Brightness) => {

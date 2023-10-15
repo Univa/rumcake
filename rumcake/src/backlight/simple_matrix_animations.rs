@@ -14,7 +14,7 @@ use rand_core::{RngCore, SeedableRng};
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BacklightConfig {
     pub enabled: bool,
     pub effect: BacklightEffect,
@@ -22,14 +22,20 @@ pub struct BacklightConfig {
     pub speed: u8,
 }
 
-impl Default for BacklightConfig {
-    fn default() -> Self {
+impl BacklightConfig {
+    pub const fn default() -> Self {
         BacklightConfig {
             enabled: true,
-            effect: BacklightEffect::Raindrops,
+            effect: BacklightEffect::Solid,
             val: 255,
             speed: 86,
         }
+    }
+}
+
+impl Default for BacklightConfig {
+    fn default() -> Self {
+        Self::default()
     }
 }
 
@@ -50,7 +56,9 @@ pub enum BacklightCommand {
 }
 
 #[generate_items_from_enum_variants("const {variant_shouty_snake_case}_ENABLED: bool = true")]
-#[derive(FromPrimitive, Serialize, Deserialize, Debug, Clone, Copy, LEDEffect, Cycle)]
+#[derive(
+    FromPrimitive, Serialize, Deserialize, Debug, Clone, Copy, LEDEffect, Cycle, PartialEq, Eq,
+)]
 pub enum BacklightEffect {
     Solid,
     AlphasMods,
@@ -127,18 +135,18 @@ pub enum BacklightEffect {
     ReactiveMultiSplash,
 }
 
-pub struct BacklightAnimator<'a, K: BacklightMatrixDevice, D: SimpleBacklightMatrixDriver<K>>
+pub(super) struct BacklightAnimator<'a, K: BacklightMatrixDevice, D: SimpleBacklightMatrixDriver<K>>
 where
     [(); K::MATRIX_COLS]:,
     [(); K::MATRIX_ROWS]:,
 {
-    config: BacklightConfig,
-    buf: [[u8; K::MATRIX_COLS]; K::MATRIX_ROWS], // Stores the brightness/value of each LED
-    last_presses: ConstGenericRingBuffer<((u8, u8), u32), 8>, // Stores the row and col of the last 8 key presses, and the time (in ticks) it was pressed
-    tick: u32,
-    driver: D,
-    bounds: LayoutBounds,
-    rng: SmallRng,
+    pub(super) config: BacklightConfig,
+    pub(super) buf: [[u8; K::MATRIX_COLS]; K::MATRIX_ROWS], // Stores the brightness/value of each LED
+    pub(super) last_presses: ConstGenericRingBuffer<((u8, u8), u32), 8>, // Stores the row and col of the last 8 key presses, and the time (in ticks) it was pressed
+    pub(super) tick: u32,
+    pub(super) driver: D,
+    pub(super) bounds: LayoutBounds,
+    pub(super) rng: SmallRng,
 }
 
 impl<K: BacklightMatrixDevice, D: SimpleBacklightMatrixDriver<K>> BacklightAnimator<'_, K, D>
@@ -158,22 +166,22 @@ where
         }
     }
 
-    pub fn is_animated(&self) -> bool {
-        self.config.enabled && self.config.effect.is_animated()
+    pub async fn turn_on(&mut self) {
+        if let Err(err) = self.driver.turn_on().await {
+            warn!("[BACKLIGHT] Animations have been enabled, but the backlight LEDs could not be turned on: {}", Debug2Format(&err));
+        };
     }
 
-    pub fn is_reactive(&self) -> bool {
-        self.config.enabled && self.config.effect.is_reactive()
+    pub async fn turn_off(&mut self) {
+        if let Err(err) = self.driver.turn_off().await {
+            warn!("[BACKLIGHT] Animations have been disabled, but the backlight LEDs could not be turned off: {}", Debug2Format(&err));
+        };
     }
 
-    pub async fn process_command(&mut self, command: BacklightCommand) {
+    pub fn process_command(&mut self, command: BacklightCommand) {
         match command {
             BacklightCommand::Toggle => {
                 self.config.enabled = !self.config.enabled;
-
-                if let Err(err) = self.driver.write(&self.buf).await {
-                    warn!("[BACKLIGHT] Animations have been disabled, but the backlight LEDs could not be turned off: {}", Debug2Format(&err));
-                };
             }
             BacklightCommand::NextEffect => {
                 self.config.effect.increment();
@@ -208,22 +216,7 @@ where
             BacklightCommand::SetTime(time) => {
                 self.tick = time;
             }
-        }
-
-        // Send commands to be consumed by the split peripherals
-        #[cfg(feature = "split-central")]
-        {
-            crate::split::central::MESSAGE_TO_PERIPHERALS
-                .send(crate::split::MessageToPeripheral::Backlight(
-                    BacklightCommand::SetTime(self.tick),
-                ))
-                .await;
-            crate::split::central::MESSAGE_TO_PERIPHERALS
-                .send(crate::split::MessageToPeripheral::Backlight(
-                    BacklightCommand::SetConfig(self.config),
-                ))
-                .await;
-        }
+        };
     }
 
     pub fn set_brightness_for_each_led(
