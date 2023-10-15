@@ -104,7 +104,7 @@ pub enum UnderglowEffect {
     Reactive,
 }
 
-pub struct UnderglowAnimator<R: UnderglowDriver<D, Color = RGB8>, D: UnderglowDevice>
+pub(super) struct UnderglowAnimator<R: UnderglowDriver<D, Color = RGB8>, D: UnderglowDevice>
 where
     [(); D::NUM_LEDS]:,
 {
