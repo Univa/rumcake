@@ -9,7 +9,7 @@
 #![doc = include_str!("../../README.md")]
 
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::mutex::Mutex;
+use embassy_sync::mutex::{Mutex, MutexGuard};
 use embassy_sync::signal::Signal;
 
 pub trait StaticArray {
@@ -54,10 +54,33 @@ impl<'a, T: Clone + PartialEq> State<'a, T> {
             *data = value;
             changed
         };
+
         if changed {
-            for listener in self.listeners.iter() {
-                listener.signal(());
-            }
+            self.notify_listeners();
+        }
+    }
+
+    async fn update<R>(
+        &self,
+        updater: impl FnOnce(&mut MutexGuard<'_, ThreadModeRawMutex, T>) -> R,
+    ) -> R {
+        let (changed, update_result) = {
+            let mut data = self.data.lock().await;
+            let old = data.clone();
+            let update_result = updater(&mut data);
+            (old != *data, update_result)
+        };
+
+        if changed {
+            self.notify_listeners();
+        }
+
+        update_result
+    }
+
+    fn notify_listeners(&self) {
+        for listener in self.listeners.iter() {
+            listener.signal(());
         }
     }
 }
