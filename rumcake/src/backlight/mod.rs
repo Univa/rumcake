@@ -12,17 +12,21 @@ use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_time::{Duration, Ticker};
 
-use self::drivers::SimpleBacklightMatrixDriver;
-use self::simple_matrix_animations::{
-    backlight_effect_items, BacklightAnimator, BacklightCommand, BacklightConfig,
-};
 use crate::keyboard::{KeyboardMatrix, MATRIX_EVENTS};
 use crate::{LEDEffect, State};
 
 pub mod drivers;
-// pub mod simple_animations;
+pub mod simple_animations;
 pub mod simple_matrix_animations;
+
+// use drivers::SimpleBacklightDriver as DriverType;
+// pub use simple_animations as animations;
+use drivers::SimpleBacklightMatrixDriver as DriverType;
 pub use simple_matrix_animations as animations;
+
+use self::animations::{
+    backlight_effect_items, BacklightAnimator, BacklightCommand, BacklightConfig,
+};
 
 /// A trait that keyboards must implement to use backlight features.
 pub trait BacklightDevice: KeyboardMatrix {
@@ -161,11 +165,12 @@ pub static BACKLIGHT_COMMAND_CHANNEL: Channel<ThreadModeRawMutex, BacklightComma
 pub static BACKLIGHT_CONFIG_STATE: State<BacklightConfig> =
     State::new(BacklightConfig::default(), &[]);
 
+// use BacklightDevice as DeviceTrait;
+use BacklightMatrixDevice as DeviceTrait;
+
 #[rumcake_macros::task]
-pub async fn backlight_task<D: BacklightMatrixDevice>(
-    _k: D,
-    driver: impl SimpleBacklightMatrixDriver<D> + 'static,
-) where
+pub async fn backlight_task<D: DeviceTrait>(_k: D, driver: impl DriverType<D> + 'static)
+where
     [(); D::MATRIX_COLS]:,
     [(); D::MATRIX_ROWS]:,
 {
