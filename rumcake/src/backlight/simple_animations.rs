@@ -1,4 +1,4 @@
-use super::drivers::{SimpleBacklightDriver, SimpleBacklightMatrixDriver};
+use super::drivers::SimpleBacklightDriver;
 use super::BacklightDevice;
 use crate::math::sin;
 use crate::{Cycle, LEDEffect};
@@ -14,7 +14,7 @@ use rand_core::SeedableRng;
 use ringbuffer::RingBuffer;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BacklightConfig {
     pub enabled: bool,
     pub effect: BacklightEffect,
@@ -22,14 +22,20 @@ pub struct BacklightConfig {
     pub speed: u8,
 }
 
-impl Default for BacklightConfig {
-    fn default() -> Self {
+impl BacklightConfig {
+    pub const fn default() -> Self {
         BacklightConfig {
             enabled: true,
             effect: BacklightEffect::Solid,
             val: 255,
             speed: 86,
         }
+    }
+}
+
+impl Default for BacklightConfig {
+    fn default() -> Self {
+        Self::default()
     }
 }
 
@@ -50,7 +56,9 @@ pub enum BacklightCommand {
 }
 
 #[generate_items_from_enum_variants("const {variant_shouty_snake_case}_ENABLED: bool = true")]
-#[derive(FromPrimitive, Serialize, Deserialize, Debug, Clone, Copy, LEDEffect, Cycle)]
+#[derive(
+    FromPrimitive, Serialize, Deserialize, Debug, Clone, Copy, LEDEffect, Cycle, PartialEq, Eq,
+)]
 pub enum BacklightEffect {
     Solid,
 
@@ -58,17 +66,18 @@ pub enum BacklightEffect {
     Breathing,
 
     #[animated]
+    #[reactive]
     Reactive,
 }
 
-pub struct BacklightAnimator<K: BacklightDevice, D: SimpleBacklightDriver<K>> {
-    config: BacklightConfig,
-    buf: u8, // Stores the current brightness/value. Different from `self.config.val`.
-    time_of_last_press: u32,
-    tick: u32,
-    driver: D,
-    rng: SmallRng,
-    phantom: PhantomData<K>,
+pub(super) struct BacklightAnimator<K: BacklightDevice, D: SimpleBacklightDriver<K>> {
+    pub(super) config: BacklightConfig,
+    pub(super) buf: u8, // Stores the current brightness/value. Different from `self.config.val`.
+    pub(super) time_of_last_press: u32,
+    pub(super) tick: u32,
+    pub(super) driver: D,
+    pub(super) rng: SmallRng,
+    pub(super) phantom: PhantomData<K>,
 }
 
 impl<K: BacklightDevice, D: SimpleBacklightDriver<K>> BacklightAnimator<K, D> {
@@ -84,18 +93,22 @@ impl<K: BacklightDevice, D: SimpleBacklightDriver<K>> BacklightAnimator<K, D> {
         }
     }
 
-    pub fn is_animated(&self) -> bool {
-        self.config.enabled && self.config.effect.is_animated()
+    pub async fn turn_on(&mut self) {
+        if let Err(err) = self.driver.turn_on().await {
+            warn!("[BACKLIGHT] Animations have been enabled, but the backlight LEDs could not be turned on: {}", Debug2Format(&err));
+        };
     }
 
-    pub async fn process_command(&mut self, command: BacklightCommand) {
+    pub async fn turn_off(&mut self) {
+        if let Err(err) = self.driver.turn_off().await {
+            warn!("[BACKLIGHT] Animations have been disabled, but the backlight LEDs could not be turned off: {}", Debug2Format(&err));
+        };
+    }
+
+    pub fn process_command(&mut self, command: BacklightCommand) {
         match command {
             BacklightCommand::Toggle => {
                 self.config.enabled = !self.config.enabled;
-
-                if let Err(err) = self.driver.write(self.buf).await {
-                    warn!("Animations have been disabled, but the backlight LEDs could not be turned off: {}", Debug2Format(&err));
-                };
             }
             BacklightCommand::NextEffect => {
                 self.config.effect.increment();
@@ -130,21 +143,6 @@ impl<K: BacklightDevice, D: SimpleBacklightDriver<K>> BacklightAnimator<K, D> {
             BacklightCommand::SetTime(time) => {
                 self.tick = time;
             }
-        }
-
-        // Send commands to be consumed by the split peripherals
-        #[cfg(feature = "split-central")]
-        {
-            crate::split::central::MESSAGE_TO_PERIPHERALS
-                .send(crate::split::MessageToPeripheral::Backlight(
-                    BacklightCommand::SetTime(self.tick),
-                ))
-                .await;
-            crate::split::central::MESSAGE_TO_PERIPHERALS
-                .send(crate::split::MessageToPeripheral::Backlight(
-                    BacklightCommand::SetConfig(self.config),
-                ))
-                .await;
         }
     }
 
