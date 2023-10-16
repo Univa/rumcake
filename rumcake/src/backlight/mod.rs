@@ -33,6 +33,9 @@ pub trait BacklightDevice: KeyboardMatrix {
     ///
     /// **This does not have any effect if the selected animation is static.**
     const FPS: usize = 20;
+
+    // Effect settings
+    backlight_effect_items!();
 }
 
 /// An additional trait that keyboards must implement to use a backlight matrix.
@@ -57,9 +60,6 @@ where
     /// You can use any combination of [LEDFlags] for each LED. It is recommended
     /// to use the [led_flags] macro to set this constant.
     const LED_FLAGS: [[LEDFlags; Self::MATRIX_COLS]; Self::MATRIX_ROWS];
-
-    // Effect settings
-    backlight_effect_items!();
 }
 
 #[macro_export]
