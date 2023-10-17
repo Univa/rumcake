@@ -10,10 +10,10 @@ use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::signal::Signal;
 
-use crate::keyboard::Keyboard;
+use crate::keyboard::{Keyboard, KeyboardLayout};
 
 /// A trait that keyboards must implement to communicate with host devices over Bluetooth (LE).
-pub trait BluetoothKeyboard: Keyboard {
+pub trait BluetoothKeyboard: Keyboard + KeyboardLayout {
     /// Vendor ID for the keyboard.
     const BLE_VID: u16;
 
