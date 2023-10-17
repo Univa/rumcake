@@ -19,7 +19,7 @@ embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "b1abaa38"
 embassy-usb = { git = "https://github.com/embassy-rs/embassy", rev = "b1abaa38", features = ["defmt"] }
 embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", rev = "b1abaa38", features = ["defmt", "memory-x", "nightly", "unstable-pac", "unstable-traits"], optional = true }
 embassy-nrf = { git = "https://github.com/embassy-rs/embassy", rev = "b1abaa38", features = ["defmt", "nightly", "nfc-pins-as-gpio", "unstable-traits", "time-driver-rtc1"], optional = true }
-nrf-softdevice = { git = "https://github.com/Univa/nrf-softdevice", optional = true }
+nrf-softdevice = { git = "https://github.com/embassy-rs/nrf-softdevice", rev = "487f98e", optional = true }
 keyberon = { git = "https://github.com/TeXitoi/keyberon", branch = "master" }
 once_cell = { version = "1.18.0", features = ["atomic-polyfill"], default-features = false }
 static_cell = "1.0.0"
