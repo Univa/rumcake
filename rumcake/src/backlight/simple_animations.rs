@@ -194,7 +194,10 @@ impl<K: BacklightDevice, D: SimpleBacklightDriver<K>> BacklightAnimator<K, D> {
         }
 
         if let Err(err) = self.driver.write(self.buf).await {
-            error!("Couldn't update backlight: {}", Debug2Format(&err));
+            error!(
+                "[BACKLIGHT] Couldn't update backlight: {}",
+                Debug2Format(&err)
+            );
         };
 
         self.tick += 1;
