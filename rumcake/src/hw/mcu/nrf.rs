@@ -51,10 +51,8 @@ macro_rules! output_pin {
 }
 
 #[cfg(feature = "nrf-ble")]
-lazy_static::lazy_static! {
-    static ref VBUS_DETECT: embassy_nrf::usb::vbus_detect::SoftwareVbusDetect =
-        embassy_nrf::usb::vbus_detect::SoftwareVbusDetect::new(true, true);
-}
+static VBUS_DETECT: once_cell::sync::OnceCell<embassy_nrf::usb::vbus_detect::SoftwareVbusDetect> =
+    once_cell::sync::OnceCell::new();
 
 #[cfg(feature = "usb")]
 pub fn setup_usb_driver<K: crate::usb::USBKeyboard + 'static>() -> embassy_usb::Builder<
@@ -79,11 +77,15 @@ pub fn setup_usb_driver<K: crate::usb::USBKeyboard + 'static>() -> embassy_usb::
         config.serial_number.replace(K::SERIAL_NUMBER);
         config.max_power = 100;
 
+        #[cfg(feature = "nrf-ble")]
+        let vbus_detect = VBUS_DETECT
+            .get_or_init(|| embassy_nrf::usb::vbus_detect::SoftwareVbusDetect::new(true, true));
+
         let usb_driver = Driver::new(
             embassy_nrf::peripherals::USBD::steal(),
             Irqs,
             #[cfg(feature = "nrf-ble")]
-            &*VBUS_DETECT,
+            vbus_detect,
             #[cfg(not(feature = "nrf-ble"))]
             embassy_nrf::usb::vbus_detect::HardwareVbusDetect::new(Irqs),
         );
@@ -264,15 +266,18 @@ pub async fn softdevice_task(sd: &'static nrf_softdevice::Softdevice) {
         nrf_softdevice::raw::sd_power_usbremoved_enable(true as u8);
     }
 
+    let vbus_detect = VBUS_DETECT
+        .get_or_init(|| embassy_nrf::usb::vbus_detect::SoftwareVbusDetect::new(true, true));
+
     sd.run_with_callback(|e| match e {
         nrf_softdevice::SocEvent::PowerUsbPowerReady => {
-            VBUS_DETECT.ready();
+            vbus_detect.ready();
         }
         nrf_softdevice::SocEvent::PowerUsbDetected => {
-            VBUS_DETECT.detected(true);
+            vbus_detect.detected(true);
         }
         nrf_softdevice::SocEvent::PowerUsbRemoved => {
-            VBUS_DETECT.detected(false);
+            vbus_detect.detected(false);
         }
         _ => {}
     })
