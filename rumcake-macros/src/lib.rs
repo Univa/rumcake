@@ -514,7 +514,7 @@ pub fn task(
     inner.block.stmts.insert(
         0,
         parse_quote! {
-            defmt::debug!("{} has spawned.", #task_name_string);
+            defmt::info!("{} has spawned.", #task_name_string);
         },
     );
     let inner_ident = inner.sig.ident.clone();
