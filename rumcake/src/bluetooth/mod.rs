@@ -44,5 +44,5 @@ pub enum BluetoothCommand {
 pub static BLUETOOTH_COMMAND_CHANNEL: Channel<ThreadModeRawMutex, BluetoothCommand, 2> =
     Channel::new();
 
-pub static USB_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();
-pub static BATTERY_LEVEL_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();
+pub(crate) static USB_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();
+pub(crate) static BATTERY_LEVEL_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();
