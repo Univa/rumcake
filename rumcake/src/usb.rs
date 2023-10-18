@@ -2,7 +2,7 @@
 //!
 //! To use USB host communication, keyboards must implement [`USBKeyboard`].
 
-use defmt::{debug, error, info, Debug2Format};
+use defmt::{error, info, Debug2Format};
 use embassy_futures::select::{self, select};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::signal::Signal;
@@ -96,7 +96,7 @@ pub async fn usb_hid_kb_write_task(
                     info!("[USB] USB HID reports enabled = {}", USB_STATE.get().await);
                 }
                 select::Either::Second(report) => {
-                    debug!(
+                    info!(
                         "[USB] Writing HID keyboard report to USB: {:?}",
                         Debug2Format(&report)
                     );

@@ -663,7 +663,7 @@ where
                                 }
                                 select::Either::Second(report) => {
                                     // TODO: media keys
-                                    debug!(
+                                    info!(
                                         "[BT_HID] Writing HID keyboard report to bluetooth: {:?}",
                                         Debug2Format(&report)
                                     );
@@ -694,7 +694,7 @@ where
                         let report = KEYBOARD_REPORT_HID_SEND_CHANNEL.receive().await;
 
                         // TODO: media keys
-                        debug!(
+                        info!(
                             "[BT_HID] Writing HID keyboard report to bluetooth: {:?}",
                             Debug2Format(&report)
                         );
