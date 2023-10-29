@@ -47,29 +47,41 @@ impl<'a, T: Clone + PartialEq> State<'a, T> {
         self.data.lock().await.clone()
     }
 
-    async fn set(&self, value: T) {
-        let changed = {
-            let mut data = self.data.lock().await;
-            let changed = *data != value;
-            *data = value;
-            changed
-        };
+    async fn set_inner(&self, value: T) -> bool {
+        let mut data = self.data.lock().await;
+        let changed = *data != value;
+        *data = value;
+        changed
+    }
 
-        if changed {
+    /// Update state and notify listeners
+    async fn set(&self, value: T) {
+        if self.set_inner(value).await {
             self.notify_listeners();
         }
     }
 
+    /// Update state without notifying listeners
+    async fn quiet_set(&self, value: T) {
+        self.set_inner(value).await;
+    }
+
+    async fn update_inner<R>(
+        &self,
+        updater: impl FnOnce(&mut MutexGuard<'_, ThreadModeRawMutex, T>) -> R,
+    ) -> (bool, R) {
+        let mut data = self.data.lock().await;
+        let old = data.clone();
+        let update_result = updater(&mut data);
+        (old != *data, update_result)
+    }
+
+    /// Update state using a function, and notify listeners
     async fn update<R>(
         &self,
         updater: impl FnOnce(&mut MutexGuard<'_, ThreadModeRawMutex, T>) -> R,
     ) -> R {
-        let (changed, update_result) = {
-            let mut data = self.data.lock().await;
-            let old = data.clone();
-            let update_result = updater(&mut data);
-            (old != *data, update_result)
-        };
+        let (changed, update_result) = self.update_inner(updater).await;
 
         if changed {
             self.notify_listeners();
@@ -78,6 +90,16 @@ impl<'a, T: Clone + PartialEq> State<'a, T> {
         update_result
     }
 
+    /// Update state using a function without notify listeners
+    async fn quiet_update<R>(
+        &self,
+        updater: impl FnOnce(&mut MutexGuard<'_, ThreadModeRawMutex, T>) -> R,
+    ) -> R {
+        let (_changed, update_result) = self.update_inner(updater).await;
+        update_result
+    }
+
+    /// Send a signal to the listeners. Normally used to notify listeners of any changes to state.
     fn notify_listeners(&self) {
         for listener in self.listeners.iter() {
             listener.signal(());
@@ -107,8 +129,8 @@ pub use rumcake_macros::main as keyboard;
 pub mod keyboard;
 mod math;
 
-#[cfg(feature = "eeprom")]
-pub mod eeprom;
+#[cfg(feature = "storage")]
+pub mod storage;
 
 #[cfg(feature = "underglow")]
 pub mod underglow;
@@ -167,6 +189,9 @@ pub mod tasks {
 
     #[cfg(feature = "split-peripheral")]
     pub use crate::split::peripheral::__peripheral_task_task;
+
+    #[cfg(feature = "storage")]
+    pub use crate::storage::__storage_task_task;
 
     #[cfg(feature = "nrf")]
     pub use crate::hw::mcu::__adc_task_task;

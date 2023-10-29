@@ -7,7 +7,10 @@ use embassy_nrf::usb::Driver;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Timer};
-use embedded_storage::nor_flash::NorFlash;
+use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
+use embedded_storage_async::nor_flash::{
+    NorFlash as AsyncNorFlash, ReadNorFlash as AsyncReadNorFlash,
+};
 use static_cell::StaticCell;
 
 use crate::hw::BATTERY_LEVEL_STATE;
@@ -118,6 +121,52 @@ pub fn setup_flash() -> &'static mut Mutex<ThreadModeRawMutex, impl NorFlash> {
             embassy_nrf::peripherals::NVMC::steal(),
         )))
     }
+}
+
+pub struct NRFFlash {
+    flash: Nvmc<'static>,
+}
+
+impl ErrorType for NRFFlash {
+    type Error = embassy_nrf::nvmc::Error;
+}
+
+impl AsyncReadNorFlash for NRFFlash {
+    const READ_SIZE: usize = <Nvmc as ReadNorFlash>::READ_SIZE;
+
+    async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
+        self.flash.read(offset, bytes)
+    }
+
+    fn capacity(&self) -> usize {
+        self.flash.capacity()
+    }
+}
+
+impl AsyncNorFlash for NRFFlash {
+    const WRITE_SIZE: usize = <Nvmc as embedded_storage::nor_flash::NorFlash>::WRITE_SIZE;
+
+    const ERASE_SIZE: usize = <Nvmc as embedded_storage::nor_flash::NorFlash>::ERASE_SIZE;
+
+    async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+        self.flash.erase(from, to)
+    }
+
+    async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
+        self.flash.write(offset, bytes)
+    }
+}
+
+pub fn setup_internal_flash() -> NRFFlash {
+    NRFFlash {
+        flash: unsafe { Nvmc::new(embassy_nrf::peripherals::NVMC::steal()) },
+    }
+}
+
+pub fn setup_internal_softdevice_flash(
+    sd: &'static nrf_softdevice::Softdevice,
+) -> nrf_softdevice::Flash {
+    nrf_softdevice::Flash::take(sd)
 }
 
 #[rumcake_macros::task]

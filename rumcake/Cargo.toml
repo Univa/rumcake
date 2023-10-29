@@ -8,6 +8,7 @@ defmt = "0.3"
 embedded-hal = "0.2.7"
 embedded-hal-async = "1.0.0-rc.1"
 embedded-storage = "0.3.0"
+embedded-storage-async = "0.4.0"
 embedded-io-async = "0.5.0"
 embedded-graphics = { version = "0.8.1", featuers = ["defmt"] }
 embedded-layout = "0.3.2"
@@ -17,9 +18,10 @@ embassy-futures = { git = "https://github.com/embassy-rs/embassy", rev = "b1abaa
 embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "b1abaa38", features = ["defmt", "integrated-timers", "executor-thread", "nightly"] }
 embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "b1abaa38", features = ["defmt", "defmt-timestamp-uptime", "nightly"] }
 embassy-usb = { git = "https://github.com/embassy-rs/embassy", rev = "b1abaa38", features = ["defmt"] }
-embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", rev = "b1abaa38", features = ["defmt", "memory-x", "nightly", "unstable-pac", "unstable-traits"], optional = true }
+embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", rev = "b1abaa38", features = ["defmt", "nightly", "unstable-pac", "unstable-traits"], optional = true }
 embassy-nrf = { git = "https://github.com/embassy-rs/embassy", rev = "b1abaa38", features = ["defmt", "nightly", "nfc-pins-as-gpio", "unstable-traits", "time-driver-rtc1"], optional = true }
 nrf-softdevice = { git = "https://github.com/embassy-rs/nrf-softdevice", rev = "487f98e", optional = true }
+tickv = { git = "https://github.com/tock/tock", rev = "18cf287" }
 keyberon = { git = "https://github.com/TeXitoi/keyberon", branch = "master" }
 once_cell = { version = "1.18.0", features = ["atomic-polyfill"], default-features = false }
 static_cell = "1.0.0"
@@ -37,7 +39,7 @@ libm = "0.2.7"
 
 # serialization for split keyboard setups
 serde = { version = "1.0.188", default-features = false, features = ["derive"] }
-postcard = "1.0.7"
+postcard = { version = "1.0.7", features = ["experimental-derive"] }
 
 # third party utilities for dealing with rgb values
 smart-leds = "0.3.0"
@@ -66,17 +68,17 @@ stm32f303cb = ["stm32", "embassy-stm32/stm32f303cb", "embassy-stm32/time-driver-
 
 # nRF5x
 nrf = ["dep:embassy-nrf", "rumcake-macros/nrf"]
-nrf-ble = ["dep:nrf-softdevice", "nrf-softdevice/defmt", "nrf-softdevice/ble-sec", "nrf-softdevice/critical-section-impl"]
+nrf-ble = ["dep:nrf-softdevice", "nrf-softdevice/defmt", "nrf-softdevice/ble-sec", "nrf-softdevice/critical-section-impl", "nrf-softdevice/nightly"]
 nrf52840 = ["nrf", "embassy-nrf/nrf52840", "nrf-softdevice?/nrf52840", "nrf-softdevice?/s140", "embassy-executor/arch-cortex-m"]
 
-eeprom = []
+storage = []
 
 #
 # Keyboard features
 #
 
 # Via/Vial
-via = ["usb", "eeprom", "rumcake-macros/via"]
+via = ["usb", "storage", "rumcake-macros/via"]
 vial = ["via", "rumcake-macros/vial"]
 
 # Host communication

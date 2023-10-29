@@ -9,12 +9,13 @@ use core::u8;
 use defmt::{error, warn, Debug2Format};
 use keyberon::layout::Event;
 use num_derive::FromPrimitive;
+use postcard::experimental::max_size::MaxSize;
 use rand::rngs::SmallRng;
 use rand_core::{RngCore, SeedableRng};
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, MaxSize)]
 pub struct BacklightConfig {
     pub enabled: bool,
     pub effect: BacklightEffect,
@@ -50,14 +51,24 @@ pub enum BacklightCommand {
     SetSpeed(u8),
     AdjustSpeed(i16),
     SetConfig(BacklightConfig),
-    #[cfg(feature = "eeprom")]
+    #[cfg(feature = "storage")]
     SaveConfig,
     SetTime(u32), // normally used internally for syncing LEDs for split keyboards
 }
 
 #[generate_items_from_enum_variants("const {variant_shouty_snake_case}_ENABLED: bool = true")]
 #[derive(
-    FromPrimitive, Serialize, Deserialize, Debug, Clone, Copy, LEDEffect, Cycle, PartialEq, Eq,
+    FromPrimitive,
+    Serialize,
+    Deserialize,
+    Debug,
+    Clone,
+    Copy,
+    LEDEffect,
+    Cycle,
+    PartialEq,
+    Eq,
+    MaxSize,
 )]
 pub enum BacklightEffect {
     Solid,
@@ -178,7 +189,7 @@ where
         };
     }
 
-    pub fn process_command(&mut self, command: BacklightCommand) {
+    pub async fn process_command(&mut self, command: BacklightCommand) {
         match command {
             BacklightCommand::Toggle => {
                 self.config.enabled = !self.config.enabled;
@@ -209,9 +220,13 @@ where
             BacklightCommand::SetConfig(config) => {
                 self.config = config;
             }
-            #[cfg(feature = "eeprom")]
+            #[cfg(feature = "storage")]
             BacklightCommand::SaveConfig => {
-                // TODO: save changes to EEPROM
+                super::BACKLIGHT_CONFIG_STORAGE_CLIENT
+                    .request(crate::storage::StorageRequest::Write(
+                        super::BACKLIGHT_CONFIG_STATE.get().await,
+                    ))
+                    .await;
             }
             BacklightCommand::SetTime(time) => {
                 self.tick = time;

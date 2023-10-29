@@ -16,7 +16,7 @@ You must enable the following `rumcake` features:
 
 - `underglow`
 - `drivers` (optional built-in drivers to power underglow)
-- `eeprom` (optional, if you want to save your backlight settings)
+- `storage` (optional, if you want to save your backlight settings)
 
 ### Required code
 
@@ -63,7 +63,7 @@ AdjustValue(i16),
 SetSpeed(u8),
 AdjustSpeed(i16),
 SetConfig(UnderglowConfig),
-SaveConfig, // normally called internally when the underglow config changes, only available if `eeprom` is enabled
+SaveConfig, // normally called internally when the underglow config changes, only available if `storage` is enabled
 SetTime(u32), // normally used internally for syncing LEDs for split keyboards
 ```
 

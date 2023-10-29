@@ -1,4 +1,4 @@
-use crate::eeprom::KeyboardWithEEPROM;
+use crate::storage::KeyboardWithEEPROM;
 use crate::usb::USBKeyboard;
 use defmt::{debug, error, warn, Debug2Format};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
@@ -552,7 +552,7 @@ pub async fn process_via_command<K: ViaKeyboard>(
                                 };
                             }
                             ViaCommandId::CustomSave => {
-                                #[cfg(feature = "eeprom")]
+                                #[cfg(feature = "storage")]
                                 crate::backlight::BACKLIGHT_COMMAND_CHANNEL
                                     .send(
                                         crate::backlight::animations::BacklightCommand::SaveConfig,
@@ -619,7 +619,7 @@ pub async fn process_via_command<K: ViaKeyboard>(
                                 };
                             }
                             ViaCommandId::CustomSave => {
-                                #[cfg(feature = "eeprom")]
+                                #[cfg(feature = "storage")]
                                 crate::backlight::BACKLIGHT_COMMAND_CHANNEL
                                     .send(
                                         crate::backlight::animations::BacklightCommand::SaveConfig,
@@ -695,7 +695,7 @@ pub async fn process_via_command<K: ViaKeyboard>(
                                 };
                             }
                             ViaCommandId::CustomSave => {
-                                #[cfg(feature = "eeprom")]
+                                #[cfg(feature = "storage")]
                                 crate::backlight::BACKLIGHT_COMMAND_CHANNEL
                                     .send(
                                         crate::backlight::animations::BacklightCommand::SaveConfig,
@@ -774,7 +774,7 @@ pub async fn process_via_command<K: ViaKeyboard>(
                                 };
                             }
                             ViaCommandId::CustomSave => {
-                                #[cfg(feature = "eeprom")]
+                                #[cfg(feature = "storage")]
                                 crate::underglow::UNDERGLOW_COMMAND_CHANNEL
                                     .send(
                                         crate::underglow::animations::UnderglowCommand::SaveConfig,

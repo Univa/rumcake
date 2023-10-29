@@ -22,8 +22,8 @@ embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", features = ["de
 stm32 = []
 nrf = []
 
-eeprom = []
+storage = []
 
-via = ["eeprom"]
+via = ["storage"]
 vial = ["via"]
 

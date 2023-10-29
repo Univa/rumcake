@@ -10,7 +10,10 @@ use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
 use embedded_hal::blocking::i2c::Write;
 use embedded_hal_async::i2c::I2c as AsyncI2c;
-use embedded_storage::nor_flash::NorFlash;
+use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
+use embedded_storage_async::nor_flash::{
+    NorFlash as AsyncNorFlash, ReadNorFlash as AsyncReadNorFlash,
+};
 use static_cell::StaticCell;
 
 #[cfg(feature = "stm32f072cb")]
@@ -128,6 +131,46 @@ pub fn setup_flash() -> &'static mut Mutex<ThreadModeRawMutex, impl NorFlash> {
                 .into_blocking_regions()
                 .bank1_region,
         ))
+    }
+}
+
+pub struct STM32Flash {
+    flash: Flash<'static, Blocking>,
+}
+
+impl ErrorType for STM32Flash {
+    type Error = embassy_stm32::flash::Error;
+}
+
+impl AsyncReadNorFlash for STM32Flash {
+    const READ_SIZE: usize = <Flash as ReadNorFlash>::READ_SIZE;
+
+    async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
+        self.flash.read(offset, bytes)
+    }
+
+    fn capacity(&self) -> usize {
+        self.flash.capacity()
+    }
+}
+
+impl AsyncNorFlash for STM32Flash {
+    const WRITE_SIZE: usize = <Flash as embedded_storage::nor_flash::NorFlash>::WRITE_SIZE;
+
+    const ERASE_SIZE: usize = <Flash as embedded_storage::nor_flash::NorFlash>::ERASE_SIZE;
+
+    async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+        self.flash.erase(from, to)
+    }
+
+    async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
+        self.flash.write(offset, bytes)
+    }
+}
+
+pub fn setup_internal_flash() -> STM32Flash {
+    STM32Flash {
+        flash: unsafe { Flash::new_blocking(FLASH::steal()) },
     }
 }
 

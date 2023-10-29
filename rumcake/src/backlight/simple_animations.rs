@@ -2,6 +2,7 @@ use super::drivers::SimpleBacklightDriver;
 use super::BacklightDevice;
 use crate::math::sin;
 use crate::{Cycle, LEDEffect};
+use postcard::experimental::max_size::MaxSize;
 use rumcake_macros::{generate_items_from_enum_variants, Cycle, LEDEffect};
 
 use core::marker::PhantomData;
@@ -14,7 +15,7 @@ use rand_core::SeedableRng;
 use ringbuffer::RingBuffer;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, MaxSize)]
 pub struct BacklightConfig {
     pub enabled: bool,
     pub effect: BacklightEffect,
@@ -50,14 +51,24 @@ pub enum BacklightCommand {
     SetSpeed(u8),
     AdjustSpeed(i16),
     SetConfig(BacklightConfig),
-    #[cfg(feature = "eeprom")]
+    #[cfg(feature = "storage")]
     SaveConfig,
     SetTime(u32), // normally used internally for syncing LEDs for split keyboards
 }
 
 #[generate_items_from_enum_variants("const {variant_shouty_snake_case}_ENABLED: bool = true")]
 #[derive(
-    FromPrimitive, Serialize, Deserialize, Debug, Clone, Copy, LEDEffect, Cycle, PartialEq, Eq,
+    FromPrimitive,
+    Serialize,
+    Deserialize,
+    Debug,
+    Clone,
+    Copy,
+    LEDEffect,
+    Cycle,
+    PartialEq,
+    Eq,
+    MaxSize,
 )]
 pub enum BacklightEffect {
     Solid,
@@ -105,7 +116,7 @@ impl<K: BacklightDevice, D: SimpleBacklightDriver<K>> BacklightAnimator<K, D> {
         };
     }
 
-    pub fn process_command(&mut self, command: BacklightCommand) {
+    pub async fn process_command(&mut self, command: BacklightCommand) {
         match command {
             BacklightCommand::Toggle => {
                 self.config.enabled = !self.config.enabled;
@@ -136,9 +147,13 @@ impl<K: BacklightDevice, D: SimpleBacklightDriver<K>> BacklightAnimator<K, D> {
             BacklightCommand::SetConfig(config) => {
                 self.config = config;
             }
-            #[cfg(feature = "eeprom")]
+            #[cfg(feature = "storage")]
             BacklightCommand::SaveConfig => {
-                // TODO: save changes to EEPROM
+                super::BACKLIGHT_CONFIG_STORAGE_CLIENT
+                    .request(crate::storage::StorageRequest::Write(
+                        super::BACKLIGHT_CONFIG_STATE.get().await,
+                    ))
+                    .await;
             }
             BacklightCommand::SetTime(time) => {
                 self.tick = time;

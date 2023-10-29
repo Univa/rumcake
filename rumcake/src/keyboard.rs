@@ -348,7 +348,7 @@ pub async fn layout_collect<K: KeyboardLayout>(
                         crate::underglow::UNDERGLOW_COMMAND_CHANNEL
                             .send(*command)
                             .await;
-                        #[cfg(feature = "eeprom")]
+                        #[cfg(feature = "storage")]
                         crate::underglow::UNDERGLOW_COMMAND_CHANNEL
                             .send(crate::underglow::animations::UnderglowCommand::SaveConfig)
                             .await;
@@ -358,7 +358,7 @@ pub async fn layout_collect<K: KeyboardLayout>(
                         crate::backlight::BACKLIGHT_COMMAND_CHANNEL
                             .send(*command)
                             .await;
-                        #[cfg(feature = "eeprom")]
+                        #[cfg(feature = "storage")]
                         crate::backlight::BACKLIGHT_COMMAND_CHANNEL
                             .send(crate::backlight::animations::BacklightCommand::SaveConfig)
                             .await;

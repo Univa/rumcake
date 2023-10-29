@@ -16,7 +16,7 @@ You must enable the following `rumcake` features:
 
 - `backlight`
 - `drivers` (optional built-in drivers to power backlighting)
-- `eeprom` (optional, if you want to save your backlight settings)
+- `storage` (optional, if you want to save your backlight settings)
 
 Some drivers may not be able to support all backlight types.
 
@@ -107,7 +107,7 @@ AdjustValue(i16),
 SetSpeed(u8),
 AdjustSpeed(i16),
 SetConfig(BacklightConfig),
-SaveConfig, // normally called internally when the backlight config changes, only available if `eeprom` is enabled
+SaveConfig, // normally called internally when the backlight config changes, only available if `storage` is enabled
 SetTime(u32), // normally used internally for syncing LEDs for split keyboards
 ```
 

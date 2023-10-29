@@ -18,7 +18,7 @@
 You must enable the following `rumcake` features:
 
 - `via` or `vial` (depending on what you want to use)
-- `eeprom`
+- `storage`
 
 ### Required code
 

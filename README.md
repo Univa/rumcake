@@ -77,11 +77,11 @@ The following features are _working_, but may not be stable or has missing compo
 - Underglow
 - Split keyboards over BLE
 - Displays (e.g. SSD1306)
+- Storage
 
 ### Not yet working, WIP
 
 - Via/Vial
-- EEPROM
 
 ### Planned
 

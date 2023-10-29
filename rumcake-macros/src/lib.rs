@@ -199,6 +199,8 @@ struct KeyboardArgs {
     #[darling(default)]
     no_matrix: bool,
     #[darling(default)]
+    no_storage: bool,
+    #[darling(default)]
     bluetooth: bool,
     #[darling(default)]
     usb: bool,
@@ -208,6 +210,8 @@ struct KeyboardArgs {
     underglow: Option<String>,
     #[darling(default)]
     display: Option<String>,
+    #[darling(default)]
+    storage: Option<String>,
     #[darling(default)]
     split_peripheral: Option<String>,
     #[darling(default)]
@@ -267,6 +271,27 @@ fn setup_display_driver(kb_name: &Ident, driver: &str) -> Option<TokenStream> {
     }
 }
 
+fn setup_storage_driver(driver: &str, uses_bluetooth: bool) -> Option<TokenStream> {
+    match driver {
+        "internal" => {
+            if cfg!(feature = "nrf") && uses_bluetooth {
+                Some(quote! {
+                    let storage_driver = rumcake::hw::mcu::setup_internal_softdevice_flash(sd);
+                    let config_start = unsafe { &rumcake::hw::__config_start as *const u32 as usize };
+                    let config_end = unsafe { &rumcake::hw::__config_end as *const u32 as usize };
+                })
+            } else {
+                Some(quote! {
+                    let storage_driver = rumcake::hw::mcu::setup_internal_flash();
+                    let config_start = unsafe { &rumcake::hw::__config_start as *const u32 as usize };
+                    let config_end = unsafe { &rumcake::hw::__config_end as *const u32 as usize };
+                })
+            }
+        }
+        _ => None,
+    }
+}
+
 #[proc_macro_attribute]
 pub fn main(
     args: proc_macro::TokenStream,
@@ -280,6 +305,16 @@ pub fn main(
 
     let mut initialization = TokenStream::new();
     let mut spawning = TokenStream::new();
+
+    let uses_bluetooth = keyboard.bluetooth
+        || keyboard
+            .split_peripheral
+            .as_ref()
+            .is_some_and(|driver| driver == "ble")
+        || keyboard
+            .split_central
+            .as_ref()
+            .is_some_and(|driver| driver == "ble");
 
     // Setup microcontroller
     initialization.extend(quote! {
@@ -304,16 +339,7 @@ pub fn main(
             spawner.spawn(rumcake::adc_task!()).unwrap();
         });
 
-        if keyboard.bluetooth
-            || keyboard
-                .split_peripheral
-                .as_ref()
-                .is_some_and(|driver| driver == "ble")
-            || keyboard
-                .split_central
-                .as_ref()
-                .is_some_and(|driver| driver == "ble")
-        {
+        if uses_bluetooth {
             initialization.extend(quote! {
                 let sd = rumcake::hw::mcu::setup_softdevice::<#kb_name>();
             });
@@ -321,6 +347,22 @@ pub fn main(
                 spawner.spawn(rumcake::softdevice_task!(sd)).unwrap();
             });
         }
+    }
+
+    // Flash setup
+    if !keyboard.no_storage {
+        // Default to internal flash if a driver is not specified
+        let driver = if let Some(driver) = keyboard.storage {
+            driver
+        } else {
+            "internal".to_string()
+        };
+        let driver_setup = setup_storage_driver(driver.as_str(), uses_bluetooth);
+
+        initialization.extend(driver_setup);
+        spawning.extend(quote! {
+            spawner.spawn(rumcake::storage_task!(storage_driver, config_start, config_end)).unwrap();
+        });
     }
 
     if keyboard.bluetooth || keyboard.usb {
@@ -365,39 +407,39 @@ pub fn main(
         });
     }
 
-    #[cfg(feature = "eeprom")]
-    initialization.extend(quote! {
-        // Flash setup
-        let raw_hid_flash = rumcake::hw::mcu::setup_flash();
-    });
+    // #[cfg(feature = "storage")]
+    // initialization.extend(quote! {
+    //     // Flash setup
+    //     let raw_hid_flash = rumcake::hw::mcu::setup_flash();
+    // });
 
-    // The appropriate via/vial request handler built by `setup_raw_hid_request_handler` is chosen based on the feature flags set on `rumcake`.
-    #[cfg(feature = "via")]
-    {
-        initialization.extend(quote! {
-            // Via HID setup
-            let (via_reader, via_writer) =
-                rumcake::via::setup_usb_via_hid_reader_writer(&mut builder).split();
-        });
-        spawning.extend(quote! {
-            // HID raw report (for VIA) reading and writing
-            spawner
-                .spawn(rumcake::usb_hid_via_read_task!(via_reader))
-                .unwrap();
-        })
-    }
+    // // The appropriate via/vial request handler built by `setup_raw_hid_request_handler` is chosen based on the feature flags set on `rumcake`.
+    // #[cfg(feature = "via")]
+    // {
+    //     initialization.extend(quote! {
+    //         // Via HID setup
+    //         let (via_reader, via_writer) =
+    //             rumcake::via::setup_usb_via_hid_reader_writer(&mut builder).split();
+    //     });
+    //     spawning.extend(quote! {
+    //         // HID raw report (for VIA) reading and writing
+    //         spawner
+    //             .spawn(rumcake::usb_hid_via_read_task!(via_reader))
+    //             .unwrap();
+    //     })
+    // }
 
-    #[cfg(all(feature = "via", not(feature = "vial")))]
-    spawning.extend(quote! {
-        spawner.spawn(rumcake::usb_hid_via_write_task!(#kb_name, debouncer, raw_hid_flash, via_writer)).unwrap();
-    });
+    // #[cfg(all(feature = "via", not(feature = "vial")))]
+    // spawning.extend(quote! {
+    //     spawner.spawn(rumcake::usb_hid_via_write_task!(#kb_name, debouncer, raw_hid_flash, via_writer)).unwrap();
+    // });
 
-    #[cfg(feature = "vial")]
-    spawning.extend(quote! {
-        spawner
-            .spawn(rumcake::usb_hid_vial_write_task!(#kb_name, debouncer, raw_hid_flash, via_writer))
-            .unwrap();
-    });
+    // #[cfg(feature = "vial")]
+    // spawning.extend(quote! {
+    //     spawner
+    //         .spawn(rumcake::usb_hid_vial_write_task!(#kb_name, debouncer, raw_hid_flash, via_writer))
+    //         .unwrap();
+    // });
 
     // Split keyboard setup
     if let Some(ref driver) = keyboard.split_peripheral {
