@@ -6,6 +6,21 @@
 //! [`drivers::SimpleBacklightDriver`], [`drivers::SimpleBacklightMatrixDriver`] or
 //! [`drivers::RGBBacklightMatrixDriver`], depending on the desired type of backlighting.
 
+#[cfg(all(
+    feature = "backlight",
+    not(feature = "simple-backlight"),
+    not(feature = "simple-backlight-matrix"),
+    not(feature = "rgb-backlight-matrix")
+))]
+compile_error!("Please enable one of the following features to use backlight: `simple-backlight`, `simple-backlight-matrix`, `rgb-backlight-matrix`");
+
+#[cfg(any(
+    all(feature = "simple-backlight", feature = "simple-backlight-matrix"),
+    all(feature = "simple-backlight", feature = "rgb-backlight-matrix"),
+    all(feature = "simple-backlight-matrix", feature = "rgb-backlight-matrix")
+))]
+compile_error!("Exactly one of `simple-backlight`, `simple-backlight-matrix`, `rgb-backlight-matrix` must be enabled at a time. Please choose the one that you want to use.");
+
 use bitflags::bitflags;
 use defmt::{info, warn, Debug2Format};
 use embassy_futures::join;
@@ -19,13 +34,27 @@ use crate::keyboard::{KeyboardMatrix, MATRIX_EVENTS};
 use crate::{LEDEffect, State};
 
 pub mod drivers;
-pub mod simple_animations;
-pub mod simple_matrix_animations;
 
-// use drivers::SimpleBacklightDriver as DriverType;
-// pub use simple_animations as animations;
+#[cfg(feature = "simple-backlight")]
+use drivers::SimpleBacklightDriver as DriverType;
+#[cfg(feature = "simple-backlight")]
+pub mod simple_animations;
+#[cfg(feature = "simple-backlight")]
+pub use simple_animations as animations;
+
+#[cfg(feature = "simple-backlight-matrix")]
 use drivers::SimpleBacklightMatrixDriver as DriverType;
+#[cfg(feature = "simple-backlight-matrix")]
+pub mod simple_matrix_animations;
+#[cfg(feature = "simple-backlight-matrix")]
 pub use simple_matrix_animations as animations;
+
+#[cfg(feature = "rgb-backlight-matrix")]
+use drivers::RGBBacklightMatrixDriver as DriverType;
+#[cfg(feature = "rgb-backlight-matrix")]
+pub mod rgb_matrix_animations;
+#[cfg(feature = "rgb-backlight-matrix")]
+pub use rgb_matrix_animations as animations;
 
 use self::animations::{
     backlight_effect_items, BacklightAnimator, BacklightCommand, BacklightConfig,
@@ -188,7 +217,9 @@ static BACKLIGHT_CONFIG_STORAGE_CLIENT: crate::storage::StorageClient<
     4,
 > = BACKLIGHT_CONFIG_STORAGE_SERVICE.client();
 
-// use BacklightDevice as DeviceTrait;
+#[cfg(feature = "simple-backlight")]
+use BacklightDevice as DeviceTrait;
+#[cfg(any(feature = "simple-backlight-matrix", feature = "rgb-backlight-matrix"))]
 use BacklightMatrixDevice as DeviceTrait;
 
 #[rumcake_macros::task]

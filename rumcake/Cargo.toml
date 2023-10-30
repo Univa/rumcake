@@ -88,6 +88,9 @@ bluetooth = ["nrf-softdevice?/ble-peripheral", "nrf-softdevice?/ble-gatt-server"
 underglow = []
 
 backlight = []
+simple-backlight = ["backlight"]
+simple-backlight-matrix = ["backlight"]
+rgb-backlight-matrix = ["backlight"]
 
 display = []
 

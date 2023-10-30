@@ -14,7 +14,10 @@
 
 You must enable the following `rumcake` features:
 
-- `backlight`
+- Exactly one of:
+  - `simple-backlight` (single color backlighting, all LEDs have the same brightness)
+  - `simple-backlight-matrix` (single color backlighting, each LED in the matrix is individually controllable)
+  - `rgb-backlight-matrix` (RGB backlighting, each LED in the matrix is individually controllable)
 - `drivers` (optional built-in drivers to power backlighting)
 - `storage` (optional, if you want to save your backlight settings)
 

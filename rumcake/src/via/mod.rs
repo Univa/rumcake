@@ -503,7 +503,7 @@ pub async fn process_via_command<K: ViaKeyboard>(
                     || command == ViaCommandId::CustomSave =>
             {
                 match num::FromPrimitive::from_u8(data[1]) {
-                    #[cfg(feature = "backlight")]
+                    #[cfg(feature = "simple-backlight")]
                     Some(ViaChannelId::Backlight) => {
                         match command {
                             ViaCommandId::CustomGetValue => {
@@ -562,7 +562,7 @@ pub async fn process_via_command<K: ViaKeyboard>(
                             _ => unreachable!("Should not happen"),
                         };
                     }
-                    #[cfg(feature = "backlight")]
+                    #[cfg(feature = "simple-backlight-matrix")]
                     Some(ViaChannelId::LEDMatrix) => {
                         match command {
                             ViaCommandId::CustomGetValue => {
@@ -629,27 +629,25 @@ pub async fn process_via_command<K: ViaKeyboard>(
                             _ => unreachable!("Should not happen"),
                         };
                     }
-                    #[cfg(feature = "backlight")]
+                    #[cfg(feature = "rgb-backlight-matrix")]
                     Some(ViaChannelId::RGBMatrix) => {
                         match command {
                             ViaCommandId::CustomGetValue => {
+                                let config = crate::backlight::BACKLIGHT_CONFIG_STATE.get().await;
+
                                 match num::FromPrimitive::from_u8(data[2]) {
                                     Some(ViaRGBMatrixValue::Brightness) => {
-                                        // TODO: replace this with just the raw 8bit value of the brightness, no math needed
-                                        data[3] = 0;
+                                        data[3] = config.val;
                                     }
                                     Some(ViaRGBMatrixValue::Effect) => {
-                                        // TODO: get effect
-                                        data[3] = 0;
+                                        data[3] = config.effect as u8;
                                     }
                                     Some(ViaRGBMatrixValue::EffectSpeed) => {
-                                        // TODO: get speed
-                                        data[3] = 0;
+                                        data[3] = config.speed;
                                     }
                                     Some(ViaRGBMatrixValue::Color) => {
-                                        // TODO: get hue and sat
-                                        data[3] = 0; // hue
-                                        data[4] = 0; // sat
+                                        data[3] = config.hue;
+                                        data[4] = config.sat;
                                     }
                                     None => {
                                         warn!(
@@ -684,7 +682,12 @@ pub async fn process_via_command<K: ViaKeyboard>(
                                             .await;
                                     }
                                     Some(ViaRGBMatrixValue::Color) => {
-                                        // TODO: build separate animation system for RGB matrix, and then implement this
+                                        crate::backlight::BACKLIGHT_COMMAND_CHANNEL
+                                            .send(crate::backlight::animations::BacklightCommand::SetHue(data[3]))
+                                            .await;
+                                        crate::backlight::BACKLIGHT_COMMAND_CHANNEL
+                                            .send(crate::backlight::animations::BacklightCommand::SetSaturation(data[4]))
+                                            .await;
                                     }
                                     None => {
                                         warn!(
