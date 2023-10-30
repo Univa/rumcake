@@ -354,12 +354,11 @@ pub mod backlight {
         [(); K::MATRIX_COLS]:,
         [(); K::MATRIX_ROWS]:,
     {
-        type Color = RGB8;
         type DriverWriteError = Error<I2CError>;
 
         async fn write(
             &mut self,
-            buf: &[[Self::Color; K::MATRIX_COLS]; K::MATRIX_ROWS],
+            buf: &[[RGB8; K::MATRIX_COLS]; K::MATRIX_ROWS],
         ) -> Result<(), Self::DriverWriteError> {
             let mut payload = [0; 144];
 

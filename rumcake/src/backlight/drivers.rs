@@ -2,6 +2,8 @@
 
 use core::fmt::Debug;
 
+use smart_leds::RGB8;
+
 use super::{BacklightDevice, BacklightMatrixDevice};
 
 /// A trait that a driver must implement in order to support a simple (no matrix, one color) backlighting scheme.
@@ -78,16 +80,13 @@ where
     [(); K::MATRIX_COLS]:,
     [(); K::MATRIX_ROWS]:,
 {
-    /// The color used for frame buffers, to be consumed by the driver in [`RGBBacklightMatrixDriver::write`].
-    type Color;
-
     /// The type of error that the driver will return if [`RGBBacklightMatrixDriver::write`] fails.
     type DriverWriteError: Debug;
 
     /// Render out a frame buffer using the driver.
     async fn write(
         &mut self,
-        buf: &[[Self::Color; K::MATRIX_COLS]; K::MATRIX_ROWS],
+        buf: &[[RGB8; K::MATRIX_COLS]; K::MATRIX_ROWS],
     ) -> Result<(), Self::DriverWriteError>;
 
     /// The type of error that the driver will return if [`RGBBacklightMatrixDriver::turn_on`] fails.

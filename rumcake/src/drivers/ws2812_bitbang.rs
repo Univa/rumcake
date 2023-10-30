@@ -146,13 +146,11 @@ pub mod underglow {
         [(); K::NUM_LEDS]:,
     {
         type DriverWriteError = ();
-        type Color = RGB8;
 
-        async fn write<T, I>(&mut self, colors: T) -> Result<(), Self::DriverWriteError>
-        where
-            T: Iterator<Item = I>,
-            I: Into<Self::Color>,
-        {
+        async fn write(
+            &mut self,
+            colors: impl Iterator<Item = RGB8>,
+        ) -> Result<(), Self::DriverWriteError> {
             self.write_colors(gamma(colors.map(|c| c.into())));
 
             Ok(())
@@ -318,12 +316,11 @@ pub mod backlight {
         [(); K::MATRIX_ROWS]:,
         [(); K::MATRIX_ROWS * K::MATRIX_COLS]:,
     {
-        type Color = RGB8;
         type DriverWriteError = ();
 
         async fn write(
             &mut self,
-            buf: &[[Self::Color; K::MATRIX_COLS]; K::MATRIX_ROWS],
+            buf: &[[RGB8; K::MATRIX_COLS]; K::MATRIX_ROWS],
         ) -> Result<(), Self::DriverWriteError> {
             let mut colors = [RGB8::default(); { K::MATRIX_ROWS * K::MATRIX_COLS }];
 

@@ -75,10 +75,8 @@ static UNDERGLOW_CONFIG_STORAGE_CLIENT: crate::storage::StorageClient<
 > = UNDERGLOW_CONFIG_STORAGE_SERVICE.client();
 
 #[rumcake_macros::task]
-pub async fn underglow_task<D: UnderglowDevice>(
-    _k: D,
-    driver: impl UnderglowDriver<D, Color = RGB8>,
-) where
+pub async fn underglow_task<D: UnderglowDevice>(_k: D, driver: impl UnderglowDriver<D>)
+where
     [(); D::NUM_LEDS]:,
 {
     let mut subscriber = MATRIX_EVENTS.subscriber().unwrap();
