@@ -163,9 +163,7 @@ pub fn setup_internal_flash() -> NRFFlash {
     }
 }
 
-pub fn setup_internal_softdevice_flash(
-    sd: &'static nrf_softdevice::Softdevice,
-) -> nrf_softdevice::Flash {
+pub fn setup_internal_softdevice_flash(sd: &nrf_softdevice::Softdevice) -> nrf_softdevice::Flash {
     nrf_softdevice::Flash::take(sd)
 }
 
