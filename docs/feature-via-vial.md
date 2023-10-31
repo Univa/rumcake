@@ -30,8 +30,8 @@ use rumcake::keyboard;
 #[keyboard]
 struct MyKeyboard;
 
-// EEPROM setup
-use rumcake::eeprom::KeyboardWithEEPROM;
+// Storage setup
+use rumcake::storage::KeyboardWithEEPROM;
 impl KeyboardWithEEPROM for MyKeyboard {}
 
 // Via setup
