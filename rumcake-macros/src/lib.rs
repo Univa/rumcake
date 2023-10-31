@@ -369,12 +369,16 @@ pub fn main(
         initialization.extend(quote! {
             let layout = rumcake::setup_keyboard_layout!(#kb_name);
         });
+
+        if !keyboard.no_matrix {
+            spawning.extend(quote! {
+                spawner.spawn(rumcake::layout_register!(#kb_name, layout)).unwrap();
+            })
+        }
+
         spawning.extend(quote! {
             spawner.spawn(rumcake::layout_collect!(#kb_name, layout)).unwrap();
-            spawner
-                .spawn(rumcake::layout_register!(#kb_name, layout))
-                .unwrap();
-        })
+        });
     }
 
     #[cfg(feature = "nrf")]
