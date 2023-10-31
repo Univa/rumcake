@@ -15,7 +15,7 @@ use crate::split::MessageToPeripheral;
 
 use super::drivers::PeripheralDeviceDriver;
 
-// This task replaces the `layout_register` task, which is usually used on non-split keyboards for sending events to the keyboard layout
+// This task replaces the `layout_collect` task, which is usually used on non-split keyboards for sending events to the keyboard layout
 #[rumcake_macros::task]
 pub async fn peripheral_task<K: KeyboardMatrix>(_k: K, mut driver: impl PeripheralDeviceDriver) {
     loop {

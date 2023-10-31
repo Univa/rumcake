@@ -122,7 +122,6 @@ pub use embedded_hal;
 pub use embedded_hal_async;
 pub use keyberon;
 pub use smart_leds;
-pub use static_cell;
 
 pub use rumcake_macros::main as keyboard;
 
@@ -162,7 +161,7 @@ pub mod hw;
 pub mod drivers;
 
 pub mod tasks {
-    pub use crate::keyboard::{__layout_collect_task, __layout_register_task, __matrix_poll_task};
+    pub use crate::keyboard::{__layout_collect_task, __matrix_poll_task};
 
     #[cfg(feature = "backlight")]
     pub use crate::backlight::__backlight_task_task;

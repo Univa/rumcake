@@ -6,13 +6,13 @@
 use core::convert::Infallible;
 use defmt::{debug, info, warn, Debug2Format};
 use embassy_sync::pubsub::{PubSubBehavior, PubSubChannel};
-use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel, mutex::Mutex};
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel};
 use embassy_time::{Duration, Timer};
 use embedded_hal::digital::v2::{InputPin, OutputPin};
 use heapless::Vec;
 use keyberon::debounce::Debouncer;
-use keyberon::layout::{CustomEvent, Event, Layout};
-use keyberon::{layout::Layers, matrix::Matrix};
+use keyberon::layout::{CustomEvent, Event, Layers, Layout};
+use keyberon::matrix::Matrix;
 use usbd_human_interface_device::{
     device::keyboard::NKROBootKeyboardReport, page::Keyboard as KeyboardKeycode,
 };
@@ -104,25 +104,15 @@ macro_rules! build_layout {
     };
 }
 
-#[macro_export]
-macro_rules! setup_keyboard_layout {
-    ($K:ident) => {{
-        static LAYOUT: $crate::static_cell::StaticCell<
-            $crate::embassy_sync::mutex::Mutex<
-                $crate::embassy_sync::blocking_mutex::raw::ThreadModeRawMutex,
-                $crate::keyberon::layout::Layout<
-                    { $K::LAYOUT_COLS },
-                    { $K::LAYOUT_ROWS },
-                    { $K::LAYERS },
-                    $crate::keyboard::Keycode,
-                >,
-            >,
-        > = $crate::static_cell::StaticCell::new();
-        let layout = LAYOUT.init($crate::embassy_sync::mutex::Mutex::new(
-            $crate::keyberon::layout::Layout::new($K::build_layout()),
-        ));
-        layout
-    }};
+pub fn setup_keyboard_layout<K: KeyboardLayout>(
+    _k: K,
+) -> Layout<{ K::LAYOUT_COLS }, { K::LAYOUT_ROWS }, { K::LAYERS }, Keycode>
+where
+    [(); K::LAYOUT_COLS]:,
+    [(); K::LAYOUT_ROWS]:,
+    [(); K::LAYERS]:,
+{
+    Layout::new(K::build_layout())
 }
 
 /// A trait that must be implemented for any device that needs to poll a switch matrix.
@@ -183,27 +173,28 @@ macro_rules! build_matrix {
     }
 }
 
-#[macro_export]
-macro_rules! setup_keyboard_matrix {
-    ($K:ident) => {{
-        let matrix = $K::build_matrix().unwrap();
-        static DEBOUNCER: $crate::static_cell::StaticCell<
-            $crate::embassy_sync::mutex::Mutex<
-                $crate::embassy_sync::blocking_mutex::raw::ThreadModeRawMutex,
-                $crate::keyberon::debounce::Debouncer<
-                    [[bool; { $K::MATRIX_COLS }]; { $K::MATRIX_ROWS }],
-                >,
-            >,
-        > = $crate::static_cell::StaticCell::new();
-        let debouncer = DEBOUNCER.init($crate::embassy_sync::mutex::Mutex::new(
-            $crate::keyberon::debounce::Debouncer::new(
-                [[false; $K::MATRIX_COLS]; $K::MATRIX_ROWS],
-                [[false; $K::MATRIX_COLS]; $K::MATRIX_ROWS],
-                $K::DEBOUNCE_MS,
-            ),
-        ));
-        (matrix, debouncer)
-    }};
+pub fn setup_keyboard_matrix<K: KeyboardMatrix>(
+    _k: K,
+) -> (
+    Matrix<
+        impl InputPin<Error = Infallible>,
+        impl OutputPin<Error = Infallible>,
+        { K::MATRIX_COLS },
+        { K::MATRIX_ROWS },
+    >,
+    Debouncer<[[bool; K::MATRIX_COLS]; K::MATRIX_ROWS]>,
+)
+where
+    [(); K::MATRIX_COLS]:,
+    [(); K::MATRIX_ROWS]:,
+{
+    let matrix = K::build_matrix().unwrap();
+    let debouncer = Debouncer::new(
+        [[false; K::MATRIX_COLS]; K::MATRIX_ROWS],
+        [[false; K::MATRIX_COLS]; K::MATRIX_ROWS],
+        K::DEBOUNCE_MS,
+    );
+    (matrix, debouncer)
 }
 
 /// Custom keycodes used to interact with other rumcake features.
@@ -226,7 +217,7 @@ pub enum Keycode {
 ///
 /// The coordinates received will be remapped according to the implementation of
 /// [`KeyboardMatrix::remap_to_layout`].
-pub static POLLED_EVENTS_CHANNEL: Channel<ThreadModeRawMutex, Event, 1> = Channel::new();
+pub(crate) static POLLED_EVENTS_CHANNEL: Channel<ThreadModeRawMutex, Event, 1> = Channel::new();
 
 #[rumcake_macros::task]
 pub async fn matrix_poll<K: KeyboardMatrix>(
@@ -237,10 +228,7 @@ pub async fn matrix_poll<K: KeyboardMatrix>(
         { K::MATRIX_COLS },
         { K::MATRIX_ROWS },
     >,
-    debouncer: &'static Mutex<
-        ThreadModeRawMutex,
-        Debouncer<[[bool; K::MATRIX_COLS]; K::MATRIX_ROWS]>,
-    >,
+    mut debouncer: Debouncer<[[bool; K::MATRIX_COLS]; K::MATRIX_ROWS]>,
 ) where
     [(); K::MATRIX_COLS]:,
     [(); K::MATRIX_ROWS]:,
@@ -248,7 +236,6 @@ pub async fn matrix_poll<K: KeyboardMatrix>(
     loop {
         {
             debug!("[KEYBOARD] Scanning matrix");
-            let mut debouncer = debouncer.lock().await;
             let events = debouncer.events(
                 matrix
                     .get_with_delay(|| {
@@ -287,29 +274,6 @@ pub async fn matrix_poll<K: KeyboardMatrix>(
 /// slots will be used.
 pub static MATRIX_EVENTS: PubSubChannel<ThreadModeRawMutex, Event, 4, 4, 1> = PubSubChannel::new();
 
-#[rumcake_macros::task]
-pub async fn layout_register<K: KeyboardLayout>(
-    _k: K,
-    layout: &'static Mutex<
-        ThreadModeRawMutex,
-        Layout<{ K::LAYOUT_COLS }, { K::LAYOUT_ROWS }, { K::LAYERS }, Keycode>,
-    >,
-) where
-    [(); K::LAYOUT_COLS]:,
-    [(); K::LAYOUT_ROWS]:,
-{
-    loop {
-        let event = POLLED_EVENTS_CHANNEL.receive().await;
-        let mut layout = layout.lock().await;
-        layout.event(event);
-        MATRIX_EVENTS.publish_immediate(event); // Just immediately publish since we don't want to hold up any key events to be converted into keycodes.
-        debug!(
-            "[KEYBOARD] Registered key event: {:?}",
-            Debug2Format(&event)
-        );
-    }
-}
-
 /// Channel for sending NKRO HID keyboard reports.
 ///
 /// Channel messages should be consumed by the bluetooth task or USB task, so user-level code
@@ -324,10 +288,7 @@ pub static KEYBOARD_REPORT_HID_SEND_CHANNEL: Channel<
 #[rumcake_macros::task]
 pub async fn layout_collect<K: KeyboardLayout>(
     _k: K,
-    layout: &'static Mutex<
-        ThreadModeRawMutex,
-        Layout<{ K::LAYOUT_COLS }, { K::LAYOUT_ROWS }, { K::LAYERS }, Keycode>,
-    >,
+    mut layout: Layout<{ K::LAYOUT_COLS }, { K::LAYOUT_ROWS }, { K::LAYERS }, Keycode>,
 ) where
     [(); K::LAYOUT_COLS]:,
     [(); K::LAYOUT_ROWS]:,
@@ -336,7 +297,9 @@ pub async fn layout_collect<K: KeyboardLayout>(
 
     loop {
         let keys = {
-            let mut layout = layout.lock().await;
+            let event = POLLED_EVENTS_CHANNEL.receive().await;
+            layout.event(event);
+            MATRIX_EVENTS.publish_immediate(event); // Just immediately publish since we don't want to hold up any key events to be converted into keycodes.
             let tick = layout.tick();
 
             debug!("[KEYBOARD] Processing rumcake feature keycodes");

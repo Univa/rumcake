@@ -324,7 +324,7 @@ pub fn main(
     // Keyboard setup, and matrix polling task
     if !keyboard.no_matrix {
         initialization.extend(quote! {
-            let (matrix, debouncer) = rumcake::setup_keyboard_matrix!(#kb_name);
+            let (matrix, debouncer) = rumcake::keyboard::setup_keyboard_matrix(#kb_name);
         });
         spawning.extend(quote! {
             spawner
@@ -367,15 +367,8 @@ pub fn main(
 
     if keyboard.bluetooth || keyboard.usb {
         initialization.extend(quote! {
-            let layout = rumcake::setup_keyboard_layout!(#kb_name);
+            let layout = rumcake::keyboard::setup_keyboard_layout(#kb_name);
         });
-
-        if !keyboard.no_matrix {
-            spawning.extend(quote! {
-                spawner.spawn(rumcake::layout_register!(#kb_name, layout)).unwrap();
-            })
-        }
-
         spawning.extend(quote! {
             spawner.spawn(rumcake::layout_collect!(#kb_name, layout)).unwrap();
         });
@@ -467,7 +460,7 @@ pub fn main(
             Some(driver_setup) => {
                 initialization.extend(driver_setup);
                 spawning.extend(quote! {
-                    spawner.spawn(rumcake::central_task!(#kb_name, split_central_driver, layout)).unwrap();
+                    spawner.spawn(rumcake::central_task!(#kb_name, split_central_driver)).unwrap();
                 });
             }
             None => {
