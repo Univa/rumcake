@@ -26,6 +26,8 @@ Currently, the following features are capable of using storage:
 - `underglow` (to store underglow hue, saturation, value, speed, effect, etc.)
 - `via`/`vial` (to store dynamic keymaps)
 
+Please see their respective docs on how to enable storage usage for those features.
+
 ### Storage space considerations
 
 The amount of space you want to allocate for storage highly depends on what features your keyboard uses.
@@ -66,6 +68,19 @@ __config_end = __config_start + LENGTH(CONFIG); /* add this */
 - Start address (`__config_start`) must be aligned to a multiple of the erase size.
 - The value of `__config_start` and `__config_end` must be **relative to the start address of the FLASH section**.
   - Note that in the above example, we subtract `ORIGIN(FLASH)` for this reason.
+
+Finally, you can add `storage = "internal"` to your `#[keyboard]` macro invocation:
+
+```rust
+#[keyboard(
+    underglow(
+        driver = "ws2812_bitbang",
+        use_storage // This underglow feature uses storage
+    )
+    storage = "internal" // Add this
+)]
+struct MyKeyboard;
+```
 
 ## To-do List
 

@@ -26,12 +26,21 @@ You must enable the following `rumcake` features:
 
 ### Required code
 
-To set up Via support, your keyboard must implement the `ViaKeyboard` trait, and add `via` to your `keyboard` macro invocation:
+To set up Via support, your keyboard must implement the `ViaKeyboard` trait, and add `via` to your `keyboard` macro invocation.
+Optionally, you can add `use_storage` to the macro invocation to use the specified storage driver to save changes you make in
+the Via or Vial app. If you specify `use_storage`, be sure to also add `setup_via_storage_buffers(<struct_name>)` to your
+`ViaKeyboard` implementation.
 
 ```rust
 use rumcake::keyboard;
 
-#[keyboard(usb, via)]
+#[keyboard(
+    usb,
+    via(
+        use_storage // Optional, if you want to save Via data
+    ),
+    storage = "internal" // You need to specify a storage driver if you enabled `use_storage`. See feature-storage.md for more information.
+)]
 struct MyKeyboard;
 
 // ...
@@ -39,13 +48,15 @@ struct MyKeyboard;
 // Via setup
 use rumcake::via::ViaKeyboard;
 impl ViaKeyboard for MyKeyboard {
-    rumcake::setup_via_storage_buffers!(MyKeyboard); // OPTIONAL, only required if you use the `storage` flag
+    rumcake::setup_via_storage_buffers!(MyKeyboard); // Optional, only required if you specify `use_storage`
 }
 ```
 
 If you are using Vial, you must also implement `VialKeyboard` in addition to the previous traits.
 Instead of using `via` in your `keyboard` macro invocation, you should use `vial` instead.
 You must also follow the instructions in the [VIAL Definitions](#vial-definitions) section.
+If you specify `use_storage`, be sure to also add `setup_vial_storage_buffers(<struct_namee>)` to
+`VialKeyboard` implementation.
 
 ```rust
 // GENERATED_KEYBOARD_DEFINITION comes from _generated.rs, which is made by the build script.
@@ -62,7 +73,7 @@ impl VialKeyboard for MyKeyboard {
     const VIAL_KEYBOARD_UID: [u8; 8] = [0; 8]; // Change this
     const VIAL_UNLOCK_COMBO: &'static [(u8, u8)] = [(0, 1), (0, 0)]; // Matrix positions used to unlock VIAL (row, col), set it to whatever you want
     const KEYBOARD_DEFINITION: &'static [u8] = &GENERATED_KEYBOARD_DEFINITION;
-    rumcake::setup_vial_storage_buffers!(MyKeyboard); // OPTIONAL, only required if you use the `storage` flag
+    rumcake::setup_vial_storage_buffers!(MyKeyboard); // Optional, only required if you specify `use_storage`
 }
 ```
 

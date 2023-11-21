@@ -25,12 +25,20 @@ Some drivers may not be able to support all backlight types.
 
 ### Required code
 
-To set up backlighting, you must add `backlight = "<driver>"` to your `#[keyboard]` macro invocation, your keyboard must implement the `BacklightDevice` trait:
+To set up backlighting, you must add `backlight(driver = "<driver>")` to your `#[keyboard]` macro invocation,
+and your keyboard must implement the `BacklightDevice` trait. Optionally, you can add `use_storage` to the
+macro invocation to use the specified storage driver to save backlight config data.
 
 ```rust
 use rumcake::keyboard;
 
-#[keyboard(backlight = "is31fl3731")] // TODO: change this to your desired backlight driver, and implement the appropriate trait (info below)
+#[keyboard(
+    backlight(
+        driver = "is31fl3731", // TODO: change this to your desired backlight driver, and implement the appropriate trait (info below)
+        use_storage // Optional, if you want to save backlight configuration
+    ),
+    storage = "internal" // You need to specify a storage driver if you enabled `use_storage`. See feature-storage.md for more information.
+)]
 struct MyKeyboard;
 
 // Backlight configuration

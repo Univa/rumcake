@@ -1,3 +1,4 @@
+use darling::util::Override;
 use darling::FromMeta;
 use heck::{ToShoutySnakeCase, ToSnakeCase};
 use proc_macro2::{Ident, TokenStream};
@@ -194,32 +195,51 @@ pub fn derive_cycle(e: proc_macro::TokenStream) -> proc_macro::TokenStream {
     .into()
 }
 
-#[derive(Debug, FromMeta)]
-struct KeyboardArgs {
-    #[darling(default)]
+#[derive(Debug, FromMeta, Default)]
+#[darling(default)]
+struct KeyboardSettings {
     no_matrix: bool,
-    #[darling(default)]
-    no_storage: bool,
-    #[darling(default)]
     bluetooth: bool,
-    #[darling(default)]
     usb: bool,
-    #[darling(default)]
-    backlight: Option<String>,
-    #[darling(default)]
-    underglow: Option<String>,
-    #[darling(default)]
-    display: Option<String>,
-    #[darling(default)]
     storage: Option<String>,
-    #[darling(default)]
-    split_peripheral: Option<String>,
-    #[darling(default)]
-    split_central: Option<String>,
-    #[darling(default)]
-    via: bool,
-    #[darling(default)]
-    vial: bool,
+    backlight: Option<LightingSettings>,
+    underglow: Option<LightingSettings>,
+    display: Option<DisplaySettings>,
+    split_peripheral: Option<SplitPeripheralSettings>,
+    split_central: Option<SplitCentralSettings>,
+    via: Option<Override<ViaSettings>>,
+    vial: Option<Override<ViaSettings>>,
+}
+
+#[derive(Debug, FromMeta, Default)]
+#[darling(default)]
+struct LightingSettings {
+    driver: String,
+    use_storage: bool,
+}
+
+#[derive(Debug, FromMeta, Default)]
+#[darling(default)]
+struct DisplaySettings {
+    driver: String,
+}
+
+#[derive(Debug, FromMeta, Default)]
+#[darling(default)]
+struct SplitCentralSettings {
+    driver: String,
+}
+
+#[derive(Debug, FromMeta, Default)]
+#[darling(default)]
+struct SplitPeripheralSettings {
+    driver: String,
+}
+
+#[derive(Debug, FromMeta, Default)]
+#[darling(default)]
+struct ViaSettings {
+    use_storage: bool,
 }
 
 enum SplitRole {
@@ -325,12 +345,7 @@ pub fn main(
     let kb_name = str.ident.clone();
 
     let args = darling::ast::NestedMeta::parse_meta_list(args.into()).unwrap();
-    let mut keyboard = KeyboardArgs::from_list(&args).unwrap();
-
-    #[cfg(not(feature = "storage"))]
-    {
-        keyboard.no_storage = true;
-    }
+    let keyboard = KeyboardSettings::from_list(&args).unwrap();
 
     let mut initialization = TokenStream::new();
     let mut spawning = TokenStream::new();
@@ -339,28 +354,16 @@ pub fn main(
         || keyboard
             .split_peripheral
             .as_ref()
-            .is_some_and(|driver| driver == "ble")
+            .is_some_and(|args| args.driver == "ble")
         || keyboard
             .split_central
             .as_ref()
-            .is_some_and(|driver| driver == "ble");
+            .is_some_and(|args| args.driver == "ble");
 
     // Setup microcontroller
     initialization.extend(quote! {
         rumcake::hw::mcu::initialize_rcc();
     });
-
-    // Keyboard setup, and matrix polling task
-    if !keyboard.no_matrix {
-        initialization.extend(quote! {
-            let (matrix, debouncer) = rumcake::keyboard::setup_keyboard_matrix(#kb_name);
-        });
-        spawning.extend(quote! {
-            spawner
-                .spawn(rumcake::matrix_poll!(#kb_name, matrix, debouncer))
-                .unwrap();
-        });
-    }
 
     #[cfg(feature = "nrf")]
     {
@@ -379,18 +382,29 @@ pub fn main(
         }
     }
 
-    // Flash setup
-    if !keyboard.no_storage {
-        // Default to internal flash if a driver is not specified
-        let driver = if let Some(driver) = keyboard.storage {
-            driver
-        } else {
-            "internal".to_string()
-        };
-        let driver_setup = setup_storage_driver(driver.as_str(), uses_bluetooth);
-
-        initialization.extend(driver_setup);
+    // Keyboard setup, and matrix polling task
+    if !keyboard.no_matrix {
+        initialization.extend(quote! {
+            let (matrix, debouncer) = rumcake::keyboard::setup_keyboard_matrix(#kb_name);
+        });
+        spawning.extend(quote! {
+            spawner
+                .spawn(rumcake::matrix_poll!(#kb_name, matrix, debouncer))
+                .unwrap();
+        });
     }
+
+    // Flash setup
+    if let Some(ref driver) = keyboard.storage {
+        if !cfg!(feature = "storage") {
+            initialization.extend(quote_spanned! {
+                keyboard.storage.span() => compile_error!("Storage driver was specified, but rumcake's `storage` feature flag is not enabled. Please enable the feature.");
+            });
+        } else {
+            let driver_setup = setup_storage_driver(driver.as_str(), uses_bluetooth);
+            initialization.extend(driver_setup);
+        }
+    };
 
     if keyboard.bluetooth || keyboard.usb {
         spawning.extend(quote! {
@@ -428,14 +442,26 @@ pub fn main(
         });
     }
 
-    if keyboard.via || keyboard.vial {
+    if keyboard.via.is_some() || keyboard.vial.is_some() {
         initialization.extend(quote! {
             // Via HID setup
             let (via_reader, via_writer) =
                 rumcake::via::setup_usb_via_hid_reader_writer(&mut builder).split();
         });
+    }
 
-        if !keyboard.no_storage {
+    if keyboard.via.is_some() && keyboard.vial.is_some() {
+        initialization.extend(quote_spanned! {
+            str.span() => compile_error!("Via and Vial are both specified. Please only choose one.");
+        });
+    } else if let Some(args) = keyboard.via {
+        let args = args.unwrap_or_default();
+
+        if args.use_storage && keyboard.storage.is_none() {
+            initialization.extend(quote_spanned! {
+                args.use_storage.span() => compile_error!("Via uses storage but no `storage` driver was specified. Either specify a `storage` driver, or remove `use_storage` from your Via settings.");
+            });
+        } else if args.use_storage {
             spawning.extend(quote! {
                 spawner
                     .spawn(rumcake::via_storage_task!(#kb_name, &DATABASE))
@@ -449,16 +475,17 @@ pub fn main(
                 .spawn(rumcake::usb_hid_via_read_task!(via_reader))
                 .unwrap();
         });
-    }
-
-    if keyboard.via && !keyboard.vial {
         spawning.extend(quote! {
             spawner.spawn(rumcake::usb_hid_via_write_task!(#kb_name, via_writer)).unwrap();
         });
-    }
+    } else if let Some(args) = keyboard.vial {
+        let args = args.unwrap_or_default();
 
-    if keyboard.vial {
-        if !keyboard.no_storage {
+        if args.use_storage && keyboard.storage.is_none() {
+            initialization.extend(quote_spanned! {
+                args.use_storage.span() => compile_error!("Vial uses storage but no `storage` driver was specified. Either specify a `storage` driver, or remove `use_storage` from your Vial settings.");
+            });
+        } else if args.use_storage {
             spawning.extend(quote! {
                 spawner
                     .spawn(rumcake::vial_storage_task!(#kb_name, &DATABASE))
@@ -467,6 +494,12 @@ pub fn main(
         }
 
         spawning.extend(quote! {
+            // HID raw report (for VIA) reading and writing
+            spawner
+                .spawn(rumcake::usb_hid_via_read_task!(via_reader))
+                .unwrap();
+        });
+        spawning.extend(quote! {
             spawner
                 .spawn(rumcake::usb_hid_vial_write_task!(#kb_name, via_writer))
                 .unwrap();
@@ -474,101 +507,139 @@ pub fn main(
     }
 
     // Split keyboard setup
-    if let Some(ref driver) = keyboard.split_peripheral {
-        match setup_split_driver(&kb_name, driver.as_str(), SplitRole::Peripheral) {
-            Some((driver_setup, driver_spawns)) => {
-                initialization.extend(driver_setup);
-                spawning.extend(driver_spawns);
-                spawning.extend(quote! {
+    if let Some(ref args) = keyboard.split_peripheral {
+        if args.driver.is_empty() {
+            initialization.extend(quote_spanned! {
+                args.driver.span() => compile_error!("You must specify a peripheral device driver.");
+            })
+        } else {
+            match setup_split_driver(&kb_name, args.driver.as_str(), SplitRole::Peripheral) {
+                Some((driver_setup, driver_spawns)) => {
+                    initialization.extend(driver_setup);
+                    spawning.extend(driver_spawns);
+                    spawning.extend(quote! {
                     spawner.spawn(rumcake::peripheral_task!(#kb_name, split_peripheral_driver)).unwrap();
                 });
-            }
-            None => {
-                initialization.extend(quote_spanned! {
-                    keyboard.split_peripheral.span() => compile_error!("Unknown split peripheral device driver.");
+                }
+                None => {
+                    initialization.extend(quote_spanned! {
+                    args.driver.span() => compile_error!("Unknown split peripheral device driver.");
                 });
+                }
             }
         }
     }
 
-    if let Some(ref driver) = keyboard.split_central {
-        match setup_split_driver(&kb_name, driver.as_str(), SplitRole::Central) {
-            Some((driver_setup, driver_spawns)) => {
-                initialization.extend(driver_setup);
-                spawning.extend(driver_spawns);
-                spawning.extend(quote! {
+    if let Some(ref args) = keyboard.split_central {
+        if args.driver.is_empty() {
+            initialization.extend(quote_spanned! {
+                args.driver.span() => compile_error!("You must specify a central device driver.");
+            })
+        } else {
+            match setup_split_driver(&kb_name, args.driver.as_str(), SplitRole::Central) {
+                Some((driver_setup, driver_spawns)) => {
+                    initialization.extend(driver_setup);
+                    spawning.extend(driver_spawns);
+                    spawning.extend(quote! {
                     spawner.spawn(rumcake::central_task!(#kb_name, split_central_driver)).unwrap();
                 });
-            }
-            None => {
-                initialization.extend(quote_spanned! {
-                    keyboard.split_central.span() => compile_error!("Unknown split central device driver.");
+                }
+                None => {
+                    initialization.extend(quote_spanned! {
+                    args.driver.span() => compile_error!("Unknown split central device driver.");
                 });
+                }
             }
         }
     }
 
     // Underglow setup
-    if let Some(ref driver) = keyboard.underglow {
-        match setup_underglow_driver(&kb_name, driver.as_str()) {
-            Some(driver_setup) => {
-                initialization.extend(driver_setup);
+    if let Some(args) = keyboard.underglow {
+        if args.driver.is_empty() {
+            initialization.extend(quote_spanned! {
+                args.driver.span() => compile_error!("You must specify an underglow driver.");
+            })
+        } else if args.use_storage && keyboard.storage.is_none() {
+            initialization.extend(quote_spanned! {
+                args.driver.span() => compile_error!("Underglow uses storage but no `storage` driver was specified. Either specify a `storage` driver, or remove `use_storage` from your underglow settings.");
+            });
+        } else {
+            match setup_underglow_driver(&kb_name, args.driver.as_str()) {
+                Some(driver_setup) => {
+                    initialization.extend(driver_setup);
 
-                if !keyboard.no_storage {
+                    if args.use_storage {
+                        spawning.extend(quote! {
+                            spawner.spawn(rumcake::underglow_storage_task!(&DATABASE)).unwrap();
+                        });
+                    }
+
                     spawning.extend(quote! {
-                        spawner.spawn(rumcake::underglow_storage_task!(&DATABASE)).unwrap();
+                        spawner.spawn(rumcake::underglow_task!(#kb_name, underglow_driver)).unwrap();
                     });
                 }
-
-                spawning.extend(quote! {
-                    spawner.spawn(rumcake::underglow_task!(#kb_name, underglow_driver)).unwrap();
-                });
-            }
-            None => {
-                initialization.extend(quote_spanned! {
-                    keyboard.underglow.span() => compile_error!("Unknown underglow driver.");
-                });
+                None => {
+                    initialization.extend(quote_spanned! {
+                        args.driver.span() => compile_error!("Unknown underglow driver.");
+                    });
+                }
             }
         }
     }
 
     // Backlight setup
-    if let Some(ref driver) = keyboard.backlight {
-        match setup_backlight_driver(&kb_name, driver.as_str()) {
-            Some(driver_setup) => {
-                initialization.extend(driver_setup);
+    if let Some(args) = keyboard.backlight {
+        if args.driver.is_empty() {
+            initialization.extend(quote_spanned! {
+                args.driver.span() => compile_error!("You must specify a backlight driver.");
+            })
+        } else if args.use_storage && keyboard.storage.is_none() {
+            initialization.extend(quote_spanned! {
+                args.driver.span() => compile_error!("Backlighting uses storage but no `storage` driver was specified. Either specify a `storage` driver, or remove `use_storage` from your backlight settings.");
+            });
+        } else {
+            match setup_backlight_driver(&kb_name, args.driver.as_str()) {
+                Some(driver_setup) => {
+                    initialization.extend(driver_setup);
 
-                if !keyboard.no_storage {
+                    if args.use_storage {
+                        spawning.extend(quote! {
+                            spawner.spawn(rumcake::backlight_storage_task!(&DATABASE)).unwrap();
+                        });
+                    }
+
                     spawning.extend(quote! {
-                        spawner.spawn(rumcake::backlight_storage_task!(&DATABASE)).unwrap();
+                        spawner.spawn(rumcake::backlight_task!(#kb_name, backlight_driver)).unwrap();
                     });
                 }
-
-                spawning.extend(quote! {
-                    spawner.spawn(rumcake::backlight_task!(#kb_name, backlight_driver)).unwrap();
-                });
-            }
-            None => {
-                initialization.extend(quote_spanned! {
-                    keyboard.backlight.span() => compile_error!("Unknown backlight driver.");
-                });
+                None => {
+                    initialization.extend(quote_spanned! {
+                        args.driver.span() => compile_error!("Unknown backlight driver.");
+                    });
+                }
             }
         }
     }
 
     // Display setup
-    if let Some(ref driver) = keyboard.display {
-        match setup_display_driver(&kb_name, driver.as_str()) {
-            Some(driver_setup) => {
-                initialization.extend(driver_setup);
-                spawning.extend(quote! {
-                    spawner.spawn(rumcake::display_task!(#kb_name, display_driver)).unwrap();
-                });
-            }
-            None => {
-                initialization.extend(quote_spanned! {
-                    keyboard.display.span() => compile_error!("Unknown display driver.");
-                });
+    if let Some(ref args) = keyboard.display {
+        if args.driver.is_empty() {
+            initialization.extend(quote_spanned! {
+                args.driver.span() => compile_error!("You must specify a display driver.");
+            })
+        } else {
+            match setup_display_driver(&kb_name, args.driver.as_str()) {
+                Some(driver_setup) => {
+                    initialization.extend(driver_setup);
+                    spawning.extend(quote! {
+                        spawner.spawn(rumcake::display_task!(#kb_name, display_driver)).unwrap();
+                    });
+                }
+                None => {
+                    initialization.extend(quote_spanned! {
+                        args.driver.span() => compile_error!("Unknown display driver.");
+                    });
+                }
             }
         }
     }

@@ -19,12 +19,13 @@ You must enable the following `rumcake` features:
 
 ### Required code
 
-To set up your display, you must add `display = "<driver>"` to your `#[keyboard]` macro invocation, your keyboard must implement the `DisplayDevice` trait:
+To set up your display, you must add `display(driver = "<driver>")` to your `#[keyboard]` macro invocation,
+and your keyboard must implement the `DisplayDevice` trait.
 
 ```rust
 use rumcake::keyboard;
 
-#[keyboard(display = "ssd1306")] // TODO: change this to your desired display driver, and implement the appropriate trait (info below)
+#[keyboard(display(driver = "ssd1306"))] // TODO: change this to your desired display driver, and implement the appropriate trait (info below)
 struct MyKeyboard;
 
 // Underglow configuration

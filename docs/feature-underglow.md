@@ -20,12 +20,20 @@ You must enable the following `rumcake` features:
 
 ### Required code
 
-To set up underglow, you must add `underglow = "<driver>"` to your `#[keyboard]` macro invocation, your keyboard must implement the `UnderglowDevice` trait:
+To set up underglow, you must add `underglow(driver = "<driver>")` to your `#[keyboard]` macro invocation,
+and your keyboard must implement the `UnderglowDevice` trait. Optionally, you can add `use_storage` to the
+macro invocation to use the specified storage driver to save underglow config data.
 
 ```rust
 use rumcake::keyboard;
 
-#[keyboard(underglow = "ws2812_bitbang")] // TODO: change this to your desired underglow driver, and implement the appropriate trait (info below)
+#[keyboard(
+    underglow(
+        driver = "ws2812_bitbang", // TODO: change this to your desired underglow driver, and implement the appropriate trait (info below)
+        use_storage // Optional, if you want to save backlight configuration
+    )
+    storage = "internal" // You need to specify a storage driver if you specified `use_storage`. See feature-storage.md for more information.
+)]
 struct MyKeyboard;
 
 // Underglow configuration

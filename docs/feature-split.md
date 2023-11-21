@@ -38,13 +38,14 @@ You must compile a binary with the following `rumcake` features:
 
 ### Required code for central device
 
-To set up the split-central device, you must add `split_central = "<driver>"` to your `#[keyboard]` macro invocation, and your keyboard must implement the appropriate trait for the driver you're using.
-For example, with `ble` and an nRF5x chip selected, you must implement `NRFBLECentralDevice`, and `BluetoothDevice`:
+To set up the split-central device, you must add `split_central(driver = "<driver>")` to your `#[keyboard]` macro invocation,
+and your keyboard must implement the appropriate trait for the driver you're using. For example, with `ble` and an nRF5x
+chip selected, you must implement `NRFBLECentralDevice`, and `BluetoothDevice`:
 
 ```rust
 use rumcake::keyboard;
 
-#[keyboard(split_central = "ble")] // TODO: change this to your desired split driver, and implement the appropriate trait
+#[keyboard(split_central(driver = "ble"))] // TODO: change this to your desired split driver, and implement the appropriate trait
 struct MyKeyboardLeftHalf;
 
 // Bluetooth device setup
@@ -81,13 +82,14 @@ You must compile a binary with the following `rumcake` features:
 
 ### Required code for peripheral device
 
-To set up the split-central device, you must add `split_peripheral = "<driver>"` to your `#[keyboard]` macro invocation, your keyboard must implement the appropriate trait for the driver you're using.
-For example, with `ble` and an nRF5x chip selected, you must implement `NRFBLEPeripheralDevice`, and `BluetoothDevice`:
+To set up the split-central device, you must add `split_peripheral(driver = "<driver>")` to your `#[keyboard]` macro invocation,
+and your keyboard must implement the appropriate trait for the driver you're using. For example, with `ble` and an nRF5x chip
+selected, you must implement `NRFBLEPeripheralDevice`, and `BluetoothDevice`:
 
 ```rust
 use rumcake::keyboard;
 
-#[keyboard(split_peripheral = "ble")] // TODO: change this to your desired split driver, and implement the appropriate trait below
+#[keyboard(split_peripheral(driver = "ble"))] // TODO: change this to your desired split driver, and implement the appropriate trait below
 struct MyKeyboardRightHalf;
 
 // Bluetooth device setup
