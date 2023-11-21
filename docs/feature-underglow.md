@@ -51,6 +51,8 @@ In your keyberon layout, you can use any of the enum members defined in `Undergl
 
 ```rust
 Toggle,
+TurnOn,
+TurnOff,
 NextEffect,
 PrevEffect,
 SetEffect(UnderglowEffect),

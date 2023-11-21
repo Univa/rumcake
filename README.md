@@ -2,7 +2,8 @@
 
 A rust-based mechanical keyboard firmware that aims to be decentralized, featureful, and easy to configure.
 
-**⚠ `rumcake` is still a work in progress. Expect some bugs and breaking changes.**
+> [!WARNING]
+> rumcake is still a work in progress. Expect some bugs and breaking changes.
 
 <!--toc:start-->
 
@@ -14,7 +15,6 @@ A rust-based mechanical keyboard firmware that aims to be decentralized, feature
   - [Planned MCUs for the future](#planned-mcus-for-the-future)
 - [Features](#features)
   - [Working](#working)
-  - [Not yet working, WIP](#not-yet-working-wip)
   - [Planned](#planned)
 - [Why "rumcake"](#why-rumcake)
 - [Acknowledgements](#acknowledgements)
@@ -78,9 +78,6 @@ The following features are _working_, but may not be stable or has missing compo
 - Split keyboards over BLE
 - Displays (e.g. SSD1306)
 - Storage
-
-### Not yet working, WIP
-
 - Via/Vial
 
 ### Planned

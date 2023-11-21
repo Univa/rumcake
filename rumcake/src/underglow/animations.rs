@@ -48,6 +48,8 @@ impl Default for UnderglowConfig {
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub enum UnderglowCommand {
     Toggle,
+    TurnOn,
+    TurnOff,
     NextEffect,
     PrevEffect,
     SetEffect(UnderglowEffect),
@@ -115,6 +117,25 @@ pub enum UnderglowEffect {
     Reactive,
 }
 
+impl UnderglowEffect {
+    fn is_enabled<D: UnderglowDevice>(&self) -> bool {
+        match self {
+            UnderglowEffect::Solid => D::SOLID_ENABLED,
+            UnderglowEffect::Breathing => D::BREATHING_ENABLED,
+            UnderglowEffect::RainbowMood => D::RAINBOW_MOOD_ENABLED,
+            UnderglowEffect::RainbowSwirl => D::RAINBOW_SWIRL_ENABLED,
+            UnderglowEffect::Snake => D::SNAKE_ENABLED,
+            UnderglowEffect::Knight => D::KNIGHT_ENABLED,
+            UnderglowEffect::Christmas => D::CHRISTMAS_ENABLED,
+            UnderglowEffect::StaticGradient => D::STATIC_GRADIENT_ENABLED,
+            UnderglowEffect::RGBTest => D::RGB_TEST_ENABLED,
+            UnderglowEffect::Alternating => D::ALTERNATING_ENABLED,
+            UnderglowEffect::Twinkle => D::TWINKLE_ENABLED,
+            UnderglowEffect::Reactive => D::REACTIVE_ENABLED,
+        }
+    }
+}
+
 pub(super) struct UnderglowAnimator<R: UnderglowDriver<D>, D: UnderglowDevice>
 where
     [(); D::NUM_LEDS]:,
@@ -168,11 +189,24 @@ where
             UnderglowCommand::Toggle => {
                 self.config.enabled = !self.config.enabled;
             }
+            UnderglowCommand::TurnOn => {
+                self.config.enabled = true;
+            }
+            UnderglowCommand::TurnOff => {
+                self.config.enabled = false;
+            }
             UnderglowCommand::NextEffect => {
-                self.config.effect.increment();
+                // We assume that there is always at least one effect enabled
+                while {
+                    self.config.effect.increment();
+                    !self.config.effect.is_enabled::<D>()
+                } {}
             }
             UnderglowCommand::PrevEffect => {
-                self.config.effect.decrement();
+                while {
+                    self.config.effect.decrement();
+                    !self.config.effect.is_enabled::<D>()
+                } {}
             }
             UnderglowCommand::SetEffect(effect) => {
                 self.config.effect = effect;
@@ -210,11 +244,7 @@ where
             }
             #[cfg(feature = "storage")]
             UnderglowCommand::SaveConfig => {
-                super::UNDERGLOW_CONFIG_STORAGE_CLIENT
-                    .request(crate::storage::StorageRequest::Write(
-                        super::UNDERGLOW_CONFIG_STATE.get().await,
-                    ))
-                    .await;
+                super::storage::UNDERGLOW_SAVE_SIGNAL.signal(());
             }
             UnderglowCommand::SetTime(time) => {
                 self.tick = time;
@@ -381,6 +411,7 @@ where
             }
             UnderglowEffect::StaticGradient => {
                 if D::STATIC_GRADIENT_ENABLED {
+                    // TODO: decide on a parameter to control gradient range
                     const GRADIENT_RANGES: [u16; 5] = [255, 170, 127, 85, 64];
 
                     self.set_brightness_for_each_led(|animator, _time, led| {

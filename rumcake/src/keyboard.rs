@@ -5,13 +5,14 @@
 
 use core::convert::Infallible;
 use defmt::{debug, info, warn, Debug2Format};
+use embassy_sync::mutex::{Mutex, MutexGuard};
 use embassy_sync::pubsub::{PubSubBehavior, PubSubChannel};
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel};
 use embassy_time::{Duration, Timer};
 use embedded_hal::digital::v2::{InputPin, OutputPin};
 use heapless::Vec;
 use keyberon::debounce::Debouncer;
-use keyberon::layout::{CustomEvent, Event, Layers, Layout};
+use keyberon::layout::{CustomEvent, Event, Layers, Layout as KeyberonLayout};
 use keyberon::matrix::Matrix;
 use usbd_human_interface_device::{
     device::keyboard::NKROBootKeyboardReport, page::Keyboard as KeyboardKeycode,
@@ -45,16 +46,25 @@ macro_rules! remap_matrix {
 
 /// Basic keyboard trait that must be implemented to use rumcake. Defines basic keyboard information.
 pub trait Keyboard {
+    /// Manufacturer of your keyboard.
     const MANUFACTURER: &'static str;
+
+    /// Name of your keyboard.
     const PRODUCT: &'static str;
+
+    /// Serial number of your keyboard.
     const SERIAL_NUMBER: &'static str = "1";
+
+    /// Hardware version number for your keyboard.
     const HARDWARE_REVISION: &'static str = "1";
+
+    /// Firmware version number for your keyboard.
     const FIRMWARE_REVISION: &'static str = "1";
 }
 
 /// A trait that must be implemented on a device that communicates with the host device.
 pub trait KeyboardLayout {
-    const NUM_ENCODERS: u8 = 0; // Only for VIA compatibility, no proper encoder support. This is the default if not set in QMK
+    const NUM_ENCODERS: usize = 0; // Only for VIA compatibility, no proper encoder support. This is the default if not set in QMK
 
     /// Number of columns in the layout.
     ///
@@ -71,20 +81,73 @@ pub trait KeyboardLayout {
     /// It is recommended to use [`build_layout`] to set this constant.
     const LAYERS: usize;
 
-    /// Create the default keyboard layout.
+    /// Get a reference to the keyboard's layout. This should initialize the keyboard layout on
+    /// first call.
     ///
     /// It is recommended to use [`build_layout`] to implement this function.
-    fn build_layout(
-    ) -> &'static Layers<{ Self::LAYOUT_COLS }, { Self::LAYOUT_ROWS }, { Self::LAYERS }, Keycode>;
+    fn get_layout(
+    ) -> &'static Layout<{ Self::LAYOUT_COLS }, { Self::LAYOUT_ROWS }, { Self::LAYERS }>;
+
+    /// Handle a [`Keycode::Custom`] event. By default this does nothing.
+    ///
+    /// `press` is set to `true` if the event was a key press. Otherwise, it will be `false`. `id`
+    /// corresponds to the `id` used in your keyboard layout.
+    fn on_custom_keycode(_id: u8, _press: bool) {}
+}
+
+pub struct Layout<const C: usize, const R: usize, const L: usize> {
+    original: Layers<C, R, L, Keycode>,
+    layout: once_cell::sync::OnceCell<Mutex<ThreadModeRawMutex, KeyberonLayout<C, R, L, Keycode>>>,
+}
+
+impl<const C: usize, const R: usize, const L: usize> Layout<C, R, L> {
+    pub const fn new(layers: Layers<C, R, L, Keycode>) -> Self {
+        Self {
+            original: layers,
+            layout: once_cell::sync::OnceCell::new(),
+        }
+    }
+
+    pub async fn lock(&self) -> MutexGuard<ThreadModeRawMutex, KeyberonLayout<C, R, L, Keycode>> {
+        self.layout
+            .get_or_init(|| Mutex::new(KeyberonLayout::new(self.original)))
+            .lock()
+            .await
+    }
+
+    pub async fn reset(&self) {
+        let mut layout = self.lock().await;
+
+        for layer in 0..L {
+            for row in 0..R {
+                for col in 0..C {
+                    layout
+                        .change_action(
+                            (row as u8, col as u8),
+                            layer,
+                            self.original[layer][row][col],
+                        )
+                        .unwrap();
+                }
+            }
+        }
+    }
 }
 
 #[macro_export]
 macro_rules! build_layout {
     // Pass the layers to the keyberon macro
     ($layers:literal, $rows:literal, $cols:literal, ($($l:tt)*)) => {
-        fn build_layout() -> &'static $crate::keyberon::layout::Layers<{ Self::LAYOUT_COLS }, { Self::LAYOUT_ROWS }, { Self::LAYERS }, $crate::keyboard::Keycode> {
-            static LAYERS: $crate::keyberon::layout::Layers<$cols, $rows, $layers, $crate::keyboard::Keycode> = $crate::keyberon::layout::layout! { $($l)* };
-            &LAYERS
+        // fn get_original_layout() -> $crate::keyberon::layout::Layers<$cols, $rows, $layers, $crate::keyboard::Keycode> {
+        //     $crate::keyberon::layout::layout! { $($l)* }
+        // }
+
+        fn get_layout(
+        ) -> &'static rumcake::keyboard::Layout<{ Self::LAYOUT_COLS }, { Self::LAYOUT_ROWS }, { Self::LAYERS }> {
+            static KEYBOARD_LAYOUT: rumcake::keyboard::Layout<$cols, $rows, $layers> = rumcake::keyboard::Layout::new($crate::keyberon::layout::layout! { $($l)* });
+            // const LAYERS: $crate::keyberon::layout::Layers<$cols, $rows, $layers, $crate::keyboard::Keycode> = $crate::keyberon::layout::layout! { $($l)* };
+            // static KEYBOARD_LAYOUT: $crate::keyboard::Layout<$cols, $rows, $layers> = $crate::keyboard::Layout::new(LAYERS);
+            &KEYBOARD_LAYOUT
         }
     };
     // We count the number of keys in the first row to determine the number of columns
@@ -102,17 +165,6 @@ macro_rules! build_layout {
         const LAYERS: usize = ${count(layers)};
         build_layout!(${count(layers)}, ($($layers)*));
     };
-}
-
-pub fn setup_keyboard_layout<K: KeyboardLayout>(
-    _k: K,
-) -> Layout<{ K::LAYOUT_COLS }, { K::LAYOUT_ROWS }, { K::LAYERS }, Keycode>
-where
-    [(); K::LAYOUT_COLS]:,
-    [(); K::LAYOUT_ROWS]:,
-    [(); K::LAYERS]:,
-{
-    Layout::new(K::build_layout())
 }
 
 /// A trait that must be implemented for any device that needs to poll a switch matrix.
@@ -143,7 +195,8 @@ pub trait KeyboardMatrix {
         Infallible,
     >;
 
-    /// Optional function to remap a matrix position to a position on the keyboard layout defined by [`KeyboardLayout::build_layout`].
+    /// Optional function to remap a matrix position to a position on the keyboard layout defined
+    /// by [`KeyboardLayout::get_layout`].
     ///
     /// This is useful in split keyboard setups, where all peripherals have a matrix, but only one
     /// of the devices stores the overall keyboard layout.
@@ -183,11 +236,7 @@ pub fn setup_keyboard_matrix<K: KeyboardMatrix>(
         { K::MATRIX_ROWS },
     >,
     Debouncer<[[bool; K::MATRIX_COLS]; K::MATRIX_ROWS]>,
-)
-where
-    [(); K::MATRIX_COLS]:,
-    [(); K::MATRIX_ROWS]:,
-{
+) {
     let matrix = K::build_matrix().unwrap();
     let debouncer = Debouncer::new(
         [[false; K::MATRIX_COLS]; K::MATRIX_ROWS],
@@ -199,13 +248,20 @@ where
 
 /// Custom keycodes used to interact with other rumcake features.
 ///
-/// These can be used in your keyboard layout, defined in [`KeyboardLayout::build_layout`]
+/// These can be used in your keyboard layout, defined in [`KeyboardLayout::get_layout`]
 #[derive(Debug, Clone, Copy)]
 pub enum Keycode {
+    /// Custom keycode, which can be used to run custom code. You can use
+    /// [`KeyboardLayout::on_custom_keycode`] to handle it.
+    Custom(u8),
     #[cfg(feature = "underglow")]
     /// Underglow keycode, which can be any variant in [`crate::underglow::animations::UnderglowCommand`]
     Underglow(crate::underglow::animations::UnderglowCommand),
-    #[cfg(feature = "backlight")]
+    #[cfg(any(
+        feature = "simple-backlight",
+        feature = "simple-backlight-matrix",
+        feature = "rgb-backlight-matrix"
+    ))]
     /// Backlight keycode, which can be any variant in [`crate::backlight::animations::BacklightCommand`]
     Backlight(crate::backlight::animations::BacklightCommand),
     #[cfg(feature = "bluetooth")]
@@ -229,10 +285,7 @@ pub async fn matrix_poll<K: KeyboardMatrix>(
         { K::MATRIX_ROWS },
     >,
     mut debouncer: Debouncer<[[bool; K::MATRIX_COLS]; K::MATRIX_ROWS]>,
-) where
-    [(); K::MATRIX_COLS]:,
-    [(); K::MATRIX_ROWS]:,
-{
+) {
     loop {
         {
             debug!("[KEYBOARD] Scanning matrix");
@@ -286,40 +339,49 @@ pub static KEYBOARD_REPORT_HID_SEND_CHANNEL: Channel<
 > = Channel::new();
 
 #[rumcake_macros::task]
-pub async fn layout_collect<K: KeyboardLayout>(
-    _k: K,
-    mut layout: Layout<{ K::LAYOUT_COLS }, { K::LAYOUT_ROWS }, { K::LAYERS }, Keycode>,
-) where
+pub async fn layout_collect<K: KeyboardLayout + 'static>(_k: K)
+where
+    [(); K::LAYERS]:,
     [(); K::LAYOUT_COLS]:,
     [(); K::LAYOUT_ROWS]:,
 {
     let mut last_keys = Vec::<KeyboardKeycode, 24>::new();
+    let layout = K::get_layout();
 
     loop {
         let keys = {
             let event = POLLED_EVENTS_CHANNEL.receive().await;
+            let mut layout = layout.lock().await;
             layout.event(event);
             MATRIX_EVENTS.publish_immediate(event); // Just immediately publish since we don't want to hold up any key events to be converted into keycodes.
             let tick = layout.tick();
 
             debug!("[KEYBOARD] Processing rumcake feature keycodes");
 
-            if let CustomEvent::Press(keycode) = tick {
-                match keycode {
+            match tick {
+                CustomEvent::NoEvent => {}
+                CustomEvent::Press(keycode) => match keycode {
+                    Keycode::Custom(id) => {
+                        K::on_custom_keycode(id, true);
+                    }
                     #[cfg(feature = "underglow")]
                     Keycode::Underglow(command) => {
                         crate::underglow::UNDERGLOW_COMMAND_CHANNEL
-                            .send(*command)
+                            .send(command)
                             .await;
                         #[cfg(feature = "storage")]
                         crate::underglow::UNDERGLOW_COMMAND_CHANNEL
                             .send(crate::underglow::animations::UnderglowCommand::SaveConfig)
                             .await;
                     }
-                    #[cfg(feature = "backlight")]
+                    #[cfg(any(
+                        feature = "simple-backlight",
+                        feature = "simple-backlight-matrix",
+                        feature = "rgb-backlight-matrix"
+                    ))]
                     Keycode::Backlight(command) => {
                         crate::backlight::BACKLIGHT_COMMAND_CHANNEL
-                            .send(*command)
+                            .send(command)
                             .await;
                         #[cfg(feature = "storage")]
                         crate::backlight::BACKLIGHT_COMMAND_CHANNEL
@@ -329,11 +391,16 @@ pub async fn layout_collect<K: KeyboardLayout>(
                     #[cfg(feature = "bluetooth")]
                     Keycode::Bluetooth(command) => {
                         crate::bluetooth::BLUETOOTH_COMMAND_CHANNEL
-                            .send(*command)
+                            .send(command)
                             .await;
                     }
-                    #[allow(unreachable_patterns)]
-                    _ => {}
+                },
+                CustomEvent::Release(keycode) =>
+                {
+                    #[allow(irrefutable_let_patterns)]
+                    if let Keycode::Custom(id) = keycode {
+                        K::on_custom_keycode(id, false);
+                    }
                 }
             }
 
@@ -354,8 +421,9 @@ pub async fn layout_collect<K: KeyboardLayout>(
 
             debug!("[KEYBOARD] Preparing new report");
 
-            // It's possible for this channel to become filled (e.g. if USB is disabled and there is no Bluetooth connection
-            // So, we just try_send instead of using `send`, which waits for capacity. That way, we can still process rumcake keycodes.
+            // It's possible for this channel to become filled (e.g. if USB is disabled and
+            // there is no Bluetooth connection So, we just try_send instead of using `send`,
+            // which waits for capacity. That way, we can still process rumcake keycodes.
             if KEYBOARD_REPORT_HID_SEND_CHANNEL
                 .try_send(NKROBootKeyboardReport::new(keys))
                 .is_err()
@@ -363,7 +431,5 @@ pub async fn layout_collect<K: KeyboardLayout>(
                 warn!("[KEYBOARD] Discarding report");
             };
         }
-
-        Timer::after(Duration::from_millis(1)).await;
     }
 }

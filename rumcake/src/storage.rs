@@ -8,25 +8,19 @@
 //! your `memory.x` file. Refer to [`crate::hw::__config_start`], and the corresponding
 //! `feature-storage.md` doc for more information.
 
-use core::any::TypeId;
 use core::hash::{Hash, Hasher, SipHasher};
-use core::mem::size_of;
 
 use defmt::{error, info, warn, Debug2Format};
-use embassy_futures::select;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::channel::{Channel, Sender};
-use embassy_sync::signal::Signal;
+use embassy_sync::mutex::{Mutex, MutexGuard};
 use embedded_storage_async::nor_flash::NorFlash;
 use num_derive::FromPrimitive;
-use postcard::experimental::max_size::MaxSize;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use tickv::success_codes::SuccessCode;
 use tickv::{AsyncTicKV, ErrorCode, MAIN_KEY};
 
 use crate::hw::{FlashDevice, PendingOperation};
-use crate::keyboard::Keyboard;
 
 fn get_hashed_key(key: &[u8]) -> u64 {
     let mut hasher = SipHasher::new();
@@ -34,44 +28,30 @@ fn get_hashed_key(key: &[u8]) -> u64 {
     hasher.finish()
 }
 
-/// Different types of requests that can be sent by a [`StorageClient`] to be processed by a
-/// [`StorageService`].
-pub enum StorageRequest<T> {
-    /// Read request. When received by a [`StorageService`], this will fetch the currently stored
-    /// value of `T` in the storage peripheral.
-    Read,
-    /// Write requests. This variant accepts an instance of data type `T` to write to the storage
-    /// peripheral. When received by a [`StorageService`], this will insert the provided instance
-    /// of `T` into the storage peripheral. If an instance of `T` exists in the storage peripheral,
-    /// it will be replaced.
-    Write(T),
-    /// Delete request. When received by a [`StorageService`], this will delete the currently
-    /// stored value of `T` in the storage peripheral.
-    Delete,
-}
-
-/// Responses from a [`StorageService`] in response to a [`StorageRequest`] sent by a
-/// [`StorageClient`].
-pub enum StorageResponse<T> {
-    /// Response to a [`StorageRequest::Read`] request. If a value of `T` exists in the storage
-    /// peripheral, the service will return `Ok(T)`. Otherwise, it will return `Err(())`.
-    Read(Result<T, ()>),
-    /// Response to a [`StorageRequest::Write`] request. If the provided value of `T` was
-    /// successfully written to the storage peripheral, the service will return `Ok(())`. Otherwise,
-    /// it will return `Err(())`.
-    Write(Result<(), ()>),
-    /// Response to a [`StorageRequest::Read`] request. If a value of `T` exists in the storage
-    /// peripheral, the service will attempt to delete it, and return `Ok(T)` if it is successful.
-    /// Otherwise, it will return `Err(())`.
-    Delete(Result<(), ()>),
-}
-
 /// Keys for data to be stored in the database. The order of existing keys should not change.
-#[derive(Debug, FromPrimitive)]
+#[derive(Debug, FromPrimitive, Copy, Clone)]
 #[repr(u8)]
 pub enum StorageKey {
+    /// Key to store [`crate::backlight::animations::BacklightConfig`].
     BacklightConfig,
+    /// Key to store [`crate::underglow::animations::UnderglowConfig`].
     UnderglowConfig,
+    /// Key to store bluetooth profiles, used by the `nrf-ble` implementation of bluetooth host communication.
+    BluetoothProfiles,
+    /// Key to store the currently set Via layout option.
+    LayoutOptions,
+    /// Key to store the current state of the Via dynamic keyboard layout.
+    DynamicKeymap,
+    /// Key to store the current state of the encoders in the Via dynamic keyboard layout.
+    DynamicKeymapEncoder,
+    /// Key to store the current state of the macros in the Via dynamic keyboard layout.
+    DynamicKeymapMacro,
+    /// Key to store the current state of the tap dance keys in the Vial dynamic keyboard layout.
+    DynamicKeymapTapDance,
+    /// Key to store the current state of the combo keys in the Vial dynamic keyboard layout.
+    DynamicKeymapCombo,
+    /// Key to store the current state of the key overrides in the Vial dynamic keyboard layout.
+    DynamicKeymapKeyOverride,
 }
 
 #[repr(u8)]
@@ -80,314 +60,296 @@ enum StorageKeyType {
     Metadata,
 }
 
-/// A data structure used by the storage task to receive requests to read, write or delete `T` from
-/// a storage peripheral.
-///
-/// Const parameter `K` is used to determine what key to use when storing or reading `T` from the
-/// storage peripheral. This should be one of the available [`StorageKey`]s.
-pub struct StorageService<
-    T: 'static + DeserializeOwned + Serialize + MaxSize,
-    const K: u8,
-    const N: usize,
-> where
-    [(); T::POSTCARD_MAX_SIZE]:,
-{
-    requests: Channel<
-        ThreadModeRawMutex,
-        (
-            StorageRequest<T>,
-            Sender<'static, ThreadModeRawMutex, StorageResponse<T>, N>,
-        ),
-        N,
-    >,
-    signal: Signal<ThreadModeRawMutex, ()>,
+/// Statically allocated buffers used to read and write data from the storage peripheral. One
+/// buffer is used for metadata, the contents of which depend on the data being stored. Another
+/// buffer is used for the raw data itself (serialized to bytes). The size of these buffers should
+/// be big enough to store the largest possible expected value that they can handle.
+pub struct StorageServiceState<const M: usize, const D: usize> {
+    metadata_buf: [u8; M],
+    data_buf: [u8; D],
 }
 
-struct StorageServiceState<T: 'static + DeserializeOwned + Serialize + MaxSize>
-where
-    [(); T::POSTCARD_MAX_SIZE]:,
-{
-    type_id_buf: [u8; size_of::<TypeId>()],
-    value_buf: [u8; T::POSTCARD_MAX_SIZE],
-}
-
-impl<T: 'static + DeserializeOwned + Serialize + MaxSize> StorageServiceState<T>
-where
-    [(); T::POSTCARD_MAX_SIZE]:,
-{
+impl<const M: usize, const D: usize> StorageServiceState<M, D> {
+    /// Create new buffers.
     pub const fn new() -> Self {
         Self {
-            type_id_buf: [0; size_of::<TypeId>()],
-            value_buf: [0; T::POSTCARD_MAX_SIZE],
+            metadata_buf: [0; M],
+            data_buf: [0; D],
         }
     }
 }
 
-impl<T: Clone + Send + DeserializeOwned + Serialize + MaxSize, const K: u8, const N: usize>
-    StorageService<T, K, N>
+/// A wrapper around a TicKV instance which allows you to receive requests to read, write or delete
+/// `T` from a storage peripheral.
+pub struct StorageService<'a, F: NorFlash>
 where
-    [(); T::POSTCARD_MAX_SIZE]:,
+    [(); F::ERASE_SIZE]:,
 {
-    pub(crate) const fn new() -> Self {
-        StorageService {
-            requests: Channel::new(),
-            signal: Signal::new(),
-        }
+    database: tickv::AsyncTicKV<'a, FlashDevice<F>, { F::ERASE_SIZE }>,
+}
+
+impl<'a, F: NorFlash> StorageService<'a, F>
+where
+    [(); F::ERASE_SIZE]:,
+{
+    pub(crate) const fn new(
+        database: tickv::AsyncTicKV<'a, FlashDevice<F>, { F::ERASE_SIZE }>,
+    ) -> Self {
+        StorageService { database }
     }
 
-    /// Create a [`StorageClient`] that can send requests to this [`StorageService`].
-    pub const fn client(&'static self) -> StorageClient<T, K, N> {
-        StorageClient {
-            service: self,
-            response_channel: Channel::new(),
-        }
-    }
-
-    async fn initialize<F: NorFlash>(
-        &'static self,
-        database: &mut AsyncTicKV<'_, FlashDevice<F>, { F::ERASE_SIZE }>,
-        state: &'static mut StorageServiceState<T>,
+    /// This function checks the stored metadata for the given key. If the stored metadata differs
+    /// from `current_metadata`, then it will invalidate the existing entry for that key, and
+    /// update the metadata.
+    pub(crate) async fn initialize<const M: usize, const D: usize>(
+        &mut self,
+        state: &'static mut StorageServiceState<M, D>,
+        key: StorageKey,
+        current_metadata: &[u8],
     ) -> Result<(), ()> {
-        let buf = &mut state.type_id_buf;
-
-        let current: [u8; size_of::<TypeId>()] = unsafe { core::mem::transmute(TypeId::of::<T>()) };
+        let buf = &mut state.metadata_buf;
 
         // Verify if the underlying data type has changed since last boot
-        let (will_reset, buf) =
-            match get_key(database, &[K, StorageKeyType::Metadata as u8], buf).await {
-                (Ok(_), Some(buf), _len) => {
-                    let changed = current != *buf;
-                    if changed {
-                        warn!(
-                            "[STORAGE] Metadata for {} has changed.",
-                            Debug2Format(&<StorageKey as num::FromPrimitive>::from_u8(K).unwrap()),
-                        );
-                    }
-                    (changed, buf)
-                }
-                (Err(error), Some(buf), _len) => {
+        let (will_reset, buf) = match get_key(
+            &mut self.database,
+            &[key as u8, StorageKeyType::Metadata as u8],
+            buf,
+        )
+        .await
+        {
+            (Ok(_), Some(buf), _len) => {
+                let changed = *current_metadata != *buf;
+                if changed {
                     warn!(
-                        "[STORAGE] Could not read metadata for {}: {}",
-                        Debug2Format(&<StorageKey as num::FromPrimitive>::from_u8(K).unwrap()),
-                        Debug2Format(&error)
+                        "[STORAGE] Metadata for {} has changed.",
+                        Debug2Format(
+                            &<StorageKey as num::FromPrimitive>::from_u8(key as u8).unwrap()
+                        ),
                     );
-                    (true, buf)
                 }
-                _ => unreachable!(),
-            };
+                (changed, buf)
+            }
+            (Err(error), Some(buf), _len) => {
+                warn!(
+                    "[STORAGE] Could not read metadata for {}: {}",
+                    Debug2Format(&<StorageKey as num::FromPrimitive>::from_u8(key as u8).unwrap()),
+                    Debug2Format(&error)
+                );
+                (true, buf)
+            }
+            _ => unreachable!(),
+        };
 
-        buf.copy_from_slice(&current);
+        buf.copy_from_slice(current_metadata);
 
         // If the data type has changed, remove the old data from storage, update the metadata
         if will_reset {
             warn!(
                 "[STORAGE] Deleting old data and updating stored metadata for {}.",
-                Debug2Format(&<StorageKey as num::FromPrimitive>::from_u8(K).unwrap()),
+                Debug2Format(&<StorageKey as num::FromPrimitive>::from_u8(key as u8).unwrap()),
             );
 
             // Invalidate old data
-            let _ = invalidate_key(database, &[K, StorageKeyType::Data as u8]).await;
-            let _ = invalidate_key(database, &[K, StorageKeyType::Metadata as u8]).await;
-            garbage_collect(database).await.0.unwrap();
+            let _ =
+                invalidate_key(&mut self.database, &[key as u8, StorageKeyType::Data as u8]).await;
+            let _ = invalidate_key(
+                &mut self.database,
+                &[key as u8, StorageKeyType::Metadata as u8],
+            )
+            .await;
+            garbage_collect(&mut self.database).await.0.unwrap();
 
             // Add new metadata
             let length = buf.len();
-            append_key(database, &[K, StorageKeyType::Metadata as u8], buf, length)
-                .await
-                .0
-                .unwrap();
+            append_key(
+                &mut self.database,
+                &[key as u8, StorageKeyType::Metadata as u8],
+                buf,
+                length,
+            )
+            .await
+            .0
+            .unwrap();
         }
 
         Ok(())
     }
 
-    async fn handle_request<F: NorFlash>(
-        &'static self,
-        database: &mut AsyncTicKV<'_, FlashDevice<F>, { F::ERASE_SIZE }>,
-        state: &'static mut StorageServiceState<T>,
-        req: StorageRequest<T>,
-        response_channel: Sender<'static, ThreadModeRawMutex, StorageResponse<T>, N>,
-    ) where
-        [(); T::POSTCARD_MAX_SIZE]:,
-    {
-        let buf = &mut state.value_buf;
+    /// Read and deserialize data from the storage peripheral, using the given
+    /// key to look it up. Uses [`postcard`] for deserialization.
+    pub async fn read<T: DeserializeOwned, const M: usize, const D: usize>(
+        &mut self,
+        state: &'static mut StorageServiceState<M, D>,
+        key: StorageKey,
+    ) -> Result<T, ()> {
+        info!(
+            "[STORAGE] Reading {} data.",
+            Debug2Format(&<StorageKey as num::FromPrimitive>::from_u8(key as u8).unwrap()),
+        );
 
-        match req {
-            StorageRequest::Read => {
-                info!(
-                    "[STORAGE] Reading {} data.",
-                    Debug2Format(&<StorageKey as num::FromPrimitive>::from_u8(K).unwrap()),
+        let (result, buf, _len) = get_key(
+            &mut self.database,
+            &[key as u8, StorageKeyType::Data as u8],
+            &mut state.data_buf,
+        )
+        .await;
+
+        result
+            .map_err(|error| {
+                error!(
+                    "[STORAGE] Read error for {}: {}",
+                    Debug2Format(&<StorageKey as num::FromPrimitive>::from_u8(key as u8).unwrap()),
+                    Debug2Format(&error)
                 );
+            })
+            .and_then(|_code| match buf {
+                Some(buf) => postcard::from_bytes(buf).map_err(|error| {
+                    error!(
+                        "[STORAGE] Deserialization error while reading {}: {}",
+                        Debug2Format(
+                            &<StorageKey as num::FromPrimitive>::from_u8(key as u8).unwrap()
+                        ),
+                        Debug2Format(&error)
+                    );
+                }),
+                None => unreachable!(),
+            })
+    }
 
-                let result = {
-                    let (result, buf, _len) =
-                        get_key(database, &[K, StorageKeyType::Data as u8], buf).await;
+    /// Read data from the storage peripheral, using the given key to look it up. This skips the
+    /// deserialization step, returning raw bytes.
+    pub async fn read_raw<const M: usize, const D: usize>(
+        &mut self,
+        state: &'static mut StorageServiceState<M, D>,
+        key: StorageKey,
+    ) -> Result<(&[u8], usize), ()> {
+        info!(
+            "[STORAGE] Reading {} data.",
+            Debug2Format(&<StorageKey as num::FromPrimitive>::from_u8(key as u8).unwrap()),
+        );
 
-                    result
-                        .map_err(|error| {
-                            error!(
-                                "[STORAGE] Read error for {}: {}",
-                                Debug2Format(
-                                    &<StorageKey as num::FromPrimitive>::from_u8(K).unwrap()
-                                ),
-                                Debug2Format(&error)
-                            );
-                        })
-                        .and_then(|_code| match buf {
-                            Some(buf) => postcard::from_bytes(buf).map_err(|error| {
-                                error!(
-                                    "[STORAGE] Deserialization error while reading {}: {}",
-                                    Debug2Format(
-                                        &<StorageKey as num::FromPrimitive>::from_u8(K).unwrap()
-                                    ),
-                                    Debug2Format(&error)
-                                );
-                            }),
-                            None => unreachable!(),
-                        })
-                };
+        let (result, buf, len) = get_key(
+            &mut self.database,
+            &[key as u8, StorageKeyType::Data as u8],
+            &mut state.data_buf,
+        )
+        .await;
 
-                response_channel.send(StorageResponse::Read(result)).await;
+        result
+            .map_err(|error| {
+                error!(
+                    "[STORAGE] Read error for {}: {}",
+                    Debug2Format(&<StorageKey as num::FromPrimitive>::from_u8(key as u8).unwrap()),
+                    Debug2Format(&error)
+                );
+            })
+            .map(|_code| (&*buf.unwrap(), len))
+    }
+
+    /// Write data to the storage peripheral, at the given key. This will serialize the given data
+    /// using [`postcard`] before storing it.
+    pub async fn write<T: Serialize, const M: usize, const D: usize>(
+        &mut self,
+        state: &'static mut StorageServiceState<M, D>,
+        key: StorageKey,
+        data: T,
+    ) -> Result<(), ()> {
+        info!(
+            "[STORAGE] Writing new {} data.",
+            Debug2Format(&<StorageKey as num::FromPrimitive>::from_u8(key as u8).unwrap()),
+        );
+
+        let result = match postcard::to_slice(&data, &mut state.data_buf) {
+            Ok(serialized) => {
+                let _ =
+                    invalidate_key(&mut self.database, &[key as u8, StorageKeyType::Data as u8])
+                        .await;
+                garbage_collect(&mut self.database).await.0.unwrap();
+                append_key(
+                    &mut self.database,
+                    &[key as u8, StorageKeyType::Data as u8],
+                    serialized,
+                    serialized.len(),
+                )
+                .await
+                .0
+                .map_err(|error| {
+                    error!(
+                        "[STORAGE] Write error for {}: {}",
+                        Debug2Format(
+                            &<StorageKey as num::FromPrimitive>::from_u8(key as u8).unwrap()
+                        ),
+                        Debug2Format(&error)
+                    );
+                })
             }
-            StorageRequest::Write(data) => {
-                info!(
-                    "[STORAGE] Writing new {} data.",
-                    Debug2Format(&<StorageKey as num::FromPrimitive>::from_u8(K).unwrap()),
+            Err(error) => {
+                error!(
+                    "[STORAGE] Serialization error while writing {}: {}",
+                    Debug2Format(&<StorageKey as num::FromPrimitive>::from_u8(key as u8).unwrap()),
+                    Debug2Format(&error)
                 );
-
-                let result = {
-                    match postcard::to_slice(&data, buf) {
-                        Ok(serialized) => {
-                            let _ =
-                                invalidate_key(database, &[K, StorageKeyType::Data as u8]).await;
-                            garbage_collect(database).await.0.unwrap();
-                            append_key(
-                                database,
-                                &[K, StorageKeyType::Data as u8],
-                                serialized,
-                                serialized.len(),
-                            )
-                            .await
-                            .0
-                            .map_err(|error| {
-                                error!(
-                                    "[STORAGE] Write error for {}: {}",
-                                    Debug2Format(
-                                        &<StorageKey as num::FromPrimitive>::from_u8(K).unwrap()
-                                    ),
-                                    Debug2Format(&error)
-                                );
-                            })
-                        }
-                        Err(error) => {
-                            error!(
-                                "[STORAGE] Serialization error while writing {}: {}",
-                                Debug2Format(
-                                    &<StorageKey as num::FromPrimitive>::from_u8(K).unwrap()
-                                ),
-                                Debug2Format(&error)
-                            );
-                            Err(())
-                        }
-                    }
-                };
-
-                response_channel
-                    .send(StorageResponse::Write(result.map(|_code| {})))
-                    .await;
-            }
-            StorageRequest::Delete => {
-                info!(
-                    "[STORAGE] Deleting {} data.",
-                    Debug2Format(&<StorageKey as num::FromPrimitive>::from_u8(K).unwrap()),
-                );
-
-                let result = invalidate_key(database, &[K, StorageKeyType::Data as u8])
-                    .await
-                    .0
-                    .map_err(|error| {
-                        error!("[STORAGE] Delete error: {}", Debug2Format(&error));
-                    });
-                garbage_collect(database).await.0.unwrap();
-                response_channel
-                    .send(StorageResponse::Delete(result.map(|_code| {})))
-                    .await;
+                Err(())
             }
         };
+
+        result.map(|_code| {})
+    }
+
+    /// Write data to the storage peripheral, at the given key. This skips the serialization step,
+    /// allowing you to write raw bytes to storage.
+    pub async fn write_raw<const M: usize, const D: usize>(
+        &mut self,
+        state: &'static mut StorageServiceState<M, D>,
+        key: StorageKey,
+        data: &[u8],
+    ) -> Result<(), ()> {
+        info!(
+            "[STORAGE] Writing new {} data.",
+            Debug2Format(&<StorageKey as num::FromPrimitive>::from_u8(key as u8).unwrap()),
+        );
+
+        state.data_buf.copy_from_slice(data);
+
+        let _ = invalidate_key(&mut self.database, &[key as u8, StorageKeyType::Data as u8]).await;
+        garbage_collect(&mut self.database).await.0.unwrap();
+        let result = append_key(
+            &mut self.database,
+            &[key as u8, StorageKeyType::Data as u8],
+            &mut state.data_buf,
+            data.len(),
+        )
+        .await
+        .0
+        .map_err(|error| {
+            error!(
+                "[STORAGE] Write error for {}: {}",
+                Debug2Format(&<StorageKey as num::FromPrimitive>::from_u8(key as u8).unwrap()),
+                Debug2Format(&error)
+            );
+        });
+
+        result.map(|_code| {})
+    }
+
+    /// Deletes the data at a given key.
+    pub async fn delete(&mut self, key: StorageKey) -> Result<(), ()> {
+        info!(
+            "[STORAGE] Deleting {} data.",
+            Debug2Format(&<StorageKey as num::FromPrimitive>::from_u8(key as u8).unwrap()),
+        );
+
+        let result = invalidate_key(&mut self.database, &[key as u8, StorageKeyType::Data as u8])
+            .await
+            .0
+            .map_err(|error| {
+                error!("[STORAGE] Delete error: {}", Debug2Format(&error));
+            });
+        garbage_collect(&mut self.database).await.0.unwrap();
+
+        result.map(|_code| {})
     }
 }
-
-/// A data structure that allows you to send requests to the storage task to read, write or delete
-/// data from a storage peripheral.
-///
-/// To create a storage client, you should call [`.client()`](StorageService::client) on an existing
-/// storage service, such as [`crate::backlight::BACKLIGHT_CONFIG_STORAGE_SERVICE`].
-pub struct StorageClient<
-    T: 'static + DeserializeOwned + Serialize + MaxSize,
-    const K: u8,
-    const N: usize,
-> where
-    [(); T::POSTCARD_MAX_SIZE]:,
-{
-    service: &'static StorageService<T, K, N>,
-    response_channel: Channel<ThreadModeRawMutex, StorageResponse<T>, N>,
-}
-
-impl<T: 'static + DeserializeOwned + Serialize + MaxSize, const K: u8, const N: usize>
-    StorageClient<T, K, N>
-where
-    [(); T::POSTCARD_MAX_SIZE]:,
-{
-    /// Send a [`StorageRequest`] to the storage task. This is guaranteed to return the
-    /// corresponding [`StorageResponse`] from the storage task **unless you send multiple requests
-    /// at the same time**. For example, if you send [`StorageRequest::Read`], you should receive
-    /// [`StorageResponse::Read`] back. If you send multiple requests at the same time (for
-    /// example, if you use [`embassy_futures::join`]), you may receive a different response.
-    pub async fn request(&'static self, req: StorageRequest<T>) -> StorageResponse<T> {
-        self.service
-            .requests
-            .send((req, self.response_channel.sender()))
-            .await;
-        self.service.signal.signal(());
-        self.response_channel.receive().await
-    }
-}
-
-pub trait KeyboardWithEEPROM: Keyboard {
-    // Probably not using these.
-    const EECONFIG_KB_DATA_SIZE: usize = 0; // This is the default if it is not set in QMK
-    const EECONFIG_USER_DATA_SIZE: usize = 0; // This is the default if it is not set in QMK
-
-    // While most of these are not implemented in this firmware, our EECONFIG addresses will follow the same structure that QMK uses.
-    const EECONFIG_MAGIC_ADDR: u16 = 0;
-    const EECONFIG_DEBUG_ADDR: u8 = 2;
-    const EECONFIG_DEFAULT_LAYER_ADDR: u8 = 3;
-    const EECONFIG_KEYMAP_ADDR: u16 = 4;
-    const EECONFIG_BACKLIGHT_ADDR: u8 = 6;
-    const EECONFIG_AUDIO_ADDR: u8 = 7;
-    const EECONFIG_RGBLIGHT_ADDR: u32 = 8;
-    const EECONFIG_UNICODEMODE_ADDR: u8 = 12;
-    const EECONFIG_STENOMODE_ADDR: u8 = 13;
-    const EECONFIG_HANDEDNESS_ADDR: u8 = 14;
-    const EECONFIG_KEYBOARD_ADDR: u32 = 15;
-    const EECONFIG_USER_ADDR: u32 = 19;
-    const EECONFIG_VELOCIKEY_ADDR: u8 = 23;
-    const EECONFIG_LED_MATRIX_ADDR: u32 = 24;
-    const EECONFIG_RGB_MATRIX_ADDR: u64 = 24;
-    const EECONFIG_HAPTIC_ADDR: u32 = 32;
-    const EECONFIG_RGBLIGHT_EXTENDED_ADDR: u8 = 36;
-
-    // Note: this is just the *base* size to use the features above.
-    // VIA will use more EECONFIG space starting at the address below (address 37) and beyond.
-    const EECONFIG_BASE_SIZE: usize = 37;
-    const EECONFIG_SIZE: usize =
-        Self::EECONFIG_BASE_SIZE + Self::EECONFIG_KB_DATA_SIZE + Self::EECONFIG_USER_DATA_SIZE;
-
-    // Note: QMK uses an algorithm to emulate EEPROM in STM32 chips by using their flash peripherals
-    const EEPROM_TOTAL_BYTE_COUNT: usize = Self::EECONFIG_SIZE + 3;
-}
-
-static EMPTY_SIGNAL: Signal<ThreadModeRawMutex, ()> = Signal::new();
 
 async fn perform_pending_flash_op<'a, F: NorFlash>(
     database: &mut AsyncTicKV<'a, FlashDevice<F>, { F::ERASE_SIZE }>,
@@ -533,98 +495,49 @@ async fn garbage_collect<'a, F: NorFlash>(
     }
 }
 
-#[rumcake_macros::task]
-pub async fn storage_task<F: NorFlash>(flash: F, config_start: usize, config_end: usize)
+/// A mutex-guarded [`StorageService`], which you can use to read, and write data to flash.
+pub struct Database<'a, F: NorFlash>
 where
     [(); F::ERASE_SIZE]:,
 {
-    let mut read_buf = [0; F::ERASE_SIZE];
-    let driver = FlashDevice::new(flash, config_start, config_end);
-    let flash_size = driver.end - driver.start;
-    let mut database = tickv::AsyncTicKV::new(driver, &mut read_buf, flash_size);
+    db: once_cell::sync::OnceCell<Mutex<ThreadModeRawMutex, StorageService<'a, F>>>,
+}
 
-    // Initialize the database, formatting if needed
-    initialise(&mut database).await.unwrap();
-
-    // Create state objects for TicKV services
-    #[cfg(feature = "backlight")]
-    static mut BACKLIGHT_STATE: StorageServiceState<crate::backlight::animations::BacklightConfig> =
-        StorageServiceState::new();
-    #[cfg(feature = "underglow")]
-    static mut UNDERGLOW_STATE: StorageServiceState<crate::underglow::animations::UnderglowConfig> =
-        StorageServiceState::new();
-
-    // Initialize all services
-    unsafe {
-        #[cfg(feature = "backlight")]
-        crate::backlight::BACKLIGHT_CONFIG_STORAGE_SERVICE
-            .initialize(&mut database, &mut BACKLIGHT_STATE)
-            .await
-            .unwrap();
-        #[cfg(feature = "underglow")]
-        crate::underglow::UNDERGLOW_CONFIG_STORAGE_SERVICE
-            .initialize(&mut database, &mut UNDERGLOW_STATE)
-            .await
-            .unwrap();
+impl<'a, F: NorFlash> Database<'a, F>
+where
+    [(); F::ERASE_SIZE]:,
+{
+    /// Create a new instance of a storage service. You will need to call [`setup`] with your
+    /// desired [`NorFlash`] implementor before using
+    pub const fn new() -> Self {
+        Self {
+            db: once_cell::sync::OnceCell::new(),
+        }
     }
 
-    loop {
-        let ((), index) = select::select_array([
-            #[cfg(feature = "backlight")]
-            crate::backlight::BACKLIGHT_CONFIG_STORAGE_SERVICE
-                .signal
-                .wait(),
-            #[cfg(not(feature = "backlight"))]
-            EMPTY_SIGNAL.wait(),
-            #[cfg(feature = "underglow")]
-            crate::underglow::UNDERGLOW_CONFIG_STORAGE_SERVICE
-                .signal
-                .wait(),
-            #[cfg(not(feature = "underglow"))]
-            EMPTY_SIGNAL.wait(),
-        ])
-        .await;
+    /// Initialize the database. You must provide a [`NorFlash`] implementor, along with the start
+    /// and end addresses of the flash region that will be used to store data. A statically
+    /// allocated read buffer must also be provided, which is used by TicKV internally.
+    pub async fn setup(
+        &self,
+        flash: F,
+        config_start: usize,
+        config_end: usize,
+        read_buf: &'a mut [u8; F::ERASE_SIZE],
+    ) {
+        let driver = FlashDevice::new(flash, config_start, config_end);
+        let flash_size = driver.end - driver.start;
+        let mut database = tickv::AsyncTicKV::new(driver, read_buf, flash_size);
 
-        match index {
-            0 => {
-                #[cfg(feature = "backlight")]
-                unsafe {
-                    while let Ok((req, response_channel)) =
-                        crate::backlight::BACKLIGHT_CONFIG_STORAGE_SERVICE
-                            .requests
-                            .try_receive()
-                    {
-                        crate::backlight::BACKLIGHT_CONFIG_STORAGE_SERVICE
-                            .handle_request(
-                                &mut database,
-                                &mut BACKLIGHT_STATE,
-                                req,
-                                response_channel,
-                            )
-                            .await;
-                    }
-                }
-            }
-            1 => {
-                #[cfg(feature = "underglow")]
-                unsafe {
-                    while let Ok((req, response_channel)) =
-                        crate::underglow::UNDERGLOW_CONFIG_STORAGE_SERVICE
-                            .requests
-                            .try_receive()
-                    {
-                        crate::underglow::UNDERGLOW_CONFIG_STORAGE_SERVICE
-                            .handle_request(
-                                &mut database,
-                                &mut UNDERGLOW_STATE,
-                                req,
-                                response_channel,
-                            )
-                            .await;
-                    }
-                }
-            }
-            _ => {}
-        };
+        // Initialize the database, formatting if needed
+        initialise(&mut database).await.unwrap();
+
+        self.db
+            .get_or_init(|| Mutex::new(StorageService::new(database)));
+    }
+
+    /// Obtain a lock on the mutex on the storage service, so that you can use it.
+    pub async fn lock(&self) -> MutexGuard<ThreadModeRawMutex, StorageService<'a, F>> {
+        self.db.get().unwrap().lock().await
     }
 }

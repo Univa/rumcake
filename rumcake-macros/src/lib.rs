@@ -216,6 +216,10 @@ struct KeyboardArgs {
     split_peripheral: Option<String>,
     #[darling(default)]
     split_central: Option<String>,
+    #[darling(default)]
+    via: bool,
+    #[darling(default)]
+    vial: bool,
 }
 
 enum SplitRole {
@@ -276,15 +280,23 @@ fn setup_storage_driver(driver: &str, uses_bluetooth: bool) -> Option<TokenStrea
         "internal" => {
             if cfg!(feature = "nrf") && uses_bluetooth {
                 Some(quote! {
-                    let storage_driver = rumcake::hw::mcu::setup_internal_softdevice_flash(sd);
+                    use rumcake::embedded_storage_async::nor_flash::NorFlash;
+                    let flash = rumcake::hw::mcu::setup_internal_softdevice_flash(sd);
                     let config_start = unsafe { &rumcake::hw::__config_start as *const u32 as usize };
                     let config_end = unsafe { &rumcake::hw::__config_end as *const u32 as usize };
+                    static mut READ_BUF: [u8; rumcake::hw::mcu::nrf_softdevice::ERASE_SIZE] = [0; rumcake::hw::mcu::nrf_softdevice::ERASE_SIZE];
+                    static DATABASE: rumcake::storage::Database<'static, rumcake::hw::nrf_softdevice::Flash> = rumcake::storage::Database::new();
+                    DATABASE.setup(flash, config_start, config_end, unsafe { &mut READ_BUF }).await;
                 })
             } else {
                 Some(quote! {
-                    let storage_driver = rumcake::hw::mcu::setup_internal_flash();
+                    use rumcake::embedded_storage_async::nor_flash::NorFlash;
+                    let flash = rumcake::hw::mcu::setup_internal_flash();
                     let config_start = unsafe { &rumcake::hw::__config_start as *const u32 as usize };
                     let config_end = unsafe { &rumcake::hw::__config_end as *const u32 as usize };
+                    static mut READ_BUF: [u8; rumcake::hw::mcu::Flash::ERASE_SIZE] = [0; rumcake::hw::mcu::Flash::ERASE_SIZE];
+                    static DATABASE: rumcake::storage::Database<'static, rumcake::hw::mcu::Flash> = rumcake::storage::Database::new();
+                    DATABASE.setup(flash, config_start, config_end, unsafe { &mut READ_BUF }).await;
                 })
             }
         }
@@ -301,7 +313,12 @@ pub fn main(
     let kb_name = str.ident.clone();
 
     let args = darling::ast::NestedMeta::parse_meta_list(args.into()).unwrap();
-    let keyboard = KeyboardArgs::from_list(&args).unwrap();
+    let mut keyboard = KeyboardArgs::from_list(&args).unwrap();
+
+    #[cfg(not(feature = "storage"))]
+    {
+        keyboard.no_storage = true;
+    }
 
     let mut initialization = TokenStream::new();
     let mut spawning = TokenStream::new();
@@ -360,17 +377,11 @@ pub fn main(
         let driver_setup = setup_storage_driver(driver.as_str(), uses_bluetooth);
 
         initialization.extend(driver_setup);
-        spawning.extend(quote! {
-            spawner.spawn(rumcake::storage_task!(storage_driver, config_start, config_end)).unwrap();
-        });
     }
 
     if keyboard.bluetooth || keyboard.usb {
-        initialization.extend(quote! {
-            let layout = rumcake::keyboard::setup_keyboard_layout(#kb_name);
-        });
         spawning.extend(quote! {
-            spawner.spawn(rumcake::layout_collect!(#kb_name, layout)).unwrap();
+            spawner.spawn(rumcake::layout_collect!(#kb_name)).unwrap();
         });
     }
 
@@ -404,39 +415,50 @@ pub fn main(
         });
     }
 
-    // #[cfg(feature = "storage")]
-    // initialization.extend(quote! {
-    //     // Flash setup
-    //     let raw_hid_flash = rumcake::hw::mcu::setup_flash();
-    // });
+    if keyboard.via || keyboard.vial {
+        initialization.extend(quote! {
+            // Via HID setup
+            let (via_reader, via_writer) =
+                rumcake::via::setup_usb_via_hid_reader_writer(&mut builder).split();
+        });
 
-    // // The appropriate via/vial request handler built by `setup_raw_hid_request_handler` is chosen based on the feature flags set on `rumcake`.
-    // #[cfg(feature = "via")]
-    // {
-    //     initialization.extend(quote! {
-    //         // Via HID setup
-    //         let (via_reader, via_writer) =
-    //             rumcake::via::setup_usb_via_hid_reader_writer(&mut builder).split();
-    //     });
-    //     spawning.extend(quote! {
-    //         // HID raw report (for VIA) reading and writing
-    //         spawner
-    //             .spawn(rumcake::usb_hid_via_read_task!(via_reader))
-    //             .unwrap();
-    //     })
-    // }
+        if !keyboard.no_storage {
+            spawning.extend(quote! {
+                spawner
+                    .spawn(rumcake::via_storage_task!(#kb_name, &DATABASE))
+                    .unwrap();
+            });
+        }
 
-    // #[cfg(all(feature = "via", not(feature = "vial")))]
-    // spawning.extend(quote! {
-    //     spawner.spawn(rumcake::usb_hid_via_write_task!(#kb_name, debouncer, raw_hid_flash, via_writer)).unwrap();
-    // });
+        spawning.extend(quote! {
+            // HID raw report (for VIA) reading and writing
+            spawner
+                .spawn(rumcake::usb_hid_via_read_task!(via_reader))
+                .unwrap();
+        });
+    }
 
-    // #[cfg(feature = "vial")]
-    // spawning.extend(quote! {
-    //     spawner
-    //         .spawn(rumcake::usb_hid_vial_write_task!(#kb_name, debouncer, raw_hid_flash, via_writer))
-    //         .unwrap();
-    // });
+    if keyboard.via && !keyboard.vial {
+        spawning.extend(quote! {
+            spawner.spawn(rumcake::usb_hid_via_write_task!(#kb_name, via_writer)).unwrap();
+        });
+    }
+
+    if keyboard.vial {
+        if !keyboard.no_storage {
+            spawning.extend(quote! {
+                spawner
+                    .spawn(rumcake::vial_storage_task!(#kb_name, &DATABASE))
+                    .unwrap();
+            });
+        }
+
+        spawning.extend(quote! {
+            spawner
+                .spawn(rumcake::usb_hid_vial_write_task!(#kb_name, via_writer))
+                .unwrap();
+        });
+    }
 
     // Split keyboard setup
     if let Some(ref driver) = keyboard.split_peripheral {
@@ -476,6 +498,13 @@ pub fn main(
         match setup_underglow_driver(&kb_name, driver.as_str()) {
             Some(driver_setup) => {
                 initialization.extend(driver_setup);
+
+                if !keyboard.no_storage {
+                    spawning.extend(quote! {
+                        spawner.spawn(rumcake::underglow_storage_task!(&DATABASE)).unwrap();
+                    });
+                }
+
                 spawning.extend(quote! {
                     spawner.spawn(rumcake::underglow_task!(#kb_name, underglow_driver)).unwrap();
                 });
@@ -493,6 +522,13 @@ pub fn main(
         match setup_backlight_driver(&kb_name, driver.as_str()) {
             Some(driver_setup) => {
                 initialization.extend(driver_setup);
+
+                if !keyboard.no_storage {
+                    spawning.extend(quote! {
+                        spawner.spawn(rumcake::backlight_storage_task!(&DATABASE)).unwrap();
+                    });
+                }
+
                 spawning.extend(quote! {
                     spawner.spawn(rumcake::backlight_task!(#kb_name, backlight_driver)).unwrap();
                 });
@@ -578,11 +614,11 @@ pub fn task(
 
         #[macro_export]
         macro_rules! #task_ident {
-            (#($#arg_names:tt),*) => {
+            (#($#arg_names:expr),*) => {
                 {
                     type Fut = impl ::core::future::Future + 'static;
                     static POOL: $crate::embassy_executor::raw::TaskPool<Fut, 1> = $crate::embassy_executor::raw::TaskPool::new();
-                    unsafe { POOL._spawn_async_fn(|| $crate::tasks::#inner_ident(#($#arg_names,)*)) }
+                    unsafe { POOL._spawn_async_fn(move || $crate::tasks::#inner_ident(#($#arg_names,)*)) }
                 }
             };
         }

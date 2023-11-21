@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+cortex-m = { version = "0.7.6", optional = true }
 defmt = "0.3"
 embedded-hal = "0.2.7"
 embedded-hal-async = "1.0.0-rc.1"
@@ -22,7 +23,7 @@ embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", rev = "b1abaa38
 embassy-nrf = { git = "https://github.com/embassy-rs/embassy", rev = "b1abaa38", features = ["defmt", "nightly", "nfc-pins-as-gpio", "unstable-traits", "time-driver-rtc1"], optional = true }
 nrf-softdevice = { git = "https://github.com/embassy-rs/nrf-softdevice", rev = "487f98e", optional = true }
 tickv = { git = "https://github.com/tock/tock", rev = "18cf287" }
-keyberon = { git = "https://github.com/TeXitoi/keyberon", branch = "master" }
+keyberon = { path = "../keyberon" }
 once_cell = { version = "1.18.0", features = ["atomic-polyfill"], default-features = false }
 static_cell = "1.0.0"
 usbd-human-interface-device = "0.4.3"
@@ -62,24 +63,24 @@ drivers = []
 #
 
 # STM32
-stm32 = ["dep:embassy-stm32", "rumcake-macros/stm32"]
-stm32f072cb = ["stm32", "embassy-stm32/stm32f072cb", "embassy-stm32/time-driver-any", "embassy-executor/arch-cortex-m"]
-stm32f303cb = ["stm32", "embassy-stm32/stm32f303cb", "embassy-stm32/time-driver-any", "embassy-executor/arch-cortex-m"]
+stm32 = ["dep:cortex-m", "embassy-executor/arch-cortex-m", "dep:embassy-stm32", "rumcake-macros/stm32"]
+stm32f072cb = ["stm32", "embassy-stm32/stm32f072cb", "embassy-stm32/time-driver-any"]
+stm32f303cb = ["stm32", "embassy-stm32/stm32f303cb", "embassy-stm32/time-driver-any"]
 
 # nRF5x
-nrf = ["dep:embassy-nrf", "rumcake-macros/nrf"]
+nrf = ["dep:cortex-m", "embassy-executor/arch-cortex-m", "dep:embassy-nrf", "rumcake-macros/nrf"]
 nrf-ble = ["dep:nrf-softdevice", "nrf-softdevice/defmt", "nrf-softdevice/ble-sec", "nrf-softdevice/critical-section-impl", "nrf-softdevice/nightly"]
-nrf52840 = ["nrf", "embassy-nrf/nrf52840", "nrf-softdevice?/nrf52840", "nrf-softdevice?/s140", "embassy-executor/arch-cortex-m"]
+nrf52840 = ["nrf", "embassy-nrf/nrf52840", "nrf-softdevice?/nrf52840", "nrf-softdevice?/s140"]
 
-storage = []
+storage = ["rumcake-macros/storage"]
 
 #
 # Keyboard features
 #
 
 # Via/Vial
-via = ["usb", "storage", "rumcake-macros/via"]
-vial = ["via", "rumcake-macros/vial"]
+via = []
+vial = ["via", "_backlight"]
 
 # Host communication
 usb = []
@@ -87,10 +88,10 @@ bluetooth = ["nrf-softdevice?/ble-peripheral", "nrf-softdevice?/ble-gatt-server"
 
 underglow = []
 
-backlight = []
-simple-backlight = ["backlight"]
-simple-backlight-matrix = ["backlight"]
-rgb-backlight-matrix = ["backlight"]
+_backlight = []
+simple-backlight = ["_backlight"]
+simple-backlight-matrix = ["_backlight"]
+rgb-backlight-matrix = ["_backlight"]
 
 display = []
 

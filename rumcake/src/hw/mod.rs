@@ -68,7 +68,7 @@ where
 {
     /// Create an instance of [`FlashDevice`], using a provided implementor of
     /// [`embedded_storage_async::nor_flash::NorFlash`].
-    pub(crate) fn new(driver: F, config_start: usize, config_end: usize) -> Self {
+    pub fn new(driver: F, config_start: usize, config_end: usize) -> Self {
         // Check config partition before moving on
         assert!(
             config_start < config_end,

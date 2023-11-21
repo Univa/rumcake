@@ -731,8 +731,16 @@ where
             let command = BLUETOOTH_COMMAND_CHANNEL.receive().await;
             match command {
                 #[cfg(feature = "usb")]
-                BluetoothCommand::ToggleUSB => {
+                BluetoothCommand::ToggleOutput => {
                     USB_STATE.set(!USB_STATE.get().await).await;
+                }
+                #[cfg(feature = "usb")]
+                BluetoothCommand::OutputUSB => {
+                    USB_STATE.set(true).await;
+                }
+                #[cfg(feature = "usb")]
+                BluetoothCommand::OutputBluetooth => {
+                    USB_STATE.set(false).await;
                 }
             }
         }

@@ -3,6 +3,7 @@
 #![feature(macro_metavar_expr)]
 #![feature(generic_const_exprs)]
 #![feature(type_alias_impl_trait)]
+#![feature(associated_type_defaults)]
 #![feature(return_position_impl_trait_in_trait)]
 #![feature(async_fn_in_trait)]
 #![warn(missing_docs)]
@@ -116,12 +117,10 @@ pub use embassy_stm32;
 pub use embassy_nrf;
 
 pub use embassy_executor;
-pub use embassy_sync;
-pub use embassy_usb;
 pub use embedded_hal;
 pub use embedded_hal_async;
+pub use embedded_storage_async;
 pub use keyberon;
-pub use smart_leds;
 
 pub use rumcake_macros::main as keyboard;
 
@@ -134,7 +133,7 @@ pub mod storage;
 #[cfg(feature = "underglow")]
 pub mod underglow;
 
-#[cfg(feature = "backlight")]
+#[cfg(feature = "_backlight")]
 pub mod backlight;
 
 #[cfg(feature = "usb")]
@@ -163,11 +162,26 @@ pub mod drivers;
 pub mod tasks {
     pub use crate::keyboard::{__layout_collect_task, __matrix_poll_task};
 
-    #[cfg(feature = "backlight")]
+    #[cfg(any(
+        feature = "simple-backlight",
+        feature = "simple-backlight-matrix",
+        feature = "rgb-backlight-matrix"
+    ))]
     pub use crate::backlight::__backlight_task_task;
+    #[cfg(all(
+        any(
+            feature = "simple-backlight",
+            feature = "simple-backlight-matrix",
+            feature = "rgb-backlight-matrix"
+        ),
+        feature = "storage"
+    ))]
+    pub use crate::backlight::storage::__backlight_storage_task_task;
 
     #[cfg(feature = "underglow")]
     pub use crate::underglow::__underglow_task_task;
+    #[cfg(all(feature = "underglow", feature = "storage"))]
+    pub use crate::underglow::storage::__underglow_storage_task_task;
 
     #[cfg(feature = "display")]
     pub use crate::display::__display_task_task;
@@ -179,18 +193,19 @@ pub mod tasks {
     pub use crate::via::__usb_hid_via_read_task_task;
     #[cfg(feature = "via")]
     pub use crate::via::__usb_hid_via_write_task_task;
+    #[cfg(all(feature = "via", feature = "storage"))]
+    pub use crate::via::storage::__via_storage_task_task;
 
     #[cfg(feature = "vial")]
     pub use crate::vial::__usb_hid_vial_write_task_task;
+    #[cfg(all(feature = "vial", feature = "storage"))]
+    pub use crate::vial::storage::__vial_storage_task_task;
 
     #[cfg(feature = "split-central")]
     pub use crate::split::central::__central_task_task;
 
     #[cfg(feature = "split-peripheral")]
     pub use crate::split::peripheral::__peripheral_task_task;
-
-    #[cfg(feature = "storage")]
-    pub use crate::storage::__storage_task_task;
 
     #[cfg(feature = "nrf")]
     pub use crate::hw::mcu::__adc_task_task;

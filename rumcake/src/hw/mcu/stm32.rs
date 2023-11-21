@@ -1,13 +1,11 @@
 use core::fmt::Debug;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::dma::NoDma;
-use embassy_stm32::flash::{Bank1Region, Blocking, Flash};
+use embassy_stm32::flash::{Bank1Region, Blocking, Flash as HALFlash};
 use embassy_stm32::i2c::I2c;
 use embassy_stm32::peripherals::{FLASH, PA11, PA12, USB};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::mutex::Mutex;
 use embedded_hal::blocking::i2c::Write;
 use embedded_hal_async::i2c::I2c as AsyncI2c;
 use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
@@ -21,6 +19,18 @@ pub const SYSCLK: u32 = 48_000_000;
 
 #[cfg(feature = "stm32f303cb")]
 pub const SYSCLK: u32 = 72_000_000;
+
+pub fn jump_to_bootloader() {
+    #[cfg(feature = "stm32f072cb")]
+    unsafe {
+        cortex_m::asm::bootload(0x1FFFC800 as _)
+    };
+
+    #[cfg(feature = "stm32f303cb")]
+    unsafe {
+        cortex_m::asm::bootload(0x1FFFD800 as _)
+    };
+}
 
 pub fn initialize_rcc() {
     let mut conf = embassy_stm32::Config::default();
@@ -121,29 +131,16 @@ pub fn setup_usb_driver<K: crate::usb::USBKeyboard>(
     }
 }
 
-pub fn setup_flash() -> &'static mut Mutex<ThreadModeRawMutex, impl NorFlash> {
-    unsafe {
-        static FLASH_PERIPHERAL: StaticCell<Mutex<ThreadModeRawMutex, Bank1Region<Blocking>>> =
-            StaticCell::new();
-
-        FLASH_PERIPHERAL.init(Mutex::new(
-            Flash::new_blocking(FLASH::steal())
-                .into_blocking_regions()
-                .bank1_region,
-        ))
-    }
+pub struct Flash {
+    flash: HALFlash<'static, Blocking>,
 }
 
-pub struct STM32Flash {
-    flash: Flash<'static, Blocking>,
-}
-
-impl ErrorType for STM32Flash {
+impl ErrorType for Flash {
     type Error = embassy_stm32::flash::Error;
 }
 
-impl AsyncReadNorFlash for STM32Flash {
-    const READ_SIZE: usize = <Flash as ReadNorFlash>::READ_SIZE;
+impl AsyncReadNorFlash for Flash {
+    const READ_SIZE: usize = <HALFlash as ReadNorFlash>::READ_SIZE;
 
     async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
         self.flash.read(offset, bytes)
@@ -154,10 +151,10 @@ impl AsyncReadNorFlash for STM32Flash {
     }
 }
 
-impl AsyncNorFlash for STM32Flash {
-    const WRITE_SIZE: usize = <Flash as embedded_storage::nor_flash::NorFlash>::WRITE_SIZE;
+impl AsyncNorFlash for Flash {
+    const WRITE_SIZE: usize = <HALFlash as embedded_storage::nor_flash::NorFlash>::WRITE_SIZE;
 
-    const ERASE_SIZE: usize = <Flash as embedded_storage::nor_flash::NorFlash>::ERASE_SIZE;
+    const ERASE_SIZE: usize = <HALFlash as embedded_storage::nor_flash::NorFlash>::ERASE_SIZE;
 
     async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
         self.flash.erase(from, to)
@@ -168,9 +165,9 @@ impl AsyncNorFlash for STM32Flash {
     }
 }
 
-pub fn setup_internal_flash() -> STM32Flash {
-    STM32Flash {
-        flash: unsafe { Flash::new_blocking(FLASH::steal()) },
+pub fn setup_internal_flash() -> Flash {
+    Flash {
+        flash: unsafe { HALFlash::new_blocking(FLASH::steal()) },
     }
 }
 

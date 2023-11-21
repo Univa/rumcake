@@ -37,18 +37,14 @@ pub trait SimpleBacklightDriver<K: BacklightDevice> {
 }
 
 /// A trait that a driver must implement in order to support a simple (no color) backlighting matrix scheme.
-pub trait SimpleBacklightMatrixDriver<K: BacklightMatrixDevice>
-where
-    [(); K::MATRIX_COLS]:,
-    [(); K::MATRIX_ROWS]:,
-{
+pub trait SimpleBacklightMatrixDriver<K: BacklightMatrixDevice> {
     /// The type of error that the driver will return if [`SimpleBacklightMatrixDriver::write`] fails.
     type DriverWriteError: Debug;
 
     /// Render out a frame buffer using the driver.
     async fn write(
         &mut self,
-        buf: &[[u8; K::MATRIX_COLS]; K::MATRIX_ROWS],
+        buf: &[[u8; K::LIGHTING_COLS]; K::LIGHTING_ROWS],
     ) -> Result<(), Self::DriverWriteError>;
 
     /// The type of error that the driver will return if [`SimpleBacklightMatrixDriver::turn_on`] fails.
@@ -75,18 +71,14 @@ where
 }
 
 /// A trait that a driver must implement in order to support an RGB backlighting matrix scheme.
-pub trait RGBBacklightMatrixDriver<K: BacklightMatrixDevice>
-where
-    [(); K::MATRIX_COLS]:,
-    [(); K::MATRIX_ROWS]:,
-{
+pub trait RGBBacklightMatrixDriver<K: BacklightMatrixDevice> {
     /// The type of error that the driver will return if [`RGBBacklightMatrixDriver::write`] fails.
     type DriverWriteError: Debug;
 
     /// Render out a frame buffer using the driver.
     async fn write(
         &mut self,
-        buf: &[[RGB8; K::MATRIX_COLS]; K::MATRIX_ROWS],
+        buf: &[[RGB8; K::LIGHTING_COLS]; K::LIGHTING_ROWS],
     ) -> Result<(), Self::DriverWriteError>;
 
     /// The type of error that the driver will return if [`RGBBacklightMatrixDriver::turn_on`] fails.

@@ -6,7 +6,7 @@
   - [Required Cargo features](#required-cargo-features)
   - [Required code](#required-code)
 - [Keycodes](#keycodes)
-- [USB host communication interoperability (`ToggleUSB`)](#usb-host-communication-interoperability-toggleusb)
+- [USB host communication interoperability](#usb-host-communication-interoperability)
 - [To-do List](#to-do-list)
 <!--toc:end-->
 
@@ -57,15 +57,17 @@ impl BluetoothKeyboard for MyKeyboard {
 In your keyberon layout, you can use any of the enum members defined in `BluetoothCommand`:
 
 ```rust
-ToggleUSB // Only available if the `usb` feature flag is also enabled. More information below.
+ToggleOutput // Only available if the `usb` feature flag is also enabled. More information below.
+OutputUSB // Only available if the `usb` feature flag is also enabled. More information below.
+OutputBluetooth // Only available if the `usb` feature flag is also enabled. More information below.
 ```
 
-## USB host communication interoperability (`ToggleUSB`)
+## USB host communication interoperability
 
 By default, your keyboard will use bluetooth to communicate with your device.
-You can use the `ToggleUSB` keycode to switch to USB and back. This won't
-disconnect your keyboard from your USB or Bluetooth host, but it will simply
-determine the device to send keyboard reports to.
+You can use the `ToggleOutput`, `OutputUSB` or `OutputBluetooth` keycode to switch
+to USB and back. This won't disconnect your keyboard from your USB or Bluetooth
+host, but it will simply determine the device to send keyboard reports to.
 
 ## To-do List
 

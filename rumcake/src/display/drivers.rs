@@ -116,7 +116,8 @@ pub enum Orientation {
 /// The default contents of the display will depend on what feature flags are
 /// enabled. A list of possible data that may be shown includes:
 /// - Battery level (BAT): `nrf-ble` must be enabled.
-/// - Mode: `usb` and `bluetooth` enabled at the same time. See [`rumcake::bluetooth::BluetoothCommand::ToggleUSB`]
+/// - Mode: `usb` and `bluetooth` enabled at the same time. See
+/// [`rumcake::bluetooth::BluetoothCommand::ToggleOutput`]
 pub async fn on_update_default(
     display: &mut impl DrawTarget<Color = BinaryColor, Error = impl Debug>,
     orientation: Orientation,

@@ -12,7 +12,6 @@ use keyberon::layout::Event;
 use num_derive::FromPrimitive;
 use rand::rngs::SmallRng;
 use rand_core::SeedableRng;
-use ringbuffer::RingBuffer;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, MaxSize)]
@@ -43,6 +42,8 @@ impl Default for BacklightConfig {
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub enum BacklightCommand {
     Toggle,
+    TurnOn,
+    TurnOff,
     NextEffect,
     PrevEffect,
     SetEffect(BacklightEffect),
@@ -79,6 +80,16 @@ pub enum BacklightEffect {
     #[animated]
     #[reactive]
     Reactive,
+}
+
+impl BacklightEffect {
+    pub(crate) fn is_enabled<D: BacklightDevice>(&self) -> bool {
+        match self {
+            BacklightEffect::Solid => D::SOLID_ENABLED,
+            BacklightEffect::Breathing => D::BREATHING_ENABLED,
+            BacklightEffect::Reactive => D::REACTIVE_ENABLED,
+        }
+    }
 }
 
 pub(super) struct BacklightAnimator<K: BacklightDevice, D: SimpleBacklightDriver<K>> {
@@ -121,11 +132,23 @@ impl<K: BacklightDevice, D: SimpleBacklightDriver<K>> BacklightAnimator<K, D> {
             BacklightCommand::Toggle => {
                 self.config.enabled = !self.config.enabled;
             }
+            BacklightCommand::TurnOn => {
+                self.config.enabled = true;
+            }
+            BacklightCommand::TurnOff => {
+                self.config.enabled = false;
+            }
             BacklightCommand::NextEffect => {
-                self.config.effect.increment();
+                while {
+                    self.config.effect.increment();
+                    self.config.effect.is_enabled::<K>()
+                } {}
             }
             BacklightCommand::PrevEffect => {
-                self.config.effect.decrement();
+                while {
+                    self.config.effect.decrement();
+                    self.config.effect.is_enabled::<K>()
+                } {}
             }
             BacklightCommand::SetEffect(effect) => {
                 self.config.effect = effect;
@@ -149,11 +172,7 @@ impl<K: BacklightDevice, D: SimpleBacklightDriver<K>> BacklightAnimator<K, D> {
             }
             #[cfg(feature = "storage")]
             BacklightCommand::SaveConfig => {
-                super::BACKLIGHT_CONFIG_STORAGE_CLIENT
-                    .request(crate::storage::StorageRequest::Write(
-                        super::BACKLIGHT_CONFIG_STATE.get().await,
-                    ))
-                    .await;
+                super::storage::BACKLIGHT_SAVE_SIGNAL.signal(());
             }
             BacklightCommand::SetTime(time) => {
                 self.tick = time;

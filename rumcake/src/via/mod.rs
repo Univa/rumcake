@@ -1,6 +1,12 @@
-use crate::storage::KeyboardWithEEPROM;
-use crate::usb::USBKeyboard;
-use defmt::{debug, error, warn, Debug2Format};
+//! Support for Via's protocol (version 12).
+//!
+//! To use Via, you will need to implement [`ViaKeyboard`]. If you would like to save your Via
+//! changes, you will also need to enable the `storage` feature flag, and setup the appropriate
+//! storage buffers using [`crate::setup_via_storage_buffers`].
+
+use crate::keyboard::{Keyboard, KeyboardLayout};
+use defmt::{assert, debug, error, Debug2Format};
+use embassy_futures::join;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
@@ -10,81 +16,92 @@ use embassy_usb::class::hid::{
 use embassy_usb::control::OutResponse;
 use embassy_usb::driver::Driver;
 use embassy_usb::Builder;
-use embedded_storage::nor_flash::NorFlash;
-use keyberon::debounce::Debouncer;
-use num_derive::FromPrimitive;
 use static_cell::StaticCell;
 
-pub trait ViaKeyboard: USBKeyboard + KeyboardWithEEPROM {
+pub(crate) mod handlers;
+pub(crate) mod protocol_12;
+
+pub(crate) use protocol_12 as protocol;
+
+/// A trait that keyboards must implement to use the Via protocol.
+pub trait ViaKeyboard: Keyboard + KeyboardLayout {
     const VIA_ENABLED: bool = true;
+
+    /// Version of your firmware.
     const VIA_FIRMWARE_VERSION: u32 = 1; // This is the default if not set in QMK.
 
-    // Note: QMK uses an algorithm to emulate EEPROM in STM32 chips by using their flash peripherals
-    const EEPROM_TOTAL_BYTE_COUNT: usize = if Self::VIA_ENABLED {
-        1024
-    } else {
-        Self::EECONFIG_SIZE + 3
-    }; // This is the default if not set in QMK (for STM32L0/L1)
-
-    const VIA_EEPROM_MAGIC_ADDR: u8 = Self::EECONFIG_SIZE as u8; // This is the default if not set in QMK
-
-    const VIA_EEPROM_LAYOUT_OPTIONS_ADDR: u8 = Self::VIA_EEPROM_MAGIC_ADDR + 3;
+    /// How many bytes are needed to represent the number of possible layout options for your
+    /// keyboard.
     const VIA_EEPROM_LAYOUT_OPTIONS_SIZE: usize = 1; // This is the default if not set in QMK
+
+    /// The default layout option to use for your keyboard in the Via app.
     const VIA_EEPROM_LAYOUT_OPTIONS_DEFAULT: u32 = 0x00000000; // This is the default if not set in QMK
 
-    const VIA_EEPROM_CUSTOM_CONFIG_ADDR: u8 =
-        Self::VIA_EEPROM_LAYOUT_OPTIONS_ADDR + Self::VIA_EEPROM_LAYOUT_OPTIONS_SIZE as u8;
-    const VIA_EEPROM_CUSTOM_CONFIG_SIZE: usize = 0; // This is the default if not set in QMK
-    const VIA_EEPROM_CONFIG_END: u8 =
-        Self::VIA_EEPROM_CUSTOM_CONFIG_ADDR + Self::VIA_EEPROM_CUSTOM_CONFIG_SIZE as u8;
+    /// The number of layers that you can modify in the Via app. This number must be equal to or
+    /// less than the number of layers in your keyberon layout, [`KeyboardLayout::LAYERS`].
+    const DYNAMIC_KEYMAP_LAYER_COUNT: usize = Self::LAYERS;
+    // const DYNAMIC_KEYMAP_LAYER_COUNT: usize = 4; // This is the default if this variable isn't defined in QMK
 
-    const DYNAMIC_KEYMAP_LAYER_COUNT: u8 = 4; // This is the default if this variable isn't defined in QMK
-    const DYNAMIC_KEYMAP_EEPROM_MAX_ADDR: u16 =
-        (<Self as ViaKeyboard>::EEPROM_TOTAL_BYTE_COUNT - 1) as u16; // This is the default if not set in QMK. QMK also checks if this is greater than u16::MAX or EEPROM_TOTAL_BYTE_COUNT (e.g. if it was manually set), and generates a compile time error if it is.
-                                                                     // Space is calculated for dynamic keymaps assumes 2 bytes per keycode
-                                                                     // Note that keycode is 2 bytes instead of 1 because QMK has special keycodes for updating RGB light values, for example, that take 2 bytes instead of 1.
-    const DYNAMIC_KEYMAP_EEPROM_SIZE: usize =
-        (Self::DYNAMIC_KEYMAP_LAYER_COUNT as usize) * Self::LAYOUT_ROWS * Self::LAYOUT_COLS * 2; // Can't change this in QMK (it only exists as local variable, not a #define)
-    const DYNAMIC_KEYMAP_EEPROM_ADDR: u8 = if Self::VIA_ENABLED {
-        Self::VIA_EEPROM_CONFIG_END
-    } else {
-        Self::EECONFIG_SIZE as u8
-    }; // This is the default if not defined in QMK
+    /// The number of macros that your keyboard can store.
+    const DYNAMIC_KEYMAP_MACRO_COUNT: u8 = 0; // this is the default if this variable isn't defined in QMK, TODO: Change when macros are implemented
 
-    // Probably won't support this
-    const ENCODER_MAP_ENABLE: bool = false; // This is the default if this is not set in QMK.
+    /// The total amount of space allocated to macros in your storage peripheral.
+    const DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE: usize = 512;
+    // const DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE: usize = (Self::DYNAMIC_KEYMAP_EEPROM_MAX_ADDR
+    //     - Self::DYNAMIC_KEYMAP_MACRO_EEPROM_ADDR
+    //     + 1) as usize; // This is the default if not defined in QMK.
 
-    const DYNAMIC_KEYMAP_ENCODER_EEPROM_ADDR: u16 =
-        (Self::DYNAMIC_KEYMAP_EEPROM_ADDR + (Self::DYNAMIC_KEYMAP_EEPROM_SIZE) as u8) as u16; // This is the default if this is not set in QMK.
-    const DYNAMIC_KEYMAP_ENCODER_EEPROM_SIZE: usize =
-        (Self::DYNAMIC_KEYMAP_LAYER_COUNT as usize) * (Self::NUM_ENCODERS as usize) * 2 * 2; // Not defined in QMK, just inferred based of patterns here.
+    #[cfg(feature = "storage")]
+    fn get_layout_options_storage_state(
+    ) -> &'static mut crate::storage::StorageServiceState<1, { Self::VIA_EEPROM_LAYOUT_OPTIONS_SIZE }>;
 
-    const DYNAMIC_KEYMAP_MACRO_COUNT: u8 = 16; // this is the default if this variable isn't defined in QMK
-    const DYNAMIC_KEYMAP_MACRO_EEPROM_ADDR: u16 = if Self::ENCODER_MAP_ENABLE {
-        // Space is calculated assuming: 2 bytes per keycode, 2 directions (CW and CCW)
-        Self::DYNAMIC_KEYMAP_ENCODER_EEPROM_ADDR + (Self::DYNAMIC_KEYMAP_ENCODER_EEPROM_SIZE as u16)
-    } else {
-        Self::DYNAMIC_KEYMAP_ENCODER_EEPROM_ADDR
-    }; // This is the default if not defined in QMK.
-    const DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE: usize = (Self::DYNAMIC_KEYMAP_EEPROM_MAX_ADDR
-        - Self::DYNAMIC_KEYMAP_MACRO_EEPROM_ADDR
-        + 1) as usize; // This is the default if not defined in QMK.
+    #[cfg(feature = "storage")]
+    fn get_dynamic_keymap_storage_state() -> &'static mut crate::storage::StorageServiceState<
+        3,
+        { Self::DYNAMIC_KEYMAP_LAYER_COUNT * Self::LAYOUT_COLS * Self::LAYOUT_ROWS * 2 },
+    >;
 
-    fn handle_via_init() {}
+    #[cfg(feature = "storage")]
+    fn get_dynamic_keymap_encoder_storage_state(
+    ) -> &'static mut crate::storage::StorageServiceState<
+        2,
+        { Self::DYNAMIC_KEYMAP_LAYER_COUNT * Self::NUM_ENCODERS * 2 * 2 },
+    >;
 
-    fn handle_via_command() -> bool {
+    #[cfg(feature = "storage")]
+    fn get_dynamic_keymap_macro_storage_state() -> &'static mut crate::storage::StorageServiceState<
+        3,
+        { Self::DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE },
+    >;
+
+    /// Override for handling a Via/Vial protocol packet.
+    ///
+    /// Returning `true` indicates that a command is fully handled, so the Via/Vial task will not
+    /// continue to process the data. Returning `false` will let the Via task continue to process
+    /// the data, using the usual protocol. You should not send the data to the host using this
+    /// method. Responses to the host are automatically handled by the Via/Vial task.
+    fn handle_via_command(data: &mut [u8]) -> bool {
         false
     }
 
-    fn handle_set_layout_options(_data: &mut [u8], _len: u8) {}
+    /// Optional handler that allows you to handle changes to the current layout options setting.
+    fn handle_set_layout_options(updated_layout: u32) {}
 
+    /// Optional handler that you can use to handle custom UI channel commands. See
+    /// <https://www.caniusevia.com/docs/custom_ui>. **This is currently only applicable to Via,
+    /// not Vial.**
+    ///
+    /// This is called if the Via protocol is unable to handle a custom channel command. The
+    /// current Via protocol implementation handles lighting (`rgblight`/`underglow`,
+    /// `backlight`/`simple-backlight`, `led_matrix`/`simple-backlight-matrix`,
+    /// `rgb_matrix`/`rgb-backlight-matrix`) channels.
     fn handle_custom_value_command(data: &mut [u8], _len: u8) {
-        data[0] = ViaCommandId::Unhandled as u8;
+        data[0] = protocol::ViaCommandId::Unhandled as u8;
     }
 }
 
-// Pulled from QMK
-pub const VIA_REPORT_DESCRIPTOR: &[u8] = &[
+/// Report descriptor used for Via. Pulled from QMK.
+const VIA_REPORT_DESCRIPTOR: &[u8] = &[
     0x06, 0x60, 0xFF, // Usage Page (Vendor Defined)
     0x09, 0x61, // Usage (Vendor Defined)
     0xA1, 0x01, // Collection (Application)
@@ -105,724 +122,9 @@ pub const VIA_REPORT_DESCRIPTOR: &[u8] = &[
     0xC0, // End Collection
 ];
 
-const VIA_PROTOCOL_VERSION: u16 = 0x000C;
+struct ViaCommandHandler;
 
-#[derive(FromPrimitive, Debug, PartialEq, Eq)]
-pub enum ViaCommandId {
-    GetProtocolVersion = 0x01,
-    GetKeyboardValue,
-    SetKeyboardValue,
-    DynamicKeymapGetKeycode,
-    DynamicKeymapSetKeycode,
-    DynamicKeymapReset,
-    CustomSetValue,
-    CustomGetValue,
-    CustomSave,
-    EEPROMReset,
-    BootloaderJump,
-    DynamicKeymapMacroGetCount,
-    DynamicKeymapMacroGetBufferSize,
-    DynamicKeymapMacroGetBuffer,
-    DynamicKeymapMacroSetBuffer,
-    DynamicKeymapMacroReset,
-    DynamicKeymapGetLayerCount,
-    DynamicKeymapGetBuffer,
-    DynamicKeymapSetBuffer,
-    DynamicKeymapGetEncoder,
-    DynamicKeymapSetEncoder,
-    #[cfg(feature = "vial")]
-    VialPrefix,
-    Unhandled = 0xFF,
-}
-
-#[derive(FromPrimitive, Debug)]
-enum ViaKeyboardValueId {
-    Uptime = 0x01,
-    LayoutOptions,
-    SwitchMatrixState,
-    FirmwareVersion,
-    DeviceIndication,
-}
-
-#[derive(FromPrimitive, Debug)]
-enum ViaChannelId {
-    Custom = 0,
-    Backlight,
-    RGBLight, // underglow
-    RGBMatrix,
-    Audio,
-    LEDMatrix,
-}
-
-#[derive(FromPrimitive, Debug)]
-enum ViaBacklightValue {
-    Brightness = 1,
-    Effect,
-}
-
-#[derive(FromPrimitive, Debug)]
-enum ViaRGBLightValue {
-    Brightness = 1,
-    Effect,
-    EffectSpeed,
-    Color,
-}
-
-#[derive(FromPrimitive, Debug)]
-enum ViaRGBMatrixValue {
-    Brightness = 1,
-    Effect,
-    EffectSpeed,
-    Color,
-}
-
-#[derive(FromPrimitive, Debug)]
-enum ViaLEDMatrixValue {
-    Brightness = 1,
-    Effect,
-    EffectSpeed,
-}
-
-#[allow(dead_code)]
-#[derive(FromPrimitive, Debug)]
-enum ViaAudioValue {
-    Enable,
-    ClickyEnable,
-}
-
-pub async fn process_via_command<K: ViaKeyboard>(
-    debouncer: &'static Mutex<
-        ThreadModeRawMutex,
-        Debouncer<[[bool; K::LAYOUT_COLS]; K::LAYOUT_ROWS]>,
-    >,
-    flash: &'static Mutex<ThreadModeRawMutex, impl NorFlash>,
-    data: &mut [u8],
-) {
-    debug!("[VIA] Processing Via command");
-    if let Some(command) = num::FromPrimitive::from_u8(data[0]) {
-        debug!("[VIA] Received command {:?}", Debug2Format(&command));
-
-        match command {
-            ViaCommandId::GetProtocolVersion => {
-                data[1..=2].copy_from_slice(&VIA_PROTOCOL_VERSION.to_be_bytes());
-            }
-            ViaCommandId::GetKeyboardValue => {
-                match num::FromPrimitive::from_u8(data[1]) {
-                    Some(ViaKeyboardValueId::Uptime) => {
-                        data[2..=5].copy_from_slice(
-                            &((embassy_time::Instant::now().as_millis() as u32).to_be_bytes()),
-                        );
-                    }
-                    Some(ViaKeyboardValueId::LayoutOptions) => {
-                        if let Err(err) = flash.lock().await.read(
-                            K::VIA_EEPROM_LAYOUT_OPTIONS_ADDR as u32,
-                            &mut data[(6 - K::VIA_EEPROM_LAYOUT_OPTIONS_SIZE)..=5],
-                        ) {
-                            warn!(
-                                "[VIA] Could not read layout options: {:?}",
-                                Debug2Format(&err)
-                            )
-                        };
-                    }
-                    Some(ViaKeyboardValueId::SwitchMatrixState) => {
-                        // (cols + 8 bits - 1) / 8 bits: we get the number of bytes needed to store the state of a row (based on number of cols)
-                        for (i, row) in debouncer.lock().await.get().iter().enumerate() {
-                            for col in 0..K::LAYOUT_COLS {
-                                data[2
-                                    + ((K::LAYOUT_COLS + u8::BITS as usize - 1)
-                                        / u8::BITS as usize
-                                        * (i + 1)
-                                        - 1
-                                        - col / u8::BITS as usize)] |= (row[col] as u8) << col;
-                            }
-                        }
-                    }
-                    Some(ViaKeyboardValueId::FirmwareVersion) => {
-                        data[2..=5].copy_from_slice(&K::VIA_FIRMWARE_VERSION.to_be_bytes());
-                    }
-                    Some(value) => {
-                        data[0] = ViaCommandId::Unhandled as u8;
-                        warn!(
-                            "[VIA] Unimplemented get keyboard value subcommand received from host {:?}",
-                            Debug2Format(&value)
-                        );
-                    }
-                    None => {
-                        data[0] = ViaCommandId::Unhandled as u8;
-                        warn!(
-                            "[VIA] Unknown get keyboard value subcommand received from host {:?}",
-                            Debug2Format(&command)
-                        );
-                    }
-                }
-            }
-            ViaCommandId::SetKeyboardValue => {
-                match num::FromPrimitive::from_u8(data[1]) {
-                    Some(ViaKeyboardValueId::LayoutOptions) => {
-                        K::handle_set_layout_options(data, 32);
-
-                        if let Err(err) = flash.lock().await.write(
-                            K::VIA_EEPROM_LAYOUT_OPTIONS_ADDR as u32,
-                            &data[2..(2 + K::VIA_EEPROM_LAYOUT_OPTIONS_SIZE)],
-                        ) {
-                            warn!(
-                                "[VIA] Could not write layout options {:?}",
-                                Debug2Format(&err)
-                            )
-                        };
-                    }
-                    Some(ViaKeyboardValueId::DeviceIndication) => {
-                        #[cfg(feature = "backlight")]
-                        crate::backlight::BACKLIGHT_COMMAND_CHANNEL
-                            .send(crate::backlight::animations::BacklightCommand::Toggle)
-                            .await;
-
-                        #[cfg(feature = "underglow")]
-                        crate::underglow::UNDERGLOW_COMMAND_CHANNEL
-                            .send(crate::underglow::animations::UnderglowCommand::Toggle)
-                            .await;
-                    }
-                    Some(value) => {
-                        data[0] = ViaCommandId::Unhandled as u8;
-                        warn!(
-                            "[VIA] Unimplemented set keyboard value subcommand received from host {:?}",
-                            Debug2Format(&value)
-                        );
-                    }
-                    None => {
-                        data[0] = ViaCommandId::Unhandled as u8;
-                        warn!(
-                            "[VIA] Unknown set keyboard value subcommand received from host {:?}",
-                            Debug2Format(&command)
-                        );
-                    }
-                };
-            }
-            ViaCommandId::EEPROMReset => todo!(),
-            ViaCommandId::BootloaderJump => todo!(),
-            ViaCommandId::DynamicKeymapMacroGetCount => {
-                data[1] = K::DYNAMIC_KEYMAP_MACRO_COUNT;
-            }
-            ViaCommandId::DynamicKeymapMacroGetBufferSize => {
-                data[1..=2].copy_from_slice(&K::DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE.to_be_bytes());
-            }
-            ViaCommandId::DynamicKeymapMacroGetBuffer => {
-                let offset = u16::from_be_bytes(data[1..=2].try_into().unwrap());
-                let size = data[3];
-
-                if let Err(err) = flash.lock().await.read(
-                    (K::DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE as u16 + offset) as u32,
-                    &mut data[4..(4
-                        + (if offset + (size as u16) > K::DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE as u16 {
-                            if offset as usize >= K::DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE {
-                                0
-                            } else {
-                                K::DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE - offset as usize
-                            }
-                        } else {
-                            size as usize
-                        }))],
-                ) {
-                    warn!(
-                        "[VIA] Could not read dynamic keymap macro buffer: {:?}",
-                        Debug2Format(&err)
-                    )
-                };
-            }
-            ViaCommandId::DynamicKeymapMacroSetBuffer => {
-                let offset = u16::from_be_bytes(data[1..=2].try_into().unwrap());
-                let size = data[3];
-
-                if let Err(err) = flash.lock().await.write(
-                    (K::DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE as u16 + offset) as u32,
-                    &data[4..(4
-                        + (if offset + (size as u16) > K::DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE as u16 {
-                            if offset as usize >= K::DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE {
-                                0
-                            } else {
-                                K::DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE - offset as usize
-                            }
-                        } else {
-                            size as usize
-                        }))],
-                ) {
-                    warn!(
-                        "[VIA] Could not write dynamic keymap macro buffer: {:?}",
-                        Debug2Format(&err)
-                    )
-                };
-            }
-            ViaCommandId::DynamicKeymapMacroReset => todo!(),
-            ViaCommandId::DynamicKeymapGetLayerCount => {
-                data[1] = K::DYNAMIC_KEYMAP_LAYER_COUNT;
-            }
-            ViaCommandId::DynamicKeymapGetKeycode => {
-                let layer = data[1];
-                let row = data[2];
-                let col = data[3];
-
-                if !(layer >= K::DYNAMIC_KEYMAP_LAYER_COUNT
-                    || row as usize >= K::LAYOUT_ROWS
-                    || col as usize >= K::LAYOUT_COLS)
-                {
-                    if let Err(err) = flash.lock().await.read(
-                        (K::DYNAMIC_KEYMAP_EEPROM_ADDR
-                            + (layer * K::LAYOUT_ROWS as u8 * K::LAYOUT_COLS as u8 * 2)
-                            + (row * K::LAYOUT_COLS as u8 * 2)
-                            + (col * 2)) as u32,
-                        &mut data[4..=5],
-                    ) {
-                        warn!(
-                            "[VIA] Could not read dynamic keymap keycode: {:?}",
-                            Debug2Format(&err)
-                        )
-                    };
-                } else {
-                    warn!("[VIA] Requested a dynamic keymap keycode that is out of bounds.")
-                }
-            }
-            ViaCommandId::DynamicKeymapSetKeycode => {
-                let layer = data[1];
-                let row = data[2];
-                let col = data[3];
-
-                if !(layer >= K::DYNAMIC_KEYMAP_LAYER_COUNT
-                    || row as usize >= K::LAYOUT_ROWS
-                    || col as usize >= K::LAYOUT_COLS)
-                {
-                    if let Err(err) = flash.lock().await.write(
-                        (K::DYNAMIC_KEYMAP_EEPROM_ADDR
-                            + (layer * K::LAYOUT_ROWS as u8 * K::LAYOUT_COLS as u8 * 2)
-                            + (row * K::LAYOUT_COLS as u8 * 2)
-                            + (col * 2)) as u32,
-                        &data[4..=5],
-                    ) {
-                        warn!(
-                            "[VIA] Could not write dynamic keymap keycode: {:?}",
-                            Debug2Format(&err)
-                        )
-                    };
-                } else {
-                    warn!("[VIA] Attempted to write a dynamic keymap keycode out of bounds.")
-                }
-            }
-            ViaCommandId::DynamicKeymapGetEncoder => {
-                let layer = data[1];
-                let encoder_id = data[2];
-                let clockwise = data[3] != 0;
-
-                if !(layer >= K::DYNAMIC_KEYMAP_LAYER_COUNT || encoder_id >= K::NUM_ENCODERS) {
-                    if let Err(err) = flash.lock().await.read(
-                        (K::DYNAMIC_KEYMAP_ENCODER_EEPROM_ADDR
-                            + (layer * K::NUM_ENCODERS * 2 * 2) as u16
-                            + (encoder_id * 2 * 2) as u16) as u32
-                            + if clockwise { 0 } else { 2 },
-                        &mut data[4..=5],
-                    ) {
-                        warn!(
-                            "[VIA] Could not read dynamic keymap encoder: {:?}",
-                            Debug2Format(&err)
-                        )
-                    };
-                } else {
-                    warn!("[VIA] Requested a dynamic keymap encoder that is out of bounds.")
-                }
-            } // only if encoder map is enabled
-            ViaCommandId::DynamicKeymapSetEncoder => {
-                let layer = data[1];
-                let encoder_id = data[2];
-                let clockwise = data[3] != 0;
-
-                if !(layer >= K::DYNAMIC_KEYMAP_LAYER_COUNT || encoder_id >= K::NUM_ENCODERS) {
-                    if let Err(err) = flash.lock().await.write(
-                        (K::DYNAMIC_KEYMAP_ENCODER_EEPROM_ADDR
-                            + (layer * K::NUM_ENCODERS * 2 * 2) as u16
-                            + (encoder_id * 2 * 2) as u16) as u32
-                            + if clockwise { 0 } else { 2 },
-                        &data[4..=5],
-                    ) {
-                        warn!(
-                            "[VIA] Could not write dynamic keymap encoder: {:?}",
-                            Debug2Format(&err)
-                        )
-                    };
-                } else {
-                    warn!("[VIA] Attempted to write a dynamic keymap encoder out of bounds.")
-                }
-            } // only if encoder map is enabled
-            ViaCommandId::DynamicKeymapGetBuffer => {
-                let offset = u16::from_be_bytes(data[1..=2].try_into().unwrap());
-                let size = data[3];
-
-                if let Err(err) = flash.lock().await.read(
-                    (K::DYNAMIC_KEYMAP_EEPROM_ADDR as u16 + offset) as u32,
-                    &mut data[4..(4
-                        + (if offset + (size as u16) > K::DYNAMIC_KEYMAP_EEPROM_SIZE as u16 {
-                            if offset as usize >= K::DYNAMIC_KEYMAP_EEPROM_SIZE {
-                                0
-                            } else {
-                                K::DYNAMIC_KEYMAP_EEPROM_SIZE - offset as usize
-                            }
-                        } else {
-                            size as usize
-                        }))],
-                ) {
-                    warn!(
-                        "[VIA] Could not read dynamic keymap buffer: {:?}",
-                        Debug2Format(&err)
-                    )
-                };
-            }
-            ViaCommandId::DynamicKeymapSetBuffer => {
-                let offset = u16::from_be_bytes(data[1..=2].try_into().unwrap());
-                let size = data[3];
-
-                if let Err(err) = flash.lock().await.write(
-                    (K::DYNAMIC_KEYMAP_EEPROM_ADDR as u16 + offset) as u32,
-                    &data[4..(4
-                        + (if offset + (size as u16) > K::DYNAMIC_KEYMAP_EEPROM_SIZE as u16 {
-                            if offset as usize >= K::DYNAMIC_KEYMAP_EEPROM_SIZE {
-                                0
-                            } else {
-                                K::DYNAMIC_KEYMAP_EEPROM_SIZE - offset as usize
-                            }
-                        } else {
-                            size as usize
-                        }))],
-                ) {
-                    warn!(
-                        "[VIA] Could not write dynamic keymap buffer: {:?}",
-                        Debug2Format(&err)
-                    )
-                };
-            }
-            ViaCommandId::DynamicKeymapReset => todo!(), // Need to figure out how to mutate the keyberon layout
-            command
-                if command == ViaCommandId::CustomGetValue
-                    || command == ViaCommandId::CustomSetValue
-                    || command == ViaCommandId::CustomSave =>
-            {
-                match num::FromPrimitive::from_u8(data[1]) {
-                    #[cfg(feature = "simple-backlight")]
-                    Some(ViaChannelId::Backlight) => {
-                        match command {
-                            ViaCommandId::CustomGetValue => {
-                                let config = crate::backlight::BACKLIGHT_CONFIG_STATE.get().await;
-
-                                match num::FromPrimitive::from_u8(data[2]) {
-                                    Some(ViaBacklightValue::Brightness) => {
-                                        data[3] = config.val;
-                                    }
-                                    Some(ViaBacklightValue::Effect) => {
-                                        data[3] = config.effect as u8;
-                                    }
-                                    None => {
-                                        warn!(
-                                            "[VIA] Unknown backlight get command received from host {:?}",
-                                            data[2]
-                                        )
-                                    }
-                                };
-                            }
-                            ViaCommandId::CustomSetValue => {
-                                match num::FromPrimitive::from_u8(data[2]) {
-                                    Some(ViaBacklightValue::Brightness) => {
-                                        crate::backlight::BACKLIGHT_COMMAND_CHANNEL
-                                            .send(crate::backlight::animations::BacklightCommand::SetValue(data[3]))
-                                            .await;
-                                    }
-                                    Some(ViaBacklightValue::Effect) => {
-                                        if let Some(effect) = num::FromPrimitive::from_u8(data[3]) {
-                                            crate::backlight::BACKLIGHT_COMMAND_CHANNEL
-                                                .send(crate::backlight::animations::BacklightCommand::SetEffect(effect))
-                                                .await;
-                                        } else {
-                                            warn!(
-                                                "[VIA] Tried to set an unknown backlight effect: {:?}",
-                                                data[3]
-                                            )
-                                        }
-                                    }
-                                    None => {
-                                        warn!(
-                                            "[VIA] Unknown backlight set command received from host {:?}",
-                                            data[2]
-                                        )
-                                    }
-                                };
-                            }
-                            ViaCommandId::CustomSave => {
-                                #[cfg(feature = "storage")]
-                                crate::backlight::BACKLIGHT_COMMAND_CHANNEL
-                                    .send(
-                                        crate::backlight::animations::BacklightCommand::SaveConfig,
-                                    )
-                                    .await;
-                            }
-                            _ => unreachable!("Should not happen"),
-                        };
-                    }
-                    #[cfg(feature = "simple-backlight-matrix")]
-                    Some(ViaChannelId::LEDMatrix) => {
-                        match command {
-                            ViaCommandId::CustomGetValue => {
-                                let config = crate::backlight::BACKLIGHT_CONFIG_STATE.get().await;
-
-                                match num::FromPrimitive::from_u8(data[2]) {
-                                    Some(ViaLEDMatrixValue::Brightness) => {
-                                        data[3] = config.val;
-                                    }
-                                    Some(ViaLEDMatrixValue::Effect) => {
-                                        data[3] = config.effect as u8;
-                                    }
-                                    Some(ViaLEDMatrixValue::EffectSpeed) => {
-                                        data[3] = config.speed;
-                                    }
-                                    None => {
-                                        warn!(
-                                            "[VIA] Unknown LED matrix get command received from host {:?}",
-                                            data[2]
-                                        )
-                                    }
-                                };
-                            }
-                            ViaCommandId::CustomSetValue => {
-                                match num::FromPrimitive::from_u8(data[2]) {
-                                    Some(ViaLEDMatrixValue::Brightness) => {
-                                        crate::backlight::BACKLIGHT_COMMAND_CHANNEL
-                                            .send(crate::backlight::animations::BacklightCommand::SetValue(data[3]))
-                                            .await;
-                                    }
-                                    Some(ViaLEDMatrixValue::Effect) => {
-                                        if let Some(effect) = num::FromPrimitive::from_u8(data[3]) {
-                                            crate::backlight::BACKLIGHT_COMMAND_CHANNEL
-                                                .send(crate::backlight::animations::BacklightCommand::SetEffect(effect))
-                                                .await;
-                                        } else {
-                                            warn!(
-                                                "[VIA] Tried to set an unknown LED matrix effect: {:?}",
-                                                data[3]
-                                            )
-                                        }
-                                    }
-                                    Some(ViaLEDMatrixValue::EffectSpeed) => {
-                                        crate::backlight::BACKLIGHT_COMMAND_CHANNEL
-                                            .send(crate::backlight::animations::BacklightCommand::SetSpeed(data[3]))
-                                            .await;
-                                    }
-                                    None => {
-                                        warn!(
-                                            "[VIA] Unknown LED matrix set command received from host {:?}",
-                                            data[2]
-                                        )
-                                    }
-                                };
-                            }
-                            ViaCommandId::CustomSave => {
-                                #[cfg(feature = "storage")]
-                                crate::backlight::BACKLIGHT_COMMAND_CHANNEL
-                                    .send(
-                                        crate::backlight::animations::BacklightCommand::SaveConfig,
-                                    )
-                                    .await;
-                            }
-                            _ => unreachable!("Should not happen"),
-                        };
-                    }
-                    #[cfg(feature = "rgb-backlight-matrix")]
-                    Some(ViaChannelId::RGBMatrix) => {
-                        match command {
-                            ViaCommandId::CustomGetValue => {
-                                let config = crate::backlight::BACKLIGHT_CONFIG_STATE.get().await;
-
-                                match num::FromPrimitive::from_u8(data[2]) {
-                                    Some(ViaRGBMatrixValue::Brightness) => {
-                                        data[3] = config.val;
-                                    }
-                                    Some(ViaRGBMatrixValue::Effect) => {
-                                        data[3] = config.effect as u8;
-                                    }
-                                    Some(ViaRGBMatrixValue::EffectSpeed) => {
-                                        data[3] = config.speed;
-                                    }
-                                    Some(ViaRGBMatrixValue::Color) => {
-                                        data[3] = config.hue;
-                                        data[4] = config.sat;
-                                    }
-                                    None => {
-                                        warn!(
-                                            "[VIA] Unknown RGB matrix get command received from host {:?}",
-                                            data[2]
-                                        )
-                                    }
-                                };
-                            }
-                            ViaCommandId::CustomSetValue => {
-                                match num::FromPrimitive::from_u8(data[2]) {
-                                    Some(ViaRGBMatrixValue::Brightness) => {
-                                        crate::backlight::BACKLIGHT_COMMAND_CHANNEL
-                                            .send(crate::backlight::animations::BacklightCommand::SetValue(data[3]))
-                                            .await;
-                                    }
-                                    Some(ViaRGBMatrixValue::Effect) => {
-                                        if let Some(effect) = num::FromPrimitive::from_u8(data[3]) {
-                                            crate::backlight::BACKLIGHT_COMMAND_CHANNEL
-                                                .send(crate::backlight::animations::BacklightCommand::SetEffect(effect))
-                                                .await;
-                                        } else {
-                                            warn!(
-                                                "[VIA] Tried to set an unknown backlight effect: {:?}",
-                                                data[3]
-                                            )
-                                        }
-                                    }
-                                    Some(ViaRGBMatrixValue::EffectSpeed) => {
-                                        crate::backlight::BACKLIGHT_COMMAND_CHANNEL
-                                            .send(crate::backlight::animations::BacklightCommand::SetSpeed(data[3]))
-                                            .await;
-                                    }
-                                    Some(ViaRGBMatrixValue::Color) => {
-                                        crate::backlight::BACKLIGHT_COMMAND_CHANNEL
-                                            .send(crate::backlight::animations::BacklightCommand::SetHue(data[3]))
-                                            .await;
-                                        crate::backlight::BACKLIGHT_COMMAND_CHANNEL
-                                            .send(crate::backlight::animations::BacklightCommand::SetSaturation(data[4]))
-                                            .await;
-                                    }
-                                    None => {
-                                        warn!(
-                                            "[VIA] Unknown RGB matrix get command received from host {:?}",
-                                            data[2]
-                                        )
-                                    }
-                                };
-                            }
-                            ViaCommandId::CustomSave => {
-                                #[cfg(feature = "storage")]
-                                crate::backlight::BACKLIGHT_COMMAND_CHANNEL
-                                    .send(
-                                        crate::backlight::animations::BacklightCommand::SaveConfig,
-                                    )
-                                    .await;
-                            }
-                            _ => unreachable!("Should not happen"),
-                        };
-                    }
-                    #[cfg(feature = "underglow")]
-                    Some(ViaChannelId::RGBLight) => {
-                        match command {
-                            ViaCommandId::CustomGetValue => {
-                                let config = crate::underglow::UNDERGLOW_CONFIG_STATE.get().await;
-
-                                match num::FromPrimitive::from_u8(data[2]) {
-                                    Some(ViaRGBLightValue::Brightness) => {
-                                        data[3] = config.val;
-                                    }
-                                    Some(ViaRGBLightValue::Effect) => {
-                                        data[3] = config.effect as u8;
-                                    }
-                                    Some(ViaRGBLightValue::EffectSpeed) => {
-                                        data[3] = config.speed;
-                                    }
-                                    Some(ViaRGBLightValue::Color) => {
-                                        data[3] = config.hue;
-                                        data[4] = config.sat;
-                                    }
-                                    None => {
-                                        warn!(
-                                            "[VIA] Unknown RGB underglow get command received from host {:?}",
-                                            data[2]
-                                        )
-                                    }
-                                };
-                            }
-                            ViaCommandId::CustomSetValue => {
-                                match num::FromPrimitive::from_u8(data[2]) {
-                                    Some(ViaRGBLightValue::Brightness) => {
-                                        crate::underglow::UNDERGLOW_COMMAND_CHANNEL
-                                            .send(crate::underglow::animations::UnderglowCommand::SetValue(data[3]))
-                                            .await;
-                                    }
-                                    Some(ViaRGBLightValue::Effect) => {
-                                        if let Some(effect) = num::FromPrimitive::from_u8(data[3]) {
-                                            crate::underglow::UNDERGLOW_COMMAND_CHANNEL
-                                                .send(crate::underglow::animations::UnderglowCommand::SetEffect(effect))
-                                                .await;
-                                        } else {
-                                            warn!(
-                                                "[VIA] Tried to set an unknown underglow effect: {:?}",
-                                                data[3]
-                                            )
-                                        }
-                                    }
-                                    Some(ViaRGBLightValue::EffectSpeed) => {
-                                        crate::underglow::UNDERGLOW_COMMAND_CHANNEL
-                                            .send(crate::underglow::animations::UnderglowCommand::SetSpeed(data[3]))
-                                            .await;
-                                    }
-                                    Some(ViaRGBLightValue::Color) => {
-                                        crate::underglow::UNDERGLOW_COMMAND_CHANNEL
-                                            .send(crate::underglow::animations::UnderglowCommand::SetHue(data[3]))
-                                            .await;
-                                        crate::underglow::UNDERGLOW_COMMAND_CHANNEL
-                                            .send(crate::underglow::animations::UnderglowCommand::SetSaturation(data[4]))
-                                            .await;
-                                    }
-                                    None => {
-                                        warn!(
-                                            "[VIA] Unknown RGB underglow get command received from host {:?}",
-                                            data[2]
-                                        )
-                                    }
-                                };
-                            }
-                            ViaCommandId::CustomSave => {
-                                #[cfg(feature = "storage")]
-                                crate::underglow::UNDERGLOW_COMMAND_CHANNEL
-                                    .send(
-                                        crate::underglow::animations::UnderglowCommand::SaveConfig,
-                                    )
-                                    .await;
-                            }
-                            _ => unreachable!("Should not happen"),
-                        };
-                    }
-                    Some(ViaChannelId::Audio) => {
-                        // TODO: audio channel
-                        data[0] = ViaCommandId::Unhandled as u8;
-                        warn!(
-                            "[VIA] Unimplemented channel ID received from host: {:?}",
-                            Debug2Format(&ViaChannelId::Audio)
-                        );
-                    }
-                    other => {
-                        if other.is_none() {
-                            warn!(
-                                "[VIA] Unknown channel ID received from host, user function called: {:?}",
-                                Debug2Format(&data[1])
-                            )
-                        }
-
-                        K::handle_custom_value_command(data, 32);
-                    }
-                };
-            }
-            _ => {
-                data[0] = ViaCommandId::Unhandled as u8;
-                warn!(
-                    "[VIA] Unimplemented command received from host {:?}",
-                    Debug2Format(&command)
-                );
-            }
-        }
-    } else {
-        warn!("[VIA] Unknown command received from host {:?}", data[0]);
-    }
-}
-
-pub struct ViaCommandHandler {}
-
-static VIA_COMMAND_HANDLER: ViaCommandHandler = ViaCommandHandler {};
+static VIA_COMMAND_HANDLER: ViaCommandHandler = ViaCommandHandler;
 
 impl RequestHandler for ViaCommandHandler {
     fn get_report(&self, _id: ReportId, _buf: &mut [u8]) -> Option<usize> {
@@ -850,6 +152,10 @@ impl RequestHandler for ViaCommandHandler {
     fn set_idle_ms(&self, _id: Option<ReportId>, _duration_ms: u32) {}
 }
 
+/// Configure the HID report reader and writer for Via/Vial packets.
+///
+/// The reader should be passed to [`usb_hid_via_read_task`], and the writer should be passed to
+/// [`usb_hid_via_write_task`].
 pub fn setup_usb_via_hid_reader_writer(
     builder: &mut Builder<'static, impl Driver<'static>>,
 ) -> HidReaderWriter<'static, impl Driver<'static>, 32, 32> {
@@ -864,7 +170,9 @@ pub fn setup_usb_via_hid_reader_writer(
     HidReaderWriter::<_, 32, 32>::new(builder, via_state, via_hid_config)
 }
 
-// Channel with via responses to send back to PC
+/// Channel used to send reports from the Via app. Reports that are sent to this channel will be
+/// processed by the Via task, and call the appropriate command handler, depending on the report
+/// contents.
 pub static VIA_REPORT_HID_SEND_CHANNEL: Channel<ThreadModeRawMutex, [u8; 32], 1> = Channel::new();
 
 #[rumcake_macros::task]
@@ -873,28 +181,408 @@ pub async fn usb_hid_via_read_task(hid: HidReader<'static, impl Driver<'static>,
 }
 
 #[rumcake_macros::task]
-pub async fn usb_hid_via_write_task<K: ViaKeyboard>(
+pub async fn usb_hid_via_write_task<K: ViaKeyboard + 'static>(
     _k: K,
-    debouncer: &'static Mutex<
-        ThreadModeRawMutex,
-        Debouncer<[[bool; K::LAYOUT_COLS]; K::LAYOUT_ROWS]>,
-    >,
-    flash: &'static Mutex<ThreadModeRawMutex, impl NorFlash>,
     mut hid: HidWriter<'static, impl Driver<'static>, 32>,
-) {
-    loop {
-        let mut report = VIA_REPORT_HID_SEND_CHANNEL.receive().await;
+) where
+    [(); (K::LAYOUT_COLS + u8::BITS as usize - 1) / u8::BITS as usize * K::LAYOUT_ROWS]:,
+    [(); K::LAYERS]:,
+    [(); K::LAYOUT_ROWS]:,
+    [(); K::LAYOUT_COLS]:,
+{
+    assert!(K::DYNAMIC_KEYMAP_LAYER_COUNT <= K::LAYERS);
 
-        if K::VIA_ENABLED {
-            process_via_command::<K>(debouncer, flash, &mut report).await;
+    let via_state: Mutex<ThreadModeRawMutex, protocol::ViaState<K>> =
+        Mutex::new(Default::default());
 
-            debug!("[VIA] Writing HID raw report {:?}", Debug2Format(&report));
-            if let Err(err) = hid.write(&report).await {
-                error!(
-                    "[VIA] Couldn't write HID raw report: {:?}",
-                    Debug2Format(&err)
-                );
+    let report_fut = async {
+        loop {
+            let mut report = VIA_REPORT_HID_SEND_CHANNEL.receive().await;
+
+            if K::VIA_ENABLED {
+                {
+                    let mut via_state = via_state.lock().await;
+                    protocol::process_via_command::<K>(&mut report, &mut via_state).await;
+                }
+
+                debug!("[VIA] Writing HID raw report {:?}", Debug2Format(&report));
+                if let Err(err) = hid.write(&report).await {
+                    error!(
+                        "[VIA] Couldn't write HID raw report: {:?}",
+                        Debug2Format(&err)
+                    );
+                };
+            }
+        }
+    };
+
+    join::join(report_fut, protocol::background_task::<K>(&via_state)).await;
+}
+
+#[cfg(feature = "storage")]
+pub mod storage {
+    use defmt::warn;
+    use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+    use embassy_sync::channel::Channel;
+    use embassy_sync::signal::Signal;
+    use embedded_storage_async::nor_flash::NorFlash;
+
+    use crate::storage::StorageKey;
+
+    use super::ViaKeyboard;
+
+    #[macro_export]
+    macro_rules! setup_via_storage_buffers {
+        ($k:ident) => {
+            fn get_layout_options_storage_state(
+            ) -> &'static mut $crate::storage::StorageServiceState<
+                1,
+                { $k::VIA_EEPROM_LAYOUT_OPTIONS_SIZE },
+            > {
+                static mut LAYOUT_OPTIONS_STORAGE_STATE: $crate::storage::StorageServiceState<
+                    { 1 },
+                    { $k::VIA_EEPROM_LAYOUT_OPTIONS_SIZE },
+                > = $crate::storage::StorageServiceState::new();
+                unsafe { &mut LAYOUT_OPTIONS_STORAGE_STATE }
+            }
+
+            fn get_dynamic_keymap_storage_state(
+            ) -> &'static mut $crate::storage::StorageServiceState<
+                3,
+                { $k::DYNAMIC_KEYMAP_LAYER_COUNT * $k::LAYOUT_COLS * $k::LAYOUT_ROWS * 2 },
+            > {
+                static mut DYNAMIC_KEYMAP_STORAGE_STATE: $crate::storage::StorageServiceState<
+                    { 3 },
+                    { $k::DYNAMIC_KEYMAP_LAYER_COUNT * $k::LAYOUT_COLS * $k::LAYOUT_ROWS * 2 },
+                > = $crate::storage::StorageServiceState::new();
+                unsafe { &mut DYNAMIC_KEYMAP_STORAGE_STATE }
+            }
+
+            fn get_dynamic_keymap_encoder_storage_state(
+            ) -> &'static mut $crate::storage::StorageServiceState<
+                2,
+                { $k::DYNAMIC_KEYMAP_LAYER_COUNT * $k::NUM_ENCODERS * 2 * 2 },
+            > {
+                static mut DYNAMIC_KEYMAP_ENCODER_STORAGE_STATE:
+                    $crate::storage::StorageServiceState<
+                        { 2 },
+                        { $k::DYNAMIC_KEYMAP_LAYER_COUNT * $k::NUM_ENCODERS * 2 * 2 },
+                    > = $crate::storage::StorageServiceState::new();
+                unsafe { &mut DYNAMIC_KEYMAP_ENCODER_STORAGE_STATE }
+            }
+
+            fn get_dynamic_keymap_macro_storage_state(
+            ) -> &'static mut $crate::storage::StorageServiceState<
+                3,
+                { $k::DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE },
+            > {
+                static mut DYNAMIC_KEYMAP_MACRO_STORAGE_STATE:
+                    $crate::storage::StorageServiceState<
+                        { 3 },
+                        { $k::DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE },
+                    > = $crate::storage::StorageServiceState::new();
+                unsafe { &mut DYNAMIC_KEYMAP_MACRO_STORAGE_STATE }
+            }
+        };
+    }
+
+    pub(super) enum ViaStorageKeys {
+        LayoutOptions,
+        DynamicKeymap,
+        DynamicKeymapMacro,
+        DynamicKeymapEncoder,
+    }
+
+    impl From<ViaStorageKeys> for StorageKey {
+        fn from(value: ViaStorageKeys) -> Self {
+            match value {
+                ViaStorageKeys::LayoutOptions => StorageKey::LayoutOptions,
+                ViaStorageKeys::DynamicKeymap => StorageKey::DynamicKeymap,
+                ViaStorageKeys::DynamicKeymapMacro => StorageKey::DynamicKeymapMacro,
+                ViaStorageKeys::DynamicKeymapEncoder => StorageKey::DynamicKeymapEncoder,
+            }
+        }
+    }
+
+    #[repr(u8)]
+    enum Operation {
+        Write([u8; 32], ViaStorageKeys, usize, usize),
+        Delete,
+    }
+
+    /// A function that dispatches a flash operation to the Via storage task. This will obtain a
+    /// lock, and hold onto it until the storage task signals a completion. `offset` corresponds to
+    /// the first byte of the stored data for the given `key` that we want to update. For example,
+    /// if [0x23, 0x65, 0xEB] is stored in flash for the key `LayoutOptions`, and we want to update
+    /// the last 2 bytes, we would pass in an offset of 1, and a `data` slice with a length of 2.
+    pub(super) async fn update_data(key: ViaStorageKeys, offset: usize, data: &[u8]) {
+        // TODO: this function will wait eternally if via_storage_task is not there
+        // Buffer size of 32 is based off of the VIA packet size. This can actually be less, because
+        // some bytes are used for the command IDs, but 32 should be fine.
+        let mut buf = [0; 32];
+        let len = data.len();
+        buf[..len].copy_from_slice(data);
+        OPERATION_CHANNEL
+            .send(Operation::Write(buf, key, offset, len))
+            .await;
+        OPERATION_COMPLETE.wait().await;
+    }
+
+    pub(super) async fn reset_data() {
+        OPERATION_CHANNEL.send(Operation::Delete).await;
+        OPERATION_COMPLETE.wait().await;
+    }
+
+    static OPERATION_CHANNEL: Channel<ThreadModeRawMutex, Operation, 1> = Channel::new();
+    static OPERATION_COMPLETE: Signal<ThreadModeRawMutex, ()> = Signal::new();
+
+    pub(super) static VIA_LAYOUT_OPTIONS: Signal<ThreadModeRawMutex, u32> = Signal::new();
+
+    #[rumcake_macros::task]
+    pub async fn via_storage_task<K: ViaKeyboard + 'static, F: NorFlash>(
+        _k: K,
+        database: &'static crate::storage::Database<'static, F>,
+    ) where
+        [(); K::VIA_EEPROM_LAYOUT_OPTIONS_SIZE]:,
+        [(); K::DYNAMIC_KEYMAP_LAYER_COUNT * K::LAYOUT_COLS * K::LAYOUT_ROWS * 2]:,
+        [(); K::DYNAMIC_KEYMAP_LAYER_COUNT * K::NUM_ENCODERS * 2 * 2]:,
+        [(); K::DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE]:,
+        [(); F::ERASE_SIZE]:,
+        [(); K::LAYERS]:,
+        [(); K::LAYOUT_ROWS]:,
+        [(); K::LAYOUT_COLS]:,
+    {
+        // Initialize VIA data
+        {
+            let mut database = database.lock().await;
+
+            // Initialize layout options
+            let options_metadata = [K::VIA_EEPROM_LAYOUT_OPTIONS_SIZE as u8];
+            let _ = database
+                .initialize(
+                    K::get_layout_options_storage_state(),
+                    crate::storage::StorageKey::LayoutOptions,
+                    &options_metadata,
+                )
+                .await;
+            if let Ok((stored_data, stored_len)) = database
+                .read_raw(
+                    K::get_layout_options_storage_state(),
+                    crate::storage::StorageKey::LayoutOptions,
+                )
+                .await
+            {
+                let mut bytes = [0; 4];
+                bytes[(4 - stored_len)..].copy_from_slice(&stored_data[..stored_len]);
+                VIA_LAYOUT_OPTIONS.signal(u32::from_be_bytes(bytes))
             };
+
+            // Initialize layout
+            let layout_metadata = [
+                K::DYNAMIC_KEYMAP_LAYER_COUNT as u8,
+                K::LAYOUT_COLS as u8,
+                K::LAYOUT_ROWS as u8,
+            ];
+            let _ = database
+                .initialize(
+                    K::get_dynamic_keymap_storage_state(),
+                    crate::storage::StorageKey::DynamicKeymap,
+                    &layout_metadata,
+                )
+                .await;
+            if let Ok((stored_data, stored_len)) = database
+                .read_raw(
+                    K::get_dynamic_keymap_storage_state(),
+                    crate::storage::StorageKey::DynamicKeymap,
+                )
+                .await
+            {
+                // Load layout from flash
+                let mut layout = K::get_layout().lock().await;
+                for byte in (0..stored_len).step_by(2) {
+                    if let Some(action) = super::protocol::keycodes::convert_keycode_to_action(
+                        u16::from_be_bytes(stored_data[byte..byte + 2].try_into().unwrap()),
+                    ) {
+                        let layer = byte / (K::LAYOUT_ROWS * K::LAYOUT_COLS * 2);
+                        let row = (byte / (K::LAYOUT_COLS * 2)) % K::LAYOUT_ROWS;
+                        let col = (byte / 2) % K::LAYOUT_COLS;
+
+                        layout
+                            .change_action((row as u8, col as u8), layer, action)
+                            .unwrap();
+                    }
+                }
+            } else {
+                // Save default layout to flash
+                let mut layout = K::get_layout().lock().await;
+                let mut buf =
+                    [0; K::DYNAMIC_KEYMAP_LAYER_COUNT * K::LAYOUT_COLS * K::LAYOUT_ROWS * 2];
+                for byte in (0..buf.len()).step_by(2) {
+                    let layer = byte / (K::LAYOUT_ROWS * K::LAYOUT_COLS * 2);
+                    let row = (byte / (K::LAYOUT_COLS * 2)) % K::LAYOUT_ROWS;
+                    let col = (byte / 2) % K::LAYOUT_COLS;
+
+                    buf[(byte)..(byte + 2)].copy_from_slice(
+                        &super::protocol::keycodes::convert_action_to_keycode(
+                            layout.get_action((row as u8, col as u8), layer).unwrap(),
+                        )
+                        .to_be_bytes(),
+                    );
+                }
+                let _ = database
+                    .write_raw(
+                        K::get_dynamic_keymap_storage_state(),
+                        StorageKey::DynamicKeymap,
+                        &buf,
+                    )
+                    .await;
+            };
+
+            // Initialize encoder layout
+            let encoder_metadata = [K::DYNAMIC_KEYMAP_LAYER_COUNT as u8, K::NUM_ENCODERS as u8];
+            let _ = database
+                .initialize(
+                    K::get_dynamic_keymap_encoder_storage_state(),
+                    crate::storage::StorageKey::DynamicKeymapEncoder,
+                    &encoder_metadata,
+                )
+                .await;
+
+            // Initialize macros
+            let _ = database
+                .initialize(
+                    K::get_dynamic_keymap_macro_storage_state(),
+                    crate::storage::StorageKey::DynamicKeymapMacro,
+                    &layout_metadata,
+                )
+                .await;
+        }
+
+        loop {
+            match OPERATION_CHANNEL.receive().await {
+                Operation::Write(data, key, offset, len) => {
+                    let mut database = database.lock().await;
+
+                    match key {
+                        ViaStorageKeys::LayoutOptions => {
+                            // Update data
+                            // For layout options, we just overwrite all of the old data
+                            if let Err(()) = database
+                                .write_raw(
+                                    K::get_layout_options_storage_state(),
+                                    key.into(),
+                                    &data[..len],
+                                )
+                                .await
+                            {
+                                warn!("[VIA] Could not write layout options.")
+                            };
+                        }
+                        ViaStorageKeys::DynamicKeymap => {
+                            let key = key.into();
+                            let mut buf = [0; K::DYNAMIC_KEYMAP_LAYER_COUNT
+                                * K::LAYOUT_COLS
+                                * K::LAYOUT_ROWS
+                                * 2];
+
+                            // Read data
+                            match database
+                                .read_raw(K::get_dynamic_keymap_storage_state(), key)
+                                .await
+                            {
+                                Ok((stored_data, stored_len)) => {
+                                    buf[..stored_len].copy_from_slice(stored_data);
+                                }
+                                Err(()) => {
+                                    warn!("[VIA] Could not read dynamic keymap buffer.");
+                                }
+                            };
+
+                            // Update data
+                            buf[offset..(offset + len)].copy_from_slice(&data[..len]);
+
+                            if let Err(()) = database
+                                .write_raw(K::get_dynamic_keymap_storage_state(), key, &buf)
+                                .await
+                            {
+                                warn!("[VIA] Could not write dynamic keymap buffer.",)
+                            };
+                        }
+                        ViaStorageKeys::DynamicKeymapMacro => {
+                            let key = key.into();
+                            let mut buf = [0; K::DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE];
+
+                            // Read data
+                            let stored_len = match database
+                                .read_raw(K::get_dynamic_keymap_macro_storage_state(), key)
+                                .await
+                            {
+                                Ok((stored_data, stored_len)) => {
+                                    buf[..stored_len].copy_from_slice(stored_data);
+                                    stored_len
+                                }
+                                Err(()) => {
+                                    warn!("[VIA] Could not read dynamic keymap macro buffer.");
+                                    0 // Assume that there is no data yet
+                                }
+                            };
+
+                            // Update data
+                            buf[offset..(offset + len)].copy_from_slice(&data[..len]);
+
+                            let new_length = stored_len.max(offset + len);
+
+                            if let Err(()) = database
+                                .write_raw(
+                                    K::get_dynamic_keymap_macro_storage_state(),
+                                    key,
+                                    &buf[..new_length],
+                                )
+                                .await
+                            {
+                                warn!("[VIA] Could not write dynamic keymap macro buffer.")
+                            };
+                        }
+                        ViaStorageKeys::DynamicKeymapEncoder => {
+                            let key = key.into();
+                            let mut buf =
+                                [0; K::DYNAMIC_KEYMAP_LAYER_COUNT * K::NUM_ENCODERS * 2 * 2];
+
+                            // Read data
+                            match database
+                                .read_raw(K::get_dynamic_keymap_encoder_storage_state(), key)
+                                .await
+                            {
+                                Ok((stored_data, stored_len)) => {
+                                    buf[..stored_len].copy_from_slice(stored_data);
+                                }
+                                Err(()) => {
+                                    warn!("[VIA] Could not read dynamic keymap encoder.");
+                                }
+                            };
+
+                            // Update data
+                            buf[offset..(offset + len)].copy_from_slice(&data[..len]);
+
+                            if let Err(()) = database
+                                .write_raw(K::get_dynamic_keymap_encoder_storage_state(), key, &buf)
+                                .await
+                            {
+                                warn!("[VIA] Could not write dynamic keymap encoder.")
+                            };
+                        }
+                    }
+                }
+                Operation::Delete => {
+                    let mut database = database.lock().await;
+                    let _ = database.delete(StorageKey::LayoutOptions).await;
+                    let _ = database.delete(StorageKey::DynamicKeymap).await;
+                    let _ = database.delete(StorageKey::DynamicKeymapMacro).await;
+                    let _ = database.delete(StorageKey::DynamicKeymapEncoder).await;
+                }
+            }
+
+            OPERATION_COMPLETE.signal(())
         }
     }
 }

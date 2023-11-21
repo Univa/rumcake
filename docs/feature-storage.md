@@ -4,7 +4,8 @@
 
 - [Setup](#setup)
   - [Required Cargo features](#required-cargo-features)
-  - [Required code to MCU flash for storage](#required-code-to-mcu-flash-for-storage)
+  - [Storage space considerations](#storage-space-considerations)
+  - [Required code to use MCU flash for storage](#required-code-to-use-mcu-flash-for-storage)
 - [To-do List](#to-do-list)
 <!--toc:end-->
 

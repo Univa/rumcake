@@ -16,7 +16,8 @@ You must enable the following `rumcake` features:
 
 ### Required code
 
-To set up your keyboard for USB host communication, your keyboard must implement the `USBKeyboard` trait:
+To set up your keyboard for USB host communication, your keyboard must implement the
+`USBKeyboard` trait, and add `usb` to your `keyboard` macro invocation:
 
 ```rust
 use rumcake::keyboard;

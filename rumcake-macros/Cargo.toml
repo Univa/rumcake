@@ -23,7 +23,3 @@ stm32 = []
 nrf = []
 
 storage = []
-
-via = ["storage"]
-vial = ["via"]
-

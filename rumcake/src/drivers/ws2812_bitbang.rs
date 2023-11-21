@@ -151,7 +151,7 @@ pub mod underglow {
             &mut self,
             colors: impl Iterator<Item = RGB8>,
         ) -> Result<(), Self::DriverWriteError> {
-            self.write_colors(gamma(colors.map(|c| c.into())));
+            self.write_colors(gamma(colors));
 
             Ok(())
         }
@@ -172,7 +172,7 @@ pub mod underglow {
     }
 }
 
-#[cfg(feature = "backlight")]
+#[cfg(feature = "_backlight")]
 /// WS2812 underglow driver implementations
 pub mod backlight {
     use embedded_hal::digital::v2::OutputPin;
@@ -185,11 +185,7 @@ pub mod backlight {
     use crate::backlight::BacklightMatrixDevice;
 
     /// A trait that keyboards must implement to use the WS2812 driver for backlighting.
-    pub trait WS2812BitbangBacklightDriver: BacklightMatrixDevice
-    where
-        [(); Self::MATRIX_COLS]:,
-        [(); Self::MATRIX_ROWS]:,
-    {
+    pub trait WS2812BitbangBacklightDriver: BacklightMatrixDevice {
         /// Setup the GPIO pin used to send data to the WS2812 LEDs.
         ///
         /// It is recommended to use [`ws2812_pin`] to implement this function.
@@ -205,7 +201,7 @@ pub mod backlight {
     macro_rules! ws2812_get_led_from_matrix_coordinates {
         ($([$($no1:ident)* $($led:literal $($no2:ident)*)* ])*) => {
             fn get_led_from_matrix_coordinates(x: u8, y: u8) -> Option<u8> {
-                let lookup: [[Option<u8>; Self::MATRIX_COLS]; Self::MATRIX_ROWS] = [
+                let lookup: [[Option<u8>; Self::LIGHTING_COLS]; Self::LIGHTING_ROWS] = [
                     $([
                         $(${ignore(no1)} None,)*
                         $(Some($led), $(${ignore(no2)} None,)*)*
@@ -219,24 +215,20 @@ pub mod backlight {
 
     /// Create an instance of the WS2812 bitbang driver based on the implementation of [`WS2812BitbangBacklightDriver`].
     pub async fn setup_backlight_driver<K: WS2812BitbangBacklightDriver>() -> Ws2812<impl OutputPin>
-    where
-        [(); K::MATRIX_COLS]:,
-        [(); K::MATRIX_ROWS]:,
     {
         Ws2812::new(K::ws2812_pin())
     }
 
     impl<P: OutputPin, K: WS2812BitbangBacklightDriver> SimpleBacklightDriver<K> for Ws2812<P>
     where
-        [(); K::MATRIX_COLS]:,
-        [(); K::MATRIX_ROWS]:,
-        [(); K::MATRIX_ROWS * K::MATRIX_COLS]:,
+        [(); K::LIGHTING_ROWS * K::LIGHTING_COLS]:,
     {
         type DriverWriteError = ();
 
         async fn write(&mut self, brightness: u8) -> Result<(), Self::DriverWriteError> {
-            let brightnesses =
-                [(brightness, brightness, brightness).into(); { K::MATRIX_ROWS * K::MATRIX_COLS }];
+            let brightnesses = [(brightness, brightness, brightness).into(); {
+                K::LIGHTING_ROWS * K::LIGHTING_COLS
+            }];
 
             self.write_colors(gamma(brightnesses.iter().cloned()));
 
@@ -254,7 +246,7 @@ pub mod backlight {
 
         async fn turn_off(&mut self) -> Result<(), Self::DriverDisableError> {
             self.write_colors(
-                [(0, 0, 0).into(); { K::MATRIX_ROWS * K::MATRIX_COLS }]
+                [(0, 0, 0).into(); { K::LIGHTING_ROWS * K::LIGHTING_COLS }]
                     .iter()
                     .cloned(),
             );
@@ -264,17 +256,15 @@ pub mod backlight {
 
     impl<P: OutputPin, K: WS2812BitbangBacklightDriver> SimpleBacklightMatrixDriver<K> for Ws2812<P>
     where
-        [(); K::MATRIX_COLS]:,
-        [(); K::MATRIX_ROWS]:,
-        [(); K::MATRIX_ROWS * K::MATRIX_COLS]:,
+        [(); K::LIGHTING_ROWS * K::LIGHTING_COLS]:,
     {
         type DriverWriteError = ();
 
         async fn write(
             &mut self,
-            buf: &[[u8; K::MATRIX_COLS]; K::MATRIX_ROWS],
+            buf: &[[u8; K::LIGHTING_COLS]; K::LIGHTING_ROWS],
         ) -> Result<(), Self::DriverWriteError> {
-            let mut brightnesses = [RGB8::default(); { K::MATRIX_ROWS * K::MATRIX_COLS }];
+            let mut brightnesses = [RGB8::default(); { K::LIGHTING_ROWS * K::LIGHTING_COLS }];
 
             for (row_num, row) in buf.iter().enumerate() {
                 for (col_num, val) in row.iter().enumerate() {
@@ -302,7 +292,7 @@ pub mod backlight {
 
         async fn turn_off(&mut self) -> Result<(), Self::DriverDisableError> {
             self.write_colors(
-                [(0, 0, 0).into(); { K::MATRIX_ROWS * K::MATRIX_COLS }]
+                [(0, 0, 0).into(); { K::LIGHTING_ROWS * K::LIGHTING_COLS }]
                     .iter()
                     .cloned(),
             );
@@ -312,17 +302,15 @@ pub mod backlight {
 
     impl<P: OutputPin, K: WS2812BitbangBacklightDriver> RGBBacklightMatrixDriver<K> for Ws2812<P>
     where
-        [(); K::MATRIX_COLS]:,
-        [(); K::MATRIX_ROWS]:,
-        [(); K::MATRIX_ROWS * K::MATRIX_COLS]:,
+        [(); K::LIGHTING_ROWS * K::LIGHTING_COLS]:,
     {
         type DriverWriteError = ();
 
         async fn write(
             &mut self,
-            buf: &[[RGB8; K::MATRIX_COLS]; K::MATRIX_ROWS],
+            buf: &[[RGB8; K::LIGHTING_COLS]; K::LIGHTING_ROWS],
         ) -> Result<(), Self::DriverWriteError> {
-            let mut colors = [RGB8::default(); { K::MATRIX_ROWS * K::MATRIX_COLS }];
+            let mut colors = [RGB8::default(); { K::LIGHTING_ROWS * K::LIGHTING_COLS }];
 
             for (row_num, row) in buf.iter().enumerate() {
                 for (col_num, val) in row.iter().enumerate() {
@@ -350,7 +338,7 @@ pub mod backlight {
 
         async fn turn_off(&mut self) -> Result<(), Self::DriverDisableError> {
             self.write_colors(
-                [(0, 0, 0).into(); { K::MATRIX_ROWS * K::MATRIX_COLS }]
+                [(0, 0, 0).into(); { K::LIGHTING_ROWS * K::LIGHTING_COLS }]
                     .iter()
                     .cloned(),
             );

@@ -1,5 +1,5 @@
 use super::drivers::RGBBacklightMatrixDriver;
-use super::{get_led_layout_bounds, BacklightMatrixDevice, LayoutBounds};
+use super::{get_led_layout_bounds, BacklightDevice, BacklightMatrixDevice, LayoutBounds};
 use crate::{Cycle, LEDEffect};
 use postcard::experimental::max_size::MaxSize;
 use rumcake_macros::{generate_items_from_enum_variants, Cycle, LEDEffect};
@@ -46,6 +46,8 @@ impl Default for BacklightConfig {
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub enum BacklightCommand {
     Toggle,
+    TurnOn,
+    TurnOff,
     NextEffect,
     PrevEffect,
     SetEffect(BacklightEffect),
@@ -87,13 +89,25 @@ pub enum BacklightEffect {
     Breathing,
 
     #[animated]
-    Band,
+    ColorbandSat,
 
     #[animated]
-    BandPinWheel,
+    ColorbandVal,
 
     #[animated]
-    BandSpiral,
+    ColorbandPinWheelSat,
+
+    #[animated]
+    ColorbandPinWheelVal,
+
+    #[animated]
+    ColorbandSpiralSat,
+
+    #[animated]
+    ColorbandSpiralVal,
+
+    #[animated]
+    CycleAll,
 
     #[animated]
     CycleLeftRight,
@@ -102,64 +116,171 @@ pub enum BacklightEffect {
     CycleUpDown,
 
     #[animated]
+    RainbowMovingChevron,
+
+    #[animated]
     CycleOutIn,
 
     #[animated]
-    Raindrops,
+    CycleOutInDual,
+
+    #[animated]
+    CyclePinWheel,
+
+    #[animated]
+    CycleSpiral,
 
     #[animated]
     DualBeacon,
 
     #[animated]
-    WaveLeftRight,
+    RainbowBeacon,
 
     #[animated]
-    WaveUpDown,
+    RainbowPinWheels,
+
+    #[animated]
+    Raindrops,
+
+    #[animated]
+    JellybeanRaindrops,
+
+    #[animated]
+    HueBreathing,
+
+    #[animated]
+    HuePendulum,
+
+    #[animated]
+    HueWave,
+
+    #[animated]
+    PixelRain,
+
+    #[animated]
+    PixelFlow,
+
+    #[animated]
+    PixelFractal,
+
+    #[animated]
+    TypingHeatmap,
+
+    #[animated]
+    DigitalRain,
 
     #[animated]
     #[reactive]
-    Reactive,
+    SolidReactiveSimple,
 
     #[animated]
     #[reactive]
-    ReactiveWide,
+    SolidReactive,
 
     #[animated]
     #[reactive]
-    ReactiveMultiWide,
+    SolidReactiveWide,
 
     #[animated]
     #[reactive]
-    ReactiveCross,
+    SolidReactiveMultiWide,
 
     #[animated]
     #[reactive]
-    ReactiveMultiCross,
+    SolidReactiveCross,
 
     #[animated]
     #[reactive]
-    ReactiveNexus,
+    SolidReactiveMultiCross,
 
     #[animated]
     #[reactive]
-    ReactiveMultiNexus,
+    SolidReactiveNexus,
 
     #[animated]
     #[reactive]
-    ReactiveSplash,
+    SolidReactiveMultiNexus,
 
     #[animated]
     #[reactive]
-    ReactiveMultiSplash,
+    Splash,
+
+    #[animated]
+    #[reactive]
+    MultiSplash,
+
+    #[animated]
+    #[reactive]
+    SolidSplash,
+
+    #[animated]
+    #[reactive]
+    SolidMultiSplash,
+
+    #[cfg(feature = "vial")]
+    #[animated]
+    DirectSet,
+}
+
+impl BacklightEffect {
+    pub(crate) fn is_enabled<D: BacklightDevice>(&self) -> bool {
+        match self {
+            BacklightEffect::Solid => D::SOLID_ENABLED,
+            BacklightEffect::AlphasMods => D::ALPHAS_MODS_ENABLED,
+            BacklightEffect::GradientUpDown => D::GRADIENT_UP_DOWN_ENABLED,
+            BacklightEffect::GradientLeftRight => D::GRADIENT_LEFT_RIGHT_ENABLED,
+            BacklightEffect::Breathing => D::BREATHING_ENABLED,
+            BacklightEffect::ColorbandSat => D::COLORBAND_SAT_ENABLED,
+            BacklightEffect::ColorbandVal => D::COLORBAND_VAL_ENABLED,
+            BacklightEffect::ColorbandPinWheelSat => D::COLORBAND_PIN_WHEEL_SAT_ENABLED,
+            BacklightEffect::ColorbandPinWheelVal => D::COLORBAND_PIN_WHEEL_VAL_ENABLED,
+            BacklightEffect::ColorbandSpiralSat => D::COLORBAND_SPIRAL_SAT_ENABLED,
+            BacklightEffect::ColorbandSpiralVal => D::COLORBAND_SPIRAL_VAL_ENABLED,
+            BacklightEffect::CycleAll => D::CYCLE_ALL_ENABLED,
+            BacklightEffect::CycleLeftRight => D::CYCLE_LEFT_RIGHT_ENABLED,
+            BacklightEffect::CycleUpDown => D::CYCLE_UP_DOWN_ENABLED,
+            BacklightEffect::RainbowMovingChevron => D::RAINBOW_MOVING_CHEVRON_ENABLED,
+            BacklightEffect::CycleOutIn => D::CYCLE_OUT_IN_ENABLED,
+            BacklightEffect::CycleOutInDual => D::CYCLE_OUT_IN_DUAL_ENABLED,
+            BacklightEffect::CyclePinWheel => D::CYCLE_PIN_WHEEL_ENABLED,
+            BacklightEffect::CycleSpiral => D::CYCLE_SPIRAL_ENABLED,
+            BacklightEffect::DualBeacon => D::DUAL_BEACON_ENABLED,
+            BacklightEffect::RainbowBeacon => D::RAINBOW_BEACON_ENABLED,
+            BacklightEffect::RainbowPinWheels => D::RAINBOW_PIN_WHEELS_ENABLED,
+            BacklightEffect::Raindrops => D::RAINDROPS_ENABLED,
+            BacklightEffect::JellybeanRaindrops => D::JELLYBEAN_RAINDROPS_ENABLED,
+            BacklightEffect::HueBreathing => D::HUE_BREATHING_ENABLED,
+            BacklightEffect::HuePendulum => D::HUE_PENDULUM_ENABLED,
+            BacklightEffect::HueWave => D::HUE_WAVE_ENABLED,
+            BacklightEffect::PixelRain => D::PIXEL_RAIN_ENABLED,
+            BacklightEffect::PixelFlow => D::PIXEL_FLOW_ENABLED,
+            BacklightEffect::PixelFractal => D::PIXEL_FRACTAL_ENABLED,
+            BacklightEffect::TypingHeatmap => D::TYPING_HEATMAP_ENABLED,
+            BacklightEffect::DigitalRain => D::DIGITAL_RAIN_ENABLED,
+            BacklightEffect::SolidReactiveSimple => D::SOLID_REACTIVE_SIMPLE_ENABLED,
+            BacklightEffect::SolidReactive => D::SOLID_REACTIVE_ENABLED,
+            BacklightEffect::SolidReactiveWide => D::SOLID_REACTIVE_WIDE_ENABLED,
+            BacklightEffect::SolidReactiveMultiWide => D::SOLID_REACTIVE_MULTI_WIDE_ENABLED,
+            BacklightEffect::SolidReactiveCross => D::SOLID_REACTIVE_CROSS_ENABLED,
+            BacklightEffect::SolidReactiveMultiCross => D::SOLID_REACTIVE_MULTI_CROSS_ENABLED,
+            BacklightEffect::SolidReactiveNexus => D::SOLID_REACTIVE_NEXUS_ENABLED,
+            BacklightEffect::SolidReactiveMultiNexus => D::SOLID_REACTIVE_MULTI_NEXUS_ENABLED,
+            BacklightEffect::Splash => D::SPLASH_ENABLED,
+            BacklightEffect::MultiSplash => D::MULTI_SPLASH_ENABLED,
+            BacklightEffect::SolidSplash => D::SOLID_SPLASH_ENABLED,
+            BacklightEffect::SolidMultiSplash => D::SOLID_MULTI_SPLASH_ENABLED,
+            BacklightEffect::DirectSet => D::DIRECT_SET_ENABLED,
+        }
+    }
 }
 
 pub(super) struct BacklightAnimator<K: BacklightMatrixDevice, D: RGBBacklightMatrixDriver<K>>
 where
-    [(); K::MATRIX_COLS]:,
-    [(); K::MATRIX_ROWS]:,
+    [(); K::LIGHTING_COLS]:,
+    [(); K::LIGHTING_ROWS]:,
 {
     pub(super) config: BacklightConfig,
-    pub(super) buf: [[RGB8; K::MATRIX_COLS]; K::MATRIX_ROWS], // Stores the brightness/value of each LED
+    pub(super) buf: [[RGB8; K::LIGHTING_COLS]; K::LIGHTING_ROWS], // Stores the brightness/value of each LED
     pub(super) last_presses: ConstGenericRingBuffer<((u8, u8), u32), 8>, // Stores the row and col of the last 8 key presses, and the time (in ticks) it was pressed
     pub(super) tick: u32,
     pub(super) driver: D,
@@ -167,10 +288,10 @@ where
     pub(super) rng: SmallRng,
 }
 
-impl<K: BacklightMatrixDevice, D: RGBBacklightMatrixDriver<K>> BacklightAnimator<K, D>
+impl<K: BacklightMatrixDevice + 'static, D: RGBBacklightMatrixDriver<K>> BacklightAnimator<K, D>
 where
-    [(); K::MATRIX_COLS]:,
-    [(); K::MATRIX_ROWS]:,
+    [(); K::LIGHTING_COLS]:,
+    [(); K::LIGHTING_ROWS]:,
 {
     pub fn new(config: BacklightConfig, driver: D) -> Self {
         Self {
@@ -178,7 +299,7 @@ where
             tick: 0,
             driver,
             last_presses: ConstGenericRingBuffer::new(),
-            buf: [[RGB8::new(0, 0, 0); K::MATRIX_COLS]; K::MATRIX_ROWS],
+            buf: [[RGB8::new(0, 0, 0); K::LIGHTING_COLS]; K::LIGHTING_ROWS],
             bounds: get_led_layout_bounds::<K>(),
             rng: SmallRng::seed_from_u64(1337),
         }
@@ -201,11 +322,23 @@ where
             BacklightCommand::Toggle => {
                 self.config.enabled = !self.config.enabled;
             }
+            BacklightCommand::TurnOn => {
+                self.config.enabled = true;
+            }
+            BacklightCommand::TurnOff => {
+                self.config.enabled = false;
+            }
             BacklightCommand::NextEffect => {
-                self.config.effect.increment();
+                while {
+                    self.config.effect.increment();
+                    !self.config.effect.is_enabled::<K>()
+                } {}
             }
             BacklightCommand::PrevEffect => {
-                self.config.effect.decrement();
+                while {
+                    self.config.effect.decrement();
+                    !self.config.effect.is_enabled::<K>()
+                } {}
             }
             BacklightCommand::SetEffect(effect) => {
                 self.config.effect = effect;
@@ -243,11 +376,7 @@ where
             }
             #[cfg(feature = "storage")]
             BacklightCommand::SaveConfig => {
-                super::BACKLIGHT_CONFIG_STORAGE_CLIENT
-                    .request(crate::storage::StorageRequest::Write(
-                        super::BACKLIGHT_CONFIG_STATE.get().await,
-                    ))
-                    .await;
+                super::storage::BACKLIGHT_SAVE_SIGNAL.signal(());
             }
             BacklightCommand::SetTime(time) => {
                 self.tick = time;
@@ -272,7 +401,16 @@ where
                         press.1 = self.tick;
                     }
                     None => {
-                        self.last_presses.push(((row, col), self.tick));
+                        // Check if the matrix position corresponds to a LED position before pushing
+                        if K::get_backlight_matrix()
+                            .layout
+                            .get(row as usize)
+                            .and_then(|row| row.get(col as usize))
+                            .and_then(|pos| *pos)
+                            .is_some()
+                        {
+                            self.last_presses.push(((row, col), self.tick));
+                        }
                     }
                 };
             }
@@ -292,25 +430,47 @@ where
             BacklightEffect::GradientUpDown => todo!(),
             BacklightEffect::GradientLeftRight => todo!(),
             BacklightEffect::Breathing => todo!(),
-            BacklightEffect::Band => todo!(),
-            BacklightEffect::BandPinWheel => todo!(),
-            BacklightEffect::BandSpiral => todo!(),
+            BacklightEffect::ColorbandSat => todo!(),
+            BacklightEffect::ColorbandVal => todo!(),
+            BacklightEffect::ColorbandPinWheelSat => todo!(),
+            BacklightEffect::ColorbandPinWheelVal => todo!(),
+            BacklightEffect::ColorbandSpiralSat => todo!(),
+            BacklightEffect::ColorbandSpiralVal => todo!(),
+            BacklightEffect::CycleAll => todo!(),
             BacklightEffect::CycleLeftRight => todo!(),
             BacklightEffect::CycleUpDown => todo!(),
+            BacklightEffect::RainbowMovingChevron => todo!(),
             BacklightEffect::CycleOutIn => todo!(),
-            BacklightEffect::Raindrops => todo!(),
+            BacklightEffect::CycleOutInDual => todo!(),
+            BacklightEffect::CyclePinWheel => todo!(),
+            BacklightEffect::CycleSpiral => todo!(),
             BacklightEffect::DualBeacon => todo!(),
-            BacklightEffect::WaveLeftRight => todo!(),
-            BacklightEffect::WaveUpDown => todo!(),
-            BacklightEffect::Reactive => todo!(),
-            BacklightEffect::ReactiveWide => todo!(),
-            BacklightEffect::ReactiveMultiWide => todo!(),
-            BacklightEffect::ReactiveCross => todo!(),
-            BacklightEffect::ReactiveMultiCross => todo!(),
-            BacklightEffect::ReactiveNexus => todo!(),
-            BacklightEffect::ReactiveMultiNexus => todo!(),
-            BacklightEffect::ReactiveSplash => todo!(),
-            BacklightEffect::ReactiveMultiSplash => todo!(),
+            BacklightEffect::RainbowBeacon => todo!(),
+            BacklightEffect::RainbowPinWheels => todo!(),
+            BacklightEffect::Raindrops => todo!(),
+            BacklightEffect::JellybeanRaindrops => todo!(),
+            BacklightEffect::HueBreathing => todo!(),
+            BacklightEffect::HuePendulum => todo!(),
+            BacklightEffect::HueWave => todo!(),
+            BacklightEffect::PixelRain => todo!(),
+            BacklightEffect::PixelFlow => todo!(),
+            BacklightEffect::PixelFractal => todo!(),
+            BacklightEffect::TypingHeatmap => todo!(),
+            BacklightEffect::DigitalRain => todo!(),
+            BacklightEffect::SolidReactiveSimple => todo!(),
+            BacklightEffect::SolidReactive => todo!(),
+            BacklightEffect::SolidReactiveWide => todo!(),
+            BacklightEffect::SolidReactiveMultiWide => todo!(),
+            BacklightEffect::SolidReactiveCross => todo!(),
+            BacklightEffect::SolidReactiveMultiCross => todo!(),
+            BacklightEffect::SolidReactiveNexus => todo!(),
+            BacklightEffect::SolidReactiveMultiNexus => todo!(),
+            BacklightEffect::Splash => todo!(),
+            BacklightEffect::MultiSplash => todo!(),
+            BacklightEffect::SolidSplash => todo!(),
+            BacklightEffect::SolidMultiSplash => todo!(),
+            #[cfg(feature = "vial")]
+            BacklightEffect::DirectSet => {} // We just move onto calling the driver, since the frame buffer is updated by the backlight task
         }
 
         if let Err(err) = self.driver.write(&self.buf).await {

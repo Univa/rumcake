@@ -15,8 +15,15 @@ use static_cell::StaticCell;
 
 use crate::hw::BATTERY_LEVEL_STATE;
 
+#[cfg(feature = "nrf-ble")]
+pub use nrf_softdevice;
+
 #[cfg(feature = "nrf52840")]
 pub const SYSCLK: u32 = 48_000_000;
+
+pub fn jump_to_bootloader() {
+    // TODO
+}
 
 pub fn initialize_rcc() {
     let mut conf = embassy_nrf::config::Config::default();
@@ -113,25 +120,15 @@ pub fn setup_usb_driver<K: crate::usb::USBKeyboard + 'static>() -> embassy_usb::
     }
 }
 
-pub fn setup_flash() -> &'static mut Mutex<ThreadModeRawMutex, impl NorFlash> {
-    unsafe {
-        static FLASH_PERIPHERAL: StaticCell<Mutex<ThreadModeRawMutex, Nvmc>> = StaticCell::new();
-
-        FLASH_PERIPHERAL.init(Mutex::new(Nvmc::new(
-            embassy_nrf::peripherals::NVMC::steal(),
-        )))
-    }
-}
-
-pub struct NRFFlash {
+pub struct Flash {
     flash: Nvmc<'static>,
 }
 
-impl ErrorType for NRFFlash {
+impl ErrorType for Flash {
     type Error = embassy_nrf::nvmc::Error;
 }
 
-impl AsyncReadNorFlash for NRFFlash {
+impl AsyncReadNorFlash for Flash {
     const READ_SIZE: usize = <Nvmc as ReadNorFlash>::READ_SIZE;
 
     async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
@@ -143,7 +140,7 @@ impl AsyncReadNorFlash for NRFFlash {
     }
 }
 
-impl AsyncNorFlash for NRFFlash {
+impl AsyncNorFlash for Flash {
     const WRITE_SIZE: usize = <Nvmc as embedded_storage::nor_flash::NorFlash>::WRITE_SIZE;
 
     const ERASE_SIZE: usize = <Nvmc as embedded_storage::nor_flash::NorFlash>::ERASE_SIZE;
@@ -157,8 +154,8 @@ impl AsyncNorFlash for NRFFlash {
     }
 }
 
-pub fn setup_internal_flash() -> NRFFlash {
-    NRFFlash {
+pub fn setup_internal_flash() -> Flash {
+    Flash {
         flash: unsafe { Nvmc::new(embassy_nrf::peripherals::NVMC::steal()) },
     }
 }
@@ -254,10 +251,7 @@ pub trait BluetoothDevice {
 
 #[cfg(feature = "nrf-ble")]
 pub fn setup_softdevice<K: BluetoothDevice + crate::keyboard::Keyboard>(
-) -> &'static mut nrf_softdevice::Softdevice
-where
-    [(); K::PRODUCT.len()]:,
-{
+) -> &'static mut nrf_softdevice::Softdevice {
     use nrf_softdevice::ble::{set_address, Address, AddressType};
 
     let config = nrf_softdevice::Config {
@@ -313,8 +307,7 @@ pub async fn softdevice_task(sd: &'static nrf_softdevice::Softdevice) {
         nrf_softdevice::raw::sd_power_usbremoved_enable(true as u8);
     }
 
-    let vbus_detect = VBUS_DETECT
-        .get_or_init(|| embassy_nrf::usb::vbus_detect::SoftwareVbusDetect::new(true, true));
+    let vbus_detect = VBUS_DETECT.get().unwrap();
 
     sd.run_with_callback(|e| match e {
         nrf_softdevice::SocEvent::PowerUsbPowerReady => {

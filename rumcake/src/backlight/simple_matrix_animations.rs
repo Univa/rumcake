@@ -1,5 +1,7 @@
 use super::drivers::SimpleBacklightMatrixDriver;
-use super::{get_led_layout_bounds, BacklightMatrixDevice, LEDFlags, LayoutBounds};
+use super::{
+    get_led_layout_bounds, BacklightDevice, BacklightMatrixDevice, LEDFlags, LayoutBounds,
+};
 use crate::math::{atan2f, cos, sin, sqrtf};
 use crate::{Cycle, LEDEffect};
 use rumcake_macros::{generate_items_from_enum_variants, Cycle, LEDEffect};
@@ -43,6 +45,8 @@ impl Default for BacklightConfig {
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub enum BacklightCommand {
     Toggle,
+    TurnOn,
+    TurnOff,
     NextEffect,
     PrevEffect,
     SetEffect(BacklightEffect),
@@ -146,13 +150,44 @@ pub enum BacklightEffect {
     ReactiveMultiSplash,
 }
 
+impl BacklightEffect {
+    pub(crate) fn is_enabled<D: BacklightDevice>(&self) -> bool {
+        match self {
+            BacklightEffect::Solid => D::SOLID_ENABLED,
+            BacklightEffect::AlphasMods => D::ALPHAS_MODS_ENABLED,
+            BacklightEffect::GradientUpDown => D::GRADIENT_UP_DOWN_ENABLED,
+            BacklightEffect::GradientLeftRight => D::GRADIENT_LEFT_RIGHT_ENABLED,
+            BacklightEffect::Breathing => D::BREATHING_ENABLED,
+            BacklightEffect::Band => D::BAND_ENABLED,
+            BacklightEffect::BandPinWheel => D::BAND_PIN_WHEEL_ENABLED,
+            BacklightEffect::BandSpiral => D::BAND_SPIRAL_ENABLED,
+            BacklightEffect::CycleLeftRight => D::CYCLE_LEFT_RIGHT_ENABLED,
+            BacklightEffect::CycleUpDown => D::CYCLE_UP_DOWN_ENABLED,
+            BacklightEffect::CycleOutIn => D::CYCLE_OUT_IN_ENABLED,
+            BacklightEffect::Raindrops => D::RAINDROPS_ENABLED,
+            BacklightEffect::DualBeacon => D::DUAL_BEACON_ENABLED,
+            BacklightEffect::WaveLeftRight => D::WAVE_LEFT_RIGHT_ENABLED,
+            BacklightEffect::WaveUpDown => D::WAVE_UP_DOWN_ENABLED,
+            BacklightEffect::Reactive => D::REACTIVE_ENABLED,
+            BacklightEffect::ReactiveWide => D::REACTIVE_WIDE_ENABLED,
+            BacklightEffect::ReactiveMultiWide => D::REACTIVE_MULTI_WIDE_ENABLED,
+            BacklightEffect::ReactiveCross => D::REACTIVE_CROSS_ENABLED,
+            BacklightEffect::ReactiveMultiCross => D::REACTIVE_MULTI_CROSS_ENABLED,
+            BacklightEffect::ReactiveNexus => D::REACTIVE_NEXUS_ENABLED,
+            BacklightEffect::ReactiveMultiNexus => D::REACTIVE_MULTI_NEXUS_ENABLED,
+            BacklightEffect::ReactiveSplash => D::REACTIVE_SPLASH_ENABLED,
+            BacklightEffect::ReactiveMultiSplash => D::REACTIVE_MULTI_SPLASH_ENABLED,
+        }
+    }
+}
+
 pub(super) struct BacklightAnimator<'a, K: BacklightMatrixDevice, D: SimpleBacklightMatrixDriver<K>>
 where
-    [(); K::MATRIX_COLS]:,
-    [(); K::MATRIX_ROWS]:,
+    [(); K::LIGHTING_COLS]:,
+    [(); K::LIGHTING_ROWS]:,
 {
     pub(super) config: BacklightConfig,
-    pub(super) buf: [[u8; K::MATRIX_COLS]; K::MATRIX_ROWS], // Stores the brightness/value of each LED
+    pub(super) buf: [[u8; K::LIGHTING_COLS]; K::LIGHTING_ROWS], // Stores the brightness/value of each LED
     pub(super) last_presses: ConstGenericRingBuffer<((u8, u8), u32), 8>, // Stores the row and col of the last 8 key presses, and the time (in ticks) it was pressed
     pub(super) tick: u32,
     pub(super) driver: D,
@@ -160,17 +195,18 @@ where
     pub(super) rng: SmallRng,
 }
 
-impl<K: BacklightMatrixDevice, D: SimpleBacklightMatrixDriver<K>> BacklightAnimator<'_, K, D>
+impl<K: BacklightMatrixDevice + 'static, D: SimpleBacklightMatrixDriver<K>>
+    BacklightAnimator<'_, K, D>
 where
-    [(); K::MATRIX_COLS]:,
-    [(); K::MATRIX_ROWS]:,
+    [(); K::LIGHTING_COLS]:,
+    [(); K::LIGHTING_ROWS]:,
 {
     pub fn new(config: BacklightConfig, driver: D) -> Self {
         Self {
             config,
             tick: 0,
             driver,
-            buf: [[0; K::MATRIX_COLS]; K::MATRIX_ROWS],
+            buf: [[0; K::LIGHTING_COLS]; K::LIGHTING_ROWS],
             last_presses: ConstGenericRingBuffer::new(),
             bounds: get_led_layout_bounds::<K>(),
             rng: SmallRng::seed_from_u64(1337),
@@ -194,11 +230,23 @@ where
             BacklightCommand::Toggle => {
                 self.config.enabled = !self.config.enabled;
             }
+            BacklightCommand::TurnOn => {
+                self.config.enabled = true;
+            }
+            BacklightCommand::TurnOff => {
+                self.config.enabled = false;
+            }
             BacklightCommand::NextEffect => {
-                self.config.effect.increment();
+                while {
+                    self.config.effect.increment();
+                    self.config.effect.is_enabled::<K>()
+                } {}
             }
             BacklightCommand::PrevEffect => {
-                self.config.effect.decrement();
+                while {
+                    self.config.effect.decrement();
+                    self.config.effect.is_enabled::<K>()
+                } {}
             }
             BacklightCommand::SetEffect(effect) => {
                 self.config.effect = effect;
@@ -222,11 +270,7 @@ where
             }
             #[cfg(feature = "storage")]
             BacklightCommand::SaveConfig => {
-                super::BACKLIGHT_CONFIG_STORAGE_CLIENT
-                    .request(crate::storage::StorageRequest::Write(
-                        super::BACKLIGHT_CONFIG_STATE.get().await,
-                    ))
-                    .await;
+                super::storage::BACKLIGHT_SAVE_SIGNAL.signal(());
             }
             BacklightCommand::SetTime(time) => {
                 self.tick = time;
@@ -238,9 +282,9 @@ where
         &mut self,
         calc: impl Fn(&mut Self, f32, (u8, u8), (u8, u8)) -> u8,
     ) {
-        for row in 0..K::MATRIX_ROWS {
-            for col in 0..K::MATRIX_COLS {
-                if let Some(position) = K::LED_LAYOUT[row][col] {
+        for row in 0..K::LIGHTING_ROWS {
+            for col in 0..K::LIGHTING_COLS {
+                if let Some(position) = K::get_backlight_matrix().layout[row][col] {
                     let seconds = (self.tick as f32 / K::FPS as f32)
                         * (self.config.speed as f32 * 1.5 / u8::MAX as f32 + 0.5);
                     self.buf[row][col] = (calc(self, seconds, (row as u8, col as u8), position)
@@ -265,7 +309,16 @@ where
                         press.1 = self.tick;
                     }
                     None => {
-                        self.last_presses.push(((row, col), self.tick));
+                        // Check if the matrix position corresponds to a LED position before pushing
+                        if K::get_backlight_matrix()
+                            .layout
+                            .get(row as usize)
+                            .and_then(|row| row.get(col as usize))
+                            .and_then(|pos| *pos)
+                            .is_some()
+                        {
+                            self.last_presses.push(((row, col), self.tick));
+                        }
                     }
                 };
             }
@@ -287,7 +340,9 @@ where
             BacklightEffect::AlphasMods => {
                 if K::ALPHAS_MODS_ENABLED {
                     self.set_brightness_for_each_led(|animator, _time, (row, col), _pos| {
-                        if K::LED_FLAGS[row as usize][col as usize].contains(LEDFlags::ALPHA) {
+                        if K::get_backlight_matrix().flags[row as usize][col as usize]
+                            .contains(LEDFlags::ALPHA)
+                        {
                             u8::MAX
                         } else {
                             animator.config.speed
@@ -411,9 +466,9 @@ where
                             as u32
                         == 0
                     {
-                        let row = (self.rng.next_u32() as f32 * K::MATRIX_ROWS as f32
+                        let row = (self.rng.next_u32() as f32 * K::LIGHTING_ROWS as f32
                             / u32::MAX as f32) as u8;
-                        let col = (self.rng.next_u32() as f32 * K::MATRIX_COLS as f32
+                        let col = (self.rng.next_u32() as f32 * K::LIGHTING_COLS as f32
                             / u32::MAX as f32) as u8;
                         self.buf[row as usize][col as usize] = 255
                     }
@@ -496,8 +551,9 @@ where
                             0,
                             |brightness, ((pressed_row, pressed_col), press_time)| {
                                 // Base speed: LED fades after one second
-                                if let Some((key_x, key_y)) =
-                                    K::LED_LAYOUT[*pressed_row as usize][*pressed_col as usize]
+                                if let Some((key_x, key_y)) = K::get_backlight_matrix().layout
+                                    [*pressed_row as usize]
+                                    [*pressed_col as usize]
                                 {
                                     let dx = key_x as i32 - led_x as i32;
                                     let dy = key_y as i32 - led_y as i32;
@@ -534,8 +590,9 @@ where
                         let brightness = animator.last_presses.iter().fold(
                             0,
                             |brightness, ((pressed_row, pressed_col), press_time)| {
-                                if let Some((key_x, key_y)) =
-                                    K::LED_LAYOUT[*pressed_row as usize][*pressed_col as usize]
+                                if let Some((key_x, key_y)) = K::get_backlight_matrix().layout
+                                    [*pressed_row as usize]
+                                    [*pressed_col as usize]
                                 {
                                     let dx = (key_x as i32 - led_x as i32).abs();
                                     let dy = (key_y as i32 - led_y as i32).abs();
@@ -573,8 +630,9 @@ where
                         let brightness = animator.last_presses.iter().fold(
                             0,
                             |brightness, ((pressed_row, pressed_col), press_time)| {
-                                if let Some((key_x, key_y)) =
-                                    K::LED_LAYOUT[*pressed_row as usize][*pressed_col as usize]
+                                if let Some((key_x, key_y)) = K::get_backlight_matrix().layout
+                                    [*pressed_row as usize]
+                                    [*pressed_col as usize]
                                 {
                                     let dx = (key_x as i32 - led_x as i32).abs();
                                     let dy = (key_y as i32 - led_y as i32).abs();
@@ -618,8 +676,9 @@ where
                         let brightness = animator.last_presses.iter().fold(
                             0,
                             |brightness, ((pressed_row, pressed_col), press_time)| {
-                                if let Some((key_x, key_y)) =
-                                    K::LED_LAYOUT[*pressed_row as usize][*pressed_col as usize]
+                                if let Some((key_x, key_y)) = K::get_backlight_matrix().layout
+                                    [*pressed_row as usize]
+                                    [*pressed_col as usize]
                                 {
                                     let dx = (key_x as i32 - led_x as i32).abs();
                                     let dy = (key_y as i32 - led_y as i32).abs();

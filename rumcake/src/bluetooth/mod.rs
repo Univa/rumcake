@@ -32,7 +32,19 @@ pub enum BluetoothCommand {
     ///
     /// This will **NOT** disconnect your keyboard from your host device. It
     /// will simply determine which device the HID reports get sent to.
-    ToggleUSB,
+    ToggleOutput,
+    #[cfg(feature = "usb")]
+    /// Switch to USB operation.
+    ///
+    /// If your keyboard is connected to a bluetooth device, this will **NOT** disconnect your
+    /// keyboard from it. It will simply output the HID reports to the connected USB device.
+    OutputUSB,
+    #[cfg(feature = "usb")]
+    /// Switch to bluetooth operation.
+    ///
+    /// If your keyboard is connected to a USB device, this will **NOT** disconnect your keyboard
+    /// from it. It will simply output the HID reports to the connected bluetooth device.
+    OutputBluetooth,
 }
 
 /// Channel for sending [`BluetoothCommand`]s.

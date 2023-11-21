@@ -1,6 +1,7 @@
 # Split keyboards
 
-**⚠ This feature is still a work in progress.**
+> [!WARNING]
+> This feature is still a work in progress.
 
 <!--toc:start-->
 
