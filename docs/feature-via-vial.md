@@ -38,7 +38,9 @@ struct MyKeyboard;
 
 // Via setup
 use rumcake::via::ViaKeyboard;
-impl ViaKeyboard for MyKeyboard {}
+impl ViaKeyboard for MyKeyboard {
+    rumcake::setup_via_storage_buffers!(MyKeyboard); // OPTIONAL, only required if you use the `storage` flag
+}
 ```
 
 If you are using Vial, you must also implement `VialKeyboard` in addition to the previous traits.
@@ -60,6 +62,7 @@ impl VialKeyboard for MyKeyboard {
     const VIAL_KEYBOARD_UID: [u8; 8] = [0; 8]; // Change this
     const VIAL_UNLOCK_COMBO: &'static [(u8, u8)] = [(0, 1), (0, 0)]; // Matrix positions used to unlock VIAL (row, col), set it to whatever you want
     const KEYBOARD_DEFINITION: &'static [u8] = &GENERATED_KEYBOARD_DEFINITION;
+    rumcake::setup_vial_storage_buffers!(MyKeyboard); // OPTIONAL, only required if you use the `storage` flag
 }
 ```
 
