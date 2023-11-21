@@ -227,19 +227,33 @@ enum SplitRole {
     Peripheral,
 }
 
-fn setup_split_driver(kb_name: &Ident, driver: &str, role: SplitRole) -> Option<TokenStream> {
+fn setup_split_driver(
+    kb_name: &Ident,
+    driver: &str,
+    role: SplitRole,
+) -> Option<(TokenStream, TokenStream)> {
     match driver {
         #[cfg(feature = "nrf")]
         "ble" => match role {
-            SplitRole::Central => Some(quote! {
-                spawner.spawn(rumcake::nrf_ble_central_task!(#kb_name, sd)).unwrap();
-                let split_central_driver = rumcake::drivers::nrf_ble::central::setup_split_central_driver(#kb_name);
-            }),
-            SplitRole::Peripheral => Some(quote! {
-                let peripheral_server = rumcake::drivers::nrf_ble::peripheral::PeripheralDeviceServer::new(sd).unwrap();
-                spawner.spawn(rumcake::nrf_ble_peripheral_task!(#kb_name, sd, peripheral_server)).unwrap();
-                let split_peripheral_driver = rumcake::drivers::nrf_ble::peripheral::setup_split_peripheral_driver::<#kb_name>();
-            }),
+            SplitRole::Central => Some((
+                quote! {
+                    let split_central_driver = rumcake::drivers::nrf_ble::central::setup_split_central_driver(#kb_name);
+                },
+                quote! {
+                    let sd = &*sd;
+                    spawner.spawn(rumcake::nrf_ble_central_task!(#kb_name, sd)).unwrap();
+                },
+            )),
+            SplitRole::Peripheral => Some((
+                quote! {
+                    let peripheral_server = rumcake::drivers::nrf_ble::peripheral::PeripheralDeviceServer::new(sd).unwrap();
+                    let split_peripheral_driver = rumcake::drivers::nrf_ble::peripheral::setup_split_peripheral_driver::<#kb_name>();
+                },
+                quote! {
+                    let sd = &*sd;
+                    spawner.spawn(rumcake::nrf_ble_peripheral_task!(#kb_name, sd, peripheral_server)).unwrap();
+                },
+            )),
         },
         _ => None,
     }
@@ -361,6 +375,7 @@ pub fn main(
                 let sd = rumcake::hw::mcu::setup_softdevice::<#kb_name>();
             });
             spawning.extend(quote! {
+                let sd = &*sd;
                 spawner.spawn(rumcake::softdevice_task!(sd)).unwrap();
             });
         }
@@ -391,6 +406,7 @@ pub fn main(
             let hid_server = rumcake::bluetooth::nrf_ble::Server::new(sd).unwrap();
         });
         spawning.extend(quote! {
+            let sd = &*sd;
             spawner.spawn(rumcake::nrf_ble_task!(#kb_name, sd, hid_server)).unwrap();
         });
     }
@@ -463,8 +479,9 @@ pub fn main(
     // Split keyboard setup
     if let Some(ref driver) = keyboard.split_peripheral {
         match setup_split_driver(&kb_name, driver.as_str(), SplitRole::Peripheral) {
-            Some(driver_setup) => {
+            Some((driver_setup, driver_spawns)) => {
                 initialization.extend(driver_setup);
+                spawning.extend(driver_spawns);
                 spawning.extend(quote! {
                     spawner.spawn(rumcake::peripheral_task!(#kb_name, split_peripheral_driver)).unwrap();
                 });
@@ -479,8 +496,9 @@ pub fn main(
 
     if let Some(ref driver) = keyboard.split_central {
         match setup_split_driver(&kb_name, driver.as_str(), SplitRole::Central) {
-            Some(driver_setup) => {
+            Some((driver_setup, driver_spawns)) => {
                 initialization.extend(driver_setup);
+                spawning.extend(driver_spawns);
                 spawning.extend(quote! {
                     spawner.spawn(rumcake::central_task!(#kb_name, split_central_driver)).unwrap();
                 });
