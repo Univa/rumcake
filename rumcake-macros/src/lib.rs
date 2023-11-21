@@ -240,7 +240,6 @@ fn setup_split_driver(
                     let split_central_driver = rumcake::drivers::nrf_ble::central::setup_split_central_driver(#kb_name);
                 },
                 quote! {
-                    let sd = &*sd;
                     spawner.spawn(rumcake::nrf_ble_central_task!(#kb_name, sd)).unwrap();
                 },
             )),
@@ -250,7 +249,6 @@ fn setup_split_driver(
                     let split_peripheral_driver = rumcake::drivers::nrf_ble::peripheral::setup_split_peripheral_driver::<#kb_name>();
                 },
                 quote! {
-                    let sd = &*sd;
                     spawner.spawn(rumcake::nrf_ble_peripheral_task!(#kb_name, sd, peripheral_server)).unwrap();
                 },
             )),
@@ -406,7 +404,6 @@ pub fn main(
             let hid_server = rumcake::bluetooth::nrf_ble::Server::new(sd).unwrap();
         });
         spawning.extend(quote! {
-            let sd = &*sd;
             spawner.spawn(rumcake::nrf_ble_task!(#kb_name, sd, hid_server)).unwrap();
         });
     }
