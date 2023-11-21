@@ -24,7 +24,7 @@ Currently, the following features are capable of using storage:
 
 - `backlight` (to store backlight hue, saturation, value, speed, effect, etc.)
 - `underglow` (to store underglow hue, saturation, value, speed, effect, etc.)
-- `via`/`vial` (to store dynamic keymaps, not yet implemented)
+- `via`/`vial` (to store dynamic keymaps)
 
 ### Storage space considerations
 
