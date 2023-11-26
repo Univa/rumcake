@@ -1,43 +1,90 @@
-# Backlight
+---
+title: Backlighting
+description: How to configure your keyboard with backlighting.
+---
 
-<!--toc:start-->
+:::caution
+This feature is still a work in progress. For a list of features that still need
+to be implemented, check the [to-do list](#to-do-list).
+:::
 
-- [Setup](#setup)
-  - [Required Cargo features](#required-cargo-features)
-  - [Required code](#required-code)
-- [To-do List](#to-do-list)
-<!--toc:end-->
+Backlighting can be used to provide lighting from underneath your keycaps, typically via an LED
+inside or underneath the individual switches. `rumcake` supports different types of backlighting
+depending on LED type, and whether LEDs are individually addressable.
 
-## Setup
+# Setup
 
-### Required Cargo features
+## Required Cargo features
 
 You must enable the following `rumcake` features:
 
 - Exactly one of:
   - `simple-backlight` (single color backlighting, all LEDs have the same brightness)
-  - `simple-backlight-matrix` (single color backlighting, each LED in the matrix is individually controllable)
-  - `rgb-backlight-matrix` (RGB backlighting, each LED in the matrix is individually controllable)
+  - `simple-backlight-matrix` (single color backlighting, each LED in the matrix is individually addressable)
+  - `rgb-backlight-matrix` (RGB backlighting, each LED in the matrix is individually addressable)
 - `drivers` (optional built-in drivers to power backlighting)
 - `storage` (optional, if you want to save your backlight settings)
 
 Some drivers may not be able to support all backlight types.
 
-### Required code
+## Required code
 
 To set up backlighting, you must add `backlight(driver = "<driver>")` to your `#[keyboard]` macro invocation,
-and your keyboard must implement the `BacklightDevice` trait. Optionally, you can add `use_storage` to the
-macro invocation to use the specified storage driver to save backlight config data.
+and your keyboard must implement the `BacklightDevice` trait.
 
-```rust
+```rust ins={5-7,11-16}
 use rumcake::keyboard;
 
 #[keyboard(
+    // somewhere in your keyboard macro invocation ...
+    backlight(
+        driver = "is31fl3731", // TODO: change this to your desired backlight driver, and implement the appropriate trait (info below)
+    )
+)]
+struct MyKeyboard;
+
+// Backlight configuration
+use rumcake::backlight::BacklightDevice;
+impl BacklightDevice for MyKeyboard {
+    // optionally, set FPS
+    const FPS: usize = 20;
+}
+```
+
+:::caution
+By default, changes you make to backlight settings while the keyboard is on (e.g. changing brightness,
+hue, saturation, effect, etc.) will **NOT** be saved by default.
+
+Optionally, you can add `use_storage`, and a `storage` driver to save backlight config data.
+
+```rust ins={7,9}
+use rumcake::keyboard;
+
+#[keyboard(
+    // somewhere in your keyboard macro invocation ...
     backlight(
         driver = "is31fl3731", // TODO: change this to your desired backlight driver, and implement the appropriate trait (info below)
         use_storage // Optional, if you want to save backlight configuration
     ),
     storage = "internal" // You need to specify a storage driver if you enabled `use_storage`. See feature-storage.md for more information.
+)]
+struct MyKeyboard;
+```
+
+You will need to do additional setup for your selected storage driver as well.
+For more information, see the docs for the [storage feature](../feature-storage).
+:::
+
+If you're implementing a backlight matrix (either the `simple-backlight-matrix` or `rgb-backlight-matrix`), your keyboard must also implement the `BacklightMatrixDevice` trait:
+
+```rust ins={18-37}
+use rumcake::keyboard;
+
+#[keyboard(
+    // somewhere in your keyboard macro invocation ...
+    backlight(
+        driver = "is31fl3731", // TODO: change this to your desired backlight driver, and implement the appropriate trait (info below)
+    )
 )]
 struct MyKeyboard;
 
@@ -48,11 +95,6 @@ impl BacklightDevice for MyKeyboard {
     const FPS: usize = 20;
 }
 
-```
-
-If you're implementing a backlight matrix (either the `simple-backlight-matrix` or `rgb-backlight-matrix`), your keyboard must also implement the `BacklightMatrixDevice` trait:
-
-```rust
 use rumcake::backlight::BacklightMatrixDevice;
 use rumcake::{led_flags, led_layout};
 impl BacklightMatrixDevice for MyKeyboard {
@@ -64,7 +106,7 @@ impl BacklightMatrixDevice for MyKeyboard {
             [ (11,51) (0,0)   (38,51) (55,51)  (72,51)  (89,51)  (106,51) (123,51) (140,51) (157,51) (174,51) (191,51) (208,51) (231,51) (255,51) ]
             [ (28,68) (49,68) (79,68) (121,68) (155,68) (176,68) (196,68) (213,68) (230,68) ]
         }
-        { // LED flags
+        { // LED flags (must have same number of rows and columns as the layout above)
             [ NONE NONE NONE NONE NONE NONE NONE NONE NONE NONE NONE NONE NONE NONE NONE NONE ]
             [ NONE NONE NONE NONE NONE NONE NONE NONE NONE NONE NONE NONE NONE NONE NONE      ]
             [ NONE NONE NONE NONE NONE NONE NONE NONE NONE NONE NONE NONE NONE NONE NONE      ]
@@ -75,10 +117,19 @@ impl BacklightMatrixDevice for MyKeyboard {
 }
 ```
 
+:::note
+Your backlighting matrix does not necessarily need to have the same dimensions as your switch matrix.
+
+Note that for reactive effects, matrix positions will map directly to LED positions. For example, pressing
+a key at switch matrix position row 0, column 0, will correspond to the LED at row 0, column 0 on your LED matrix.
+:::
+
 Lastly, you must also implement the appropriate trait that corresponds to your chosen driver in the `#[keyboard]` macro. For example, with `is31fl3731`, you must implement `IS31FL3731BacklightDriver`:
 
-```rust
-use rumcake::{setup_i2c, get_led_from_matrix_coordinates};
+```rust ins={3-23}
+// later in your file...
+
+use rumcake::{setup_i2c, is31fl3731_get_led_from_matrix_coordinates};
 use rumcake::drivers::is31fl3731::backlight::IS31FL3731BacklightDriver;
 impl IS31FL3731BacklightDriver for MyKeyboard {
     const LED_DRIVER_ADDR: u32 = 0b1110100; // see https://github.com/qmk/qmk_firmware/blob/d9fa80c0b0044bb951694aead215d72e4a51807c/docs/feature_rgb_matrix.md#is31fl3731-idis31fl3731
@@ -91,7 +142,8 @@ impl IS31FL3731BacklightDriver for MyKeyboard {
         DMA1_CH6
     }
 
-    get_led_from_matrix_coordinates! {
+    // This must have the same number of rows and columns as specified in your `BacklightMatrixDevice` implementation.
+    is31fl3731_get_led_from_matrix_coordinates! {
         [ C1_1 C1_2 C1_3 C1_4 C1_5  C1_6  C1_7  C1_8  C1_9  C1_10 C1_11 C1_12 C1_13 C1_14 C1_15 C2_15 ]
         [ C2_1 C2_2 C2_3 C2_4 C2_5  C2_6  C2_7  C2_8  C2_9  C2_10 C2_11 C2_12 C2_13 C2_14 C3_15 ]
         [ C3_1 C3_2 C3_3 C3_4 C3_5  C3_6  C3_7  C3_8  C3_9  C3_10 C3_11 C3_12 C3_13 C3_14 C4_15 ]
@@ -101,7 +153,12 @@ impl IS31FL3731BacklightDriver for MyKeyboard {
 }
 ```
 
-## Keycodes
+:::note
+The IS31FL3731 driver setup above assumes usage of a `simple-backlight-matrix`. If you want
+an RGB matrix, there is a separate `is31fl3731_get_led_from_rgb_matrix_coordinates` macro.
+:::
+
+# Keycodes
 
 In your keyberon layout, you can use any of the enum members defined in `BacklightCommand`:
 
@@ -141,6 +198,6 @@ use rumcake::keyboard::{Keyboard, Keycode::*};
     }
 ```
 
-## To-do List
+# To-do List
 
 - [ ] RGB Backlight animations

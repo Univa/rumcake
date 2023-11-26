@@ -3,6 +3,25 @@ name = "rumcake"
 version = "0.1.0"
 edition = "2021"
 
+[package.metadata.rumcake_docs]
+# Metadata for generating docs using ../docs/scripts/gen_api_docs.js
+# API doc generation is inspired by they way embassy-rs generates their docs: https://github.com/embassy-rs/docserver
+features = [
+  "rgb-backlight-matrix",
+  "underglow",
+  "usb",
+  "vial",
+  "display",
+  "split-peripheral",
+  "split-central",
+]
+
+flavours = [
+  { feature = "nrf52840", triple = "thumbv7em-none-eabihf", extra_features = ["nrf-ble", "bluetooth"] },
+  { feature = "stm32f072cb", triple = "thumbv6m-none-eabi", extra_features = [] },
+  { feature = "stm32f303cb", triple = "thumbv7em-none-eabihf", extra_features = [] },
+]
+
 [dependencies]
 cortex-m = { version = "0.7.6", optional = true }
 defmt = "0.3"
@@ -11,7 +30,7 @@ embedded-hal-async = "1.0.0-rc.1"
 embedded-storage = "0.3.0"
 embedded-storage-async = "0.4.0"
 embedded-io-async = "0.5.0"
-embedded-graphics = { version = "0.8.1", featuers = ["defmt"] }
+embedded-graphics = { version = "0.8.1", features = ["defmt"] }
 embedded-layout = "0.3.2"
 embedded-text = "0.6.2"
 embassy-sync = { git = "https://github.com/embassy-rs/embassy", rev = "b1abaa38", features = ["defmt"] }

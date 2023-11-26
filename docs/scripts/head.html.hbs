@@ -1,0 +1,121 @@
+<style>
+  .rumcake-navbar {
+    font-family: "Fira Sans", Arial, NanumBarunGothic, sans-serif;
+    z-index: 20;
+    background-color: rgb(38 38 38);
+    display: flex;
+    flex-direction: row;
+    position: fixed;
+    width: 100%;
+    height: 35px;
+  }
+
+  .rumcake-navbar>* {
+    border-right: 1px solid rgb(82 82 82);
+  }
+
+  #rumcake-home-link {
+    color: white;
+    height: 100%;
+    padding-left: 1rem;
+    padding-right: 1rem;
+    text-decoration-line: none;
+    display: flex;
+    align-items: center;
+  }
+
+  #rumcake-home-link:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+  }
+
+  .rumcake-dropdown-button {
+    all: unset;
+    height: 100%;
+    padding-left: 1rem;
+    padding-right: 1rem;
+    cursor: pointer;
+  }
+
+  .rumcake-dropdown-button:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+  }
+
+  .rumcake-dropdown-menu {
+    background-color: rgb(23 23 23);
+    position: absolute;
+    min-width: max-content;
+    max-width: 300px;
+    width: 25vw;
+    max-height: 80vh;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .rumcake-dropdown-menu>a {
+    padding: 0.5rem;
+    padding-left: 1rem;
+    padding-right: 1rem;
+    color: white;
+    text-decoration-line: none;
+  }
+
+  .rumcake-dropdown-menu>a:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+  }
+
+  .rumcake-hidden {
+    display: none;
+  }
+
+  .mobile-topbar {
+    top: 35px;
+  }
+
+  main {
+    margin-top: 35px;
+  }
+
+  .sidebar {
+    padding-top: 35px;
+  }
+
+  @media (max-width: 700px) {
+    main {
+      margin-top: 35px;
+    }
+
+    .sidebar {
+      top: 80px;
+      padding-top: 0;
+    }
+  }
+</style>
+<script type="text/javascript">
+  window.addEventListener("load", () => {
+    let dropdowns = document.getElementsByClassName("rumcake-dropdown");
+
+    for (const current_dropdown of dropdowns) {
+      const button = current_dropdown.getElementsByTagName("button")[0];
+      const menu = current_dropdown.getElementsByTagName("div")[0];
+
+      button.addEventListener("click", (e) => {
+        e.stopPropagation();
+        for (const element of dropdowns) {
+          if (element !== current_dropdown) {
+            element
+              .getElementsByTagName("div")[0]
+              .classList.add("rumcake-hidden");
+          }
+        }
+        menu.classList.toggle("rumcake-hidden");
+      });
+    }
+
+    window.addEventListener("click", () => {
+      for (const element of dropdowns) {
+        element.getElementsByTagName("div")[0].classList.add("rumcake-hidden");
+      }
+    });
+  });
+</script>

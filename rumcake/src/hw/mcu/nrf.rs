@@ -160,6 +160,7 @@ pub fn setup_internal_flash() -> Flash {
     }
 }
 
+#[cfg(feature = "nrf-ble")]
 pub fn setup_internal_softdevice_flash(sd: &nrf_softdevice::Softdevice) -> nrf_softdevice::Flash {
     nrf_softdevice::Flash::take(sd)
 }

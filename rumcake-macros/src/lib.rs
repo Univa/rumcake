@@ -507,7 +507,15 @@ pub fn main(
     }
 
     // Split keyboard setup
-    if let Some(ref args) = keyboard.split_peripheral {
+    if keyboard.split_peripheral.is_some() && keyboard.split_central.is_some() {
+        initialization.extend(quote_spanned! {
+            str.span() => compile_error!("A device can not be a central device and a peripheral at the same time. Please only choose one.");
+        });
+    } else if keyboard.split_peripheral.is_some() && keyboard.no_matrix {
+        initialization.extend(quote_spanned! {
+            str.span() => compile_error!("A split peripheral must have a matrix. Please remove `no_matrix` or `split_peripheral`.");
+        });
+    } else if let Some(ref args) = keyboard.split_peripheral {
         if args.driver.is_empty() {
             initialization.extend(quote_spanned! {
                 args.driver.span() => compile_error!("You must specify a peripheral device driver.");

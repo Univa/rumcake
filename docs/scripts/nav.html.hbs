@@ -1,0 +1,13 @@
+<div class="rumcake-navbar">
+  <a id="rumcake-home-link" href="/rumcake">rumcake</a>
+  <div id="chip-dropdown" class="rumcake-dropdown">
+    <button class="rumcake-dropdown-button">MCU:
+      {{current_target}}
+      &#x25BC;</button>
+    <div class="rumcake-dropdown-menu rumcake-hidden">
+      {{#each targets}}
+        <a href="/rumcake/api/{{this.feature}}/">{{this.feature}}</a>
+      {{/each}}
+    </div>
+  </div>
+</div>

@@ -1,0 +1,21 @@
+{
+  "name": "",
+  "type": "module",
+  "version": "0.0.1",
+  "scripts": {
+    "dev": "astro dev",
+    "start": "astro dev",
+    "build": "astro build && node scripts/gen_api_docs.js",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.13.0",
+    "astro": "^3.2.3",
+    "sharp": "^0.32.5"
+  },
+  "devDependencies": {
+    "handlebars": "^4.7.8",
+    "toml": "^3.0.0"
+  }
+}

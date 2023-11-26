@@ -1,34 +1,38 @@
-# Displays
+---
+title: Displays
+description: How to configure your keyboard with a display.
+---
 
-<!--toc:start-->
+A display can be added to your keyboard to show any kind of graphics. This is
+especially useful for displaying live information such as battery level, output mode,
+etc.
 
-- [Setup](#setup)
-  - [Required Cargo features](#required-cargo-features)
-  - [Required code](#required-code)
-- [Custom graphics](#custom-graphics)
-<!--toc:end-->
+# Setup
 
-## Setup
-
-### Required Cargo features
+## Required Cargo features
 
 You must enable the following `rumcake` features:
 
 - `display`
 - `drivers` (optional built-in drivers to power displays)
 
-### Required code
+## Required code
 
 To set up your display, you must add `display(driver = "<driver>")` to your `#[keyboard]` macro invocation,
 and your keyboard must implement the `DisplayDevice` trait.
 
-```rust
+```rust ins={5-7,11-17}
 use rumcake::keyboard;
 
-#[keyboard(display(driver = "ssd1306"))] // TODO: change this to your desired display driver, and implement the appropriate trait (info below)
+#[keyboard(
+    // somewhere in your keyboard macro invocation ...
+    display(
+        driver = "ssd1306" // TODO: change this to your desired display driver, and implement the appropriate trait (info below)
+    )
+)]
 struct MyKeyboard;
 
-// Underglow configuration
+// Display configuration
 use rumcake::display::DisplayDevice;
 impl DisplayDevice for MyKeyboard {
     // Optional: set timeout and FPS
@@ -40,7 +44,9 @@ impl DisplayDevice for MyKeyboard {
 Lastly, you must also implement the appropriate trait that corresponds to your chosen driver in the `#[keyboard]` macro.
 For example, with `ssd1306`, you must implement `Ssd1306I2cDisplayDriver`:
 
-```rust
+```rust ins={3-17}
+// later in your file...
+
 use rumcake::drivers::ssd1306::driver::size::DisplaySize128x32;
 use rumcake::drivers::ssd1306::display::Ssd1306I2cDisplayDriver;
 impl Ssd1306I2cDisplayDriver for MyKeyboard {
@@ -58,7 +64,7 @@ impl Ssd1306I2cDisplayDriver for MyKeyboard {
 }
 ```
 
-## Custom graphics
+# Custom graphics
 
 By default, the display will show information about the keyboard depending on
 what features are being used. If you're using any bluetooth features (e.g. `split-driver-ble`
