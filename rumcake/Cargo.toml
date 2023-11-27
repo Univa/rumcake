@@ -7,6 +7,7 @@ edition = "2021"
 # Metadata for generating docs using ../docs/scripts/gen_api_docs.js
 # API doc generation is inspired by they way embassy-rs generates their docs: https://github.com/embassy-rs/docserver
 features = [
+  "drivers",
   "rgb-backlight-matrix",
   "underglow",
   "usb",
