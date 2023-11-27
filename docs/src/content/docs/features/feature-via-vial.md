@@ -141,6 +141,272 @@ The build script does the following:
 The `GENERATED_KEYBOARD_DEFINITION` constant can be used in your `VialKeyboard` trait implementation for `KEYBOARD_DEFINITION`.
 Check the code example shown previously to see how to use this constant.
 
+## Recommended Via V3 Custom UI Definitions
+
+If you are using regular Via (non-Vial), it is recommended to use the provided Custom UI
+menus below to interact with `rumcake`'s extra features using Via. Feel free to choose
+only the ones you need.
+
+To add the menus you need, add the JSON directly to your `"menus"` field in your keyboard definition file.
+
+:::note
+Although Via V3 provides [built-in `qmk_*` menus](https://www.caniusevia.com/docs/built_in_menus) to
+use lighting features, `rumcake`'s lighting system is not designed to be compatible with these menus.
+This is due to subtle differences in how `rumcake` handles effect IDs, lighting speed, enabling/disabling, etc,
+so using the custom UI below is preferred if you are using regular Via. If you are using Vial, `rumcake`
+will attempt to support the Via/Vial app's built-in lighting menus.
+:::
+
+:::note
+No menu for RGB matrix is provided. RGB backlight animations still need to be implemented.
+:::
+
+### Underglow Menu
+
+```json ins={10-79}
+{
+  "name": "My Keyboard",
+  "vendorId": "0xDEAD",
+  "productId": "0xBEEF",
+  // ...
+  "menus": [
+    {
+      "label": "Lighting",
+      "content": [
+        {
+          "label": "Underglow",
+          "content": [
+            {
+              "label": "Enabled",
+              "type": "toggle",
+              "content": [
+                "rumcake__via__protocol_12__ViaRGBLightValue__Enabled",
+                2,
+                5
+              ]
+            },
+            {
+              "showIf": "{rumcake__via__protocol_12__ViaRGBLightValue__Enabled} == 1",
+              "label": "Brightness",
+              "type": "range",
+              "options": [0, 255],
+              "content": [
+                "rumcake__via__protocol_12__ViaRGBLightValue__Brightness",
+                2,
+                1
+              ]
+            },
+            {
+              "showIf": "{rumcake__via__protocol_12__ViaRGBLightValue__Enabled} == 1",
+              "label": "Color",
+              "type": "color",
+              "content": [
+                "rumcake__via__protocol_12__ViaRGBLightValue__Color",
+                2,
+                4
+              ]
+            },
+            {
+              "showIf": "{rumcake__via__protocol_12__ViaRGBLightValue__Enabled} == 1",
+              "label": "Speed",
+              "type": "range",
+              "options": [0, 255],
+              "content": [
+                "rumcake__via__protocol_12__ViaRGBLightValue__EffectSpeed",
+                2,
+                3
+              ]
+            },
+            {
+              "showIf": "{rumcake__via__protocol_12__ViaRGBLightValue__Enabled} == 1",
+              "label": "Effect",
+              "type": "dropdown",
+              "options": [
+                "Solid",
+                "Breathing",
+                "Rainbow Mood",
+                "Rainbow Swirl",
+                "Snake",
+                "Knight",
+                "Christmas",
+                "Static Gradient",
+                "RGB Test",
+                "Alternating",
+                "Twinkle",
+                "Reactive"
+              ],
+              "content": [
+                "rumcake__via__protocol_12__ViaRGBLightValue__Effect",
+                2,
+                2
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+  // ...
+}
+```
+
+### Simple Backlight Menu
+
+```json ins={10-56}
+{
+  "name": "My Keyboard",
+  "vendorId": "0xDEAD",
+  "productId": "0xBEEF",
+  // ...
+  "menus": [
+    {
+      "label": "Lighting",
+      "content": [
+        {
+          "label": "Backlight",
+          "content": [
+            {
+              "label": "Enabled",
+              "type": "toggle",
+              "content": [
+                "rumcake__via__protocol_12__ViaBacklightValue__Enabled",
+                1,
+                4
+              ]
+            },
+            {
+              "showIf": "{rumcake__via__protocol_12__ViaBacklightValue__Enabled} == 1",
+              "label": "Brightness",
+              "type": "range",
+              "options": [0, 255],
+              "content": [
+                "rumcake__via__protocol_12__ViaBacklightValue__Brightness",
+                1,
+                1
+              ]
+            },
+            {
+              "showIf": "{rumcake__via__protocol_12__ViaBacklightValue__Enabled} == 1",
+              "label": "Speed",
+              "type": "range",
+              "options": [0, 255],
+              "content": [
+                "rumcake__via__protocol_12__ViaBacklightValue__EffectSpeed",
+                1,
+                3
+              ]
+            },
+            {
+              "showIf": "{rumcake__via__protocol_12__ViaBacklightValue__Enabled} == 1",
+              "label": "Effect",
+              "type": "dropdown",
+              "options": ["Solid", "Breathing", "Reactive"],
+              "content": [
+                "rumcake__via__protocol_12__ViaBacklightValue__Effect",
+                1,
+                2
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+  // ...
+}
+```
+
+### Simple Backlight Matrix Menu
+
+```json ins={10-81}
+{
+  "name": "My Keyboard",
+  "vendorId": "0xDEAD",
+  "productId": "0xBEEF",
+  // ...
+  "menus": [
+    {
+      "label": "Lighting",
+      "content": [
+        {
+          "label": "Backlight",
+          "content": [
+            {
+              "label": "Enabled",
+              "type": "toggle",
+              "content": [
+                "rumcake__via__protocol_12__ViaLEDMatrixValue__Enabled",
+                5,
+                4
+              ]
+            },
+            {
+              "showIf": "{rumcake__via__protocol_12__ViaLEDMatrixValue__Enabled} == 1",
+              "label": "Brightness",
+              "type": "range",
+              "options": [0, 255],
+              "content": [
+                "rumcake__via__protocol_12__ViaLEDMatrixValue__Brightness",
+                5,
+                1
+              ]
+            },
+            {
+              "showIf": "{rumcake__via__protocol_12__ViaLEDMatrixValue__Enabled} == 1",
+              "label": "Speed",
+              "type": "range",
+              "options": [0, 255],
+              "content": [
+                "rumcake__via__protocol_12__ViaLEDMatrixValue__EffectSpeed",
+                5,
+                3
+              ]
+            },
+            {
+              "showIf": "{rumcake__via__protocol_12__ViaLEDMatrixValue__Enabled} == 1",
+              "label": "Effect",
+              "type": "dropdown",
+              "options": [
+                "Solid",
+                "Alphas Mods",
+                "Gradient Up Down",
+                "Gradient Left Right",
+                "Breathing",
+                "Band",
+                "Band Pin Wheel",
+                "Band Spiral",
+                "Cycle Left Right",
+                "Cycle Up Down",
+                "Cycle Out In",
+                "Raindrops",
+                "Dual Beacon",
+                "Wave Left Right",
+                "Wave Up Down",
+                "Reactive",
+                "Reactive Wide",
+                "Reactive Multi Wide",
+                "Reactive Cross",
+                "Reactive Multi Cross",
+                "Reactive Nexus",
+                "Reactive Multi Nexus",
+                "Reactive Splash",
+                "Reactive Multi Splash"
+              ],
+              "content": [
+                "rumcake__via__protocol_12__ViaLEDMatrixValue__Effect",
+                5,
+                2
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+  // ...
+}
+```
+
 # Keycode support
 
 `rumcake` does not support all the keycodes that Via/Vial shows in the app. Currently, the following keycodes are functional:
