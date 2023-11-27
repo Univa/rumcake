@@ -8,6 +8,7 @@ edition = "2021"
 # API doc generation is inspired by they way embassy-rs generates their docs: https://github.com/embassy-rs/docserver
 features = [
   "drivers",
+  "storage",
   "rgb-backlight-matrix",
   "underglow",
   "usb",
