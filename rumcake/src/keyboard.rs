@@ -95,6 +95,8 @@ pub trait KeyboardLayout {
     fn on_custom_keycode(_id: u8, _press: bool) {}
 }
 
+/// A mutex-guaraded [`keyberon::layout::Layout`]. This also stores the original layout, so that it
+/// can be reset to it's initial state if modifications are made to it.
 pub struct Layout<const C: usize, const R: usize, const L: usize> {
     original: Layers<C, R, L, Keycode>,
     layout: once_cell::sync::OnceCell<Mutex<ThreadModeRawMutex, KeyberonLayout<C, R, L, Keycode>>>,

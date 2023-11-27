@@ -1,3 +1,9 @@
+//! Utilities for interfacing with the hardware, specific to nRF5x-based MCUs.
+//!
+//! Note that the contents of this nRF5x-version of `mcu` module may share some of the same members
+//! of other versions of the `mcu` module. This is the case so that parts of `rumcake` can remain
+//! hardware-agnostic.
+
 use embassy_nrf::bind_interrupts;
 use embassy_nrf::interrupt::{InterruptExt, Priority};
 use embassy_nrf::nvmc::Nvmc;
@@ -67,6 +73,10 @@ static VBUS_DETECT: once_cell::sync::OnceCell<embassy_nrf::usb::vbus_detect::Sof
     once_cell::sync::OnceCell::new();
 
 #[cfg(feature = "usb")]
+/// Setup the USB driver. The output of this function usually needs to be passed to another
+/// function that sets up the HID readers or writers to be used with a task. For example, you may
+/// need to pass this to [`crate::usb::setup_usb_hid_nkro_writer`] to set up a keyboard that
+/// communicates with a host device over USB.
 pub fn setup_usb_driver<K: crate::usb::USBKeyboard + 'static>() -> embassy_usb::Builder<
     'static,
     Driver<'static, embassy_nrf::peripherals::USBD, impl embassy_nrf::usb::vbus_detect::VbusDetect>,
@@ -122,6 +132,8 @@ pub fn setup_usb_driver<K: crate::usb::USBKeyboard + 'static>() -> embassy_usb::
     }
 }
 
+/// A wrapper around the [`embassy_nrf::nvmc::Nvmc`] struct. This implements
+/// [`embedded_storage_async`] traits so that it can work with the [`crate::storage`] system.
 pub struct Flash {
     flash: Nvmc<'static>,
 }
@@ -156,6 +168,8 @@ impl AsyncNorFlash for Flash {
     }
 }
 
+/// Construct an instance of [`Flash`]. This usually needs to be passed to
+/// [`crate::storage::Database::setup`], so that your device can use storage features.
 pub fn setup_internal_flash() -> Flash {
     Flash {
         flash: unsafe { Nvmc::new(embassy_nrf::peripherals::NVMC::steal()) },
@@ -163,6 +177,9 @@ pub fn setup_internal_flash() -> Flash {
 }
 
 #[cfg(feature = "nrf-ble")]
+/// Takes an instance of [`nrf_softdevice::Flash`]. This usually needs to be passed to
+/// [`crate::storage::Database::setup`], so that your device can use storage features. If you are
+/// using bluetooth features, you should use this instead of [`setup_internal_softdevice_flash`].
 pub fn setup_internal_softdevice_flash(sd: &nrf_softdevice::Softdevice) -> nrf_softdevice::Flash {
     nrf_softdevice::Flash::take(sd)
 }
@@ -245,14 +262,21 @@ macro_rules! setup_i2c_blocking {
 }
 
 #[cfg(feature = "nrf-ble")]
+/// A mutex that is locked when the softdevice is advertising. This is mainly to prevent
+/// [`nrf_softdevice::ble::peripheral::ADV_PORTAL`] from being opened by more than one task at the
+/// same time.
 pub static BLUETOOTH_ADVERTISING_MUTEX: Mutex<ThreadModeRawMutex, ()> = Mutex::new(());
 
 #[cfg(feature = "nrf-ble")]
+/// A basic trait that all nRF5x-based devices that use bluetooth features must implement.
 pub trait BluetoothDevice {
     const BLUETOOTH_ADDRESS: [u8; 6];
 }
 
 #[cfg(feature = "nrf-ble")]
+/// Initialize the softdevice. This sets the bluetooth address to the one defined in
+/// [`BluetoothDevice::BLUETOOTH_ADDRESS`], and configures the softdevice with some defaults for
+/// [`nrf_softdevice::Config`].
 pub fn setup_softdevice<K: BluetoothDevice + crate::keyboard::Keyboard>(
 ) -> &'static mut nrf_softdevice::Softdevice {
     use nrf_softdevice::ble::{set_address, Address, AddressType};

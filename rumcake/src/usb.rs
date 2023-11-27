@@ -18,7 +18,9 @@ use usbd_human_interface_device::device::keyboard::{
 use crate::keyboard::{Keyboard, KeyboardLayout, KEYBOARD_REPORT_HID_SEND_CHANNEL};
 use crate::{State, StaticArray};
 
-pub static USB_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();
+static USB_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();
+/// State that indicates whether HID reports are being sent out via USB. If this is `false`, it is
+/// assumed that HID reports are being sent out via Bluetooth instead.
 pub static USB_STATE: State<bool> = State::new(
     cfg!(not(feature = "bluetooth")),
     &[

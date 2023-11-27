@@ -1,3 +1,9 @@
+//! Utilities for interfacing with the hardware, specific to STM32-based MCUs.
+//!
+//! Note that the contents of this STM32-version of `mcu` module may share some of the same members
+//! of other versions of the `mcu` module. This is the case so that parts of `rumcake` can remain
+//! hardware-agnostic.
+
 use core::fmt::Debug;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::dma::NoDma;
@@ -22,6 +28,7 @@ pub const SYSCLK: u32 = 48_000_000;
 #[cfg(feature = "stm32f303cb")]
 pub const SYSCLK: u32 = 72_000_000;
 
+/// A function that allows you to jump to the bootloader, usually for re-flashing the firmware.
 pub fn jump_to_bootloader() {
     #[cfg(feature = "stm32f072cb")]
     unsafe {
@@ -34,6 +41,7 @@ pub fn jump_to_bootloader() {
     };
 }
 
+/// Initialize the MCU's internal clocks.
 pub fn initialize_rcc() {
     let mut conf = embassy_stm32::Config::default();
     let mut rcc_conf = embassy_stm32::rcc::Config::default();
@@ -86,6 +94,10 @@ macro_rules! output_pin {
 }
 
 #[cfg(feature = "usb")]
+/// Setup the USB driver. The output of this function usually needs to be passed to another
+/// function that sets up the HID readers or writers to be used with a task. For example, you may
+/// need to pass this to [`crate::usb::setup_usb_hid_nkro_writer`] to set up a keyboard that
+/// communicates with a host device over USB.
 pub fn setup_usb_driver<K: crate::usb::USBKeyboard>(
 ) -> embassy_usb::Builder<'static, Driver<'static, USB>> {
     unsafe {
@@ -133,6 +145,8 @@ pub fn setup_usb_driver<K: crate::usb::USBKeyboard>(
     }
 }
 
+/// A wrapper around the [`embassy_stm32::Flash`] struct. This implements
+/// [`embedded_storage_async`] traits so that it can work with the [`crate::storage`] system.
 pub struct Flash {
     flash: HALFlash<'static, Blocking>,
 }
@@ -167,6 +181,8 @@ impl AsyncNorFlash for Flash {
     }
 }
 
+/// Construct an instance of [`Flash`]. This usually needs to be passed to
+/// [`crate::storage::Database::setup`], so that your device can use storage features.
 pub fn setup_internal_flash() -> Flash {
     Flash {
         flash: unsafe { HALFlash::new_blocking(FLASH::steal()) },

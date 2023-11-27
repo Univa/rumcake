@@ -1,3 +1,5 @@
+//! Utilities for interfacing with hardware.
+
 #[cfg(all(not(feature = "stm32"), not(feature = "nrf")))]
 compile_error!("Please enable the appropriate feature flag for the chip you're using.");
 
@@ -9,6 +11,11 @@ compile_error!("Please enable only one chip feature flag.");
 pub mod mcu;
 
 use crate::State;
+
+/// State that contains the current battery level. `rumcake` may or may not use this
+/// static internally, depending on what MCU is being used. The contents of this state
+/// is usually set by a task in the [`mcu`] module. For example, on nRF5x-based MCUs,
+/// this is controlled by a task called `adc_task`.
 pub static BATTERY_LEVEL_STATE: State<u8> = State::new(
     100,
     &[
