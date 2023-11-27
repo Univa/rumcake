@@ -14,6 +14,8 @@ use embedded_storage_async::nor_flash::{
 };
 use static_cell::StaticCell;
 
+pub use embassy_stm32;
+
 #[cfg(feature = "stm32f072cb")]
 pub const SYSCLK: u32 = 48_000_000;
 
@@ -58,11 +60,11 @@ pub fn initialize_rcc() {
 macro_rules! input_pin {
     ($p:ident) => {
         unsafe {
-            $crate::embassy_stm32::gpio::Input::new(
-                $crate::embassy_stm32::gpio::Pin::degrade(
-                    $crate::embassy_stm32::peripherals::$p::steal(),
+            $crate::hw::mcu::embassy_stm32::gpio::Input::new(
+                $crate::hw::mcu::embassy_stm32::gpio::Pin::degrade(
+                    $crate::hw::mcu::embassy_stm32::peripherals::$p::steal(),
                 ),
-                $crate::embassy_stm32::gpio::Pull::Up,
+                $crate::hw::mcu::embassy_stm32::gpio::Pull::Up,
             )
         }
     };
@@ -72,12 +74,12 @@ macro_rules! input_pin {
 macro_rules! output_pin {
     ($p:ident) => {
         unsafe {
-            $crate::embassy_stm32::gpio::Output::new(
-                $crate::embassy_stm32::gpio::Pin::degrade(
-                    $crate::embassy_stm32::peripherals::$p::steal(),
+            $crate::hw::mcu::embassy_stm32::gpio::Output::new(
+                $crate::hw::mcu::embassy_stm32::gpio::Pin::degrade(
+                    $crate::hw::mcu::embassy_stm32::peripherals::$p::steal(),
                 ),
-                $crate::embassy_stm32::gpio::Level::High,
-                $crate::embassy_stm32::gpio::Speed::Low,
+                $crate::hw::mcu::embassy_stm32::gpio::Level::High,
+                $crate::hw::mcu::embassy_stm32::gpio::Speed::Low,
             )
         }
     };
@@ -176,18 +178,18 @@ macro_rules! setup_i2c {
     ($interrupt:ident, $i2c:ident, $scl:ident, $sda:ident, $rxdma:ident, $txdma:ident) => {
         fn setup_i2c() -> impl $crate::embedded_hal_async::i2c::I2c<Error = impl core::fmt::Debug> {
             unsafe {
-                $crate::embassy_stm32::bind_interrupts! {
+                $crate::hw::mcu::embassy_stm32::bind_interrupts! {
                     struct Irqs {
-                        $interrupt => $crate::embassy_stm32::i2c::InterruptHandler<$crate::embassy_stm32::peripherals::$i2c>;
+                        $interrupt => $crate::hw::mcu::embassy_stm32::i2c::InterruptHandler<$crate::hw::mcu::embassy_stm32::peripherals::$i2c>;
                     }
                 };
-                let i2c = $crate::embassy_stm32::peripherals::$i2c::steal();
-                let scl = $crate::embassy_stm32::peripherals::$scl::steal();
-                let sda = $crate::embassy_stm32::peripherals::$sda::steal();
-                let rx_dma = $crate::embassy_stm32::peripherals::$rxdma::steal();
-                let tx_dma = $crate::embassy_stm32::peripherals::$txdma::steal();
-                let time = $crate::embassy_stm32::time::Hertz(100_000);
-                $crate::embassy_stm32::i2c::I2c::new(i2c, scl, sda, Irqs, tx_dma, rx_dma, time, Default::default())
+                let i2c = $crate::hw::mcu::embassy_stm32::peripherals::$i2c::steal();
+                let scl = $crate::hw::mcu::embassy_stm32::peripherals::$scl::steal();
+                let sda = $crate::hw::mcu::embassy_stm32::peripherals::$sda::steal();
+                let rx_dma = $crate::hw::mcu::embassy_stm32::peripherals::$rxdma::steal();
+                let tx_dma = $crate::hw::mcu::embassy_stm32::peripherals::$txdma::steal();
+                let time = $crate::hw::mcu::embassy_stm32::time::Hertz(100_000);
+                $crate::hw::mcu::embassy_stm32::i2c::I2c::new(i2c, scl, sda, Irqs, tx_dma, rx_dma, time, Default::default())
             }
         }
     };
@@ -198,15 +200,15 @@ macro_rules! setup_uart_reader {
     ($interrupt:ident, $uart:ident, $rx:ident, $rxdma:ident) => {
         fn setup_uart_reader() -> impl $crate::embedded_io_async::Read<Error = impl core::fmt::Debug> {
             unsafe {
-                $crate::embassy_stm32::bind_interrupts! {
+                $crate::hw::mcu::embassy_stm32::bind_interrupts! {
                     struct Irqs {
-                        $interrupt => $crate::embassy_stm32::usart::InterruptHandler<$crate::embassy_stm32::peripherals::$uart>;
+                        $interrupt => $crate::hw::mcu::embassy_stm32::usart::InterruptHandler<$crate::hw::mcu::embassy_stm32::peripherals::$uart>;
                     }
                 };
-                let uart = $crate::embassy_stm32::peripherals::$uart::steal();
-                let rx = $crate::embassy_stm32::peripherals::$rx::steal();
-                let rx_dma = $crate::embassy_stm32::peripherals::$rxdma::steal();
-                $crate::embassy_stm32::usart::UartRx::new(uart, Irqs, rx, rx_dma, Default::default()).into_ring_buffered(&mut [0; 32]);
+                let uart = $crate::hw::mcu::embassy_stm32::peripherals::$uart::steal();
+                let rx = $crate::hw::mcu::embassy_stm32::peripherals::$rx::steal();
+                let rx_dma = $crate::hw::mcu::embassy_stm32::peripherals::$rxdma::steal();
+                $crate::hw::mcu::embassy_stm32::usart::UartRx::new(uart, Irqs, rx, rx_dma, Default::default()).into_ring_buffered(&mut [0; 32]);
             }
         }
     };
@@ -218,10 +220,15 @@ macro_rules! setup_uart_writer {
         fn setup_uart_writer(
         ) -> impl $crate::embedded_io_async::Write<Error = impl core::fmt::Debug> {
             unsafe {
-                let uart = $crate::embassy_stm32::peripherals::$uart::steal();
-                let tx = $crate::embassy_stm32::peripherals::$tx::steal();
-                let tx_dma = $crate::embassy_stm32::peripherals::$txdma::steal();
-                $crate::embassy_stm32::usart::UartTx::new(uart, tx, tx_dma, Default::default())
+                let uart = $crate::hw::mcu::embassy_stm32::peripherals::$uart::steal();
+                let tx = $crate::hw::mcu::embassy_stm32::peripherals::$tx::steal();
+                let tx_dma = $crate::hw::mcu::embassy_stm32::peripherals::$txdma::steal();
+                $crate::hw::mcu::embassy_stm32::usart::UartTx::new(
+                    uart,
+                    tx,
+                    tx_dma,
+                    Default::default(),
+                )
             }
         }
     };

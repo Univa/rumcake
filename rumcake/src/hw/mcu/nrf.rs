@@ -15,6 +15,8 @@ use static_cell::StaticCell;
 
 use crate::hw::BATTERY_LEVEL_STATE;
 
+pub use embassy_nrf;
+
 #[cfg(feature = "nrf-ble")]
 pub use nrf_softdevice;
 
@@ -35,11 +37,11 @@ pub fn initialize_rcc() {
 macro_rules! input_pin {
     ($p:ident) => {
         unsafe {
-            $crate::embassy_nrf::gpio::Input::new(
-                $crate::embassy_nrf::gpio::Pin::degrade(
-                    $crate::embassy_nrf::peripherals::$p::steal(),
+            $crate::hw::mcu::embassy_nrf::gpio::Input::new(
+                $crate::hw::mcu::embassy_nrf::gpio::Pin::degrade(
+                    $crate::hw::mcu::embassy_nrf::peripherals::$p::steal(),
                 ),
-                $crate::embassy_nrf::gpio::Pull::Up,
+                $crate::hw::mcu::embassy_nrf::gpio::Pull::Up,
             )
         }
     };
@@ -49,12 +51,12 @@ macro_rules! input_pin {
 macro_rules! output_pin {
     ($p:ident) => {
         unsafe {
-            $crate::embassy_nrf::gpio::Output::new(
-                $crate::embassy_nrf::gpio::Pin::degrade(
-                    $crate::embassy_nrf::peripherals::$p::steal(),
+            $crate::hw::mcu::embassy_nrf::gpio::Output::new(
+                $crate::hw::mcu::embassy_nrf::gpio::Pin::degrade(
+                    $crate::hw::mcu::embassy_nrf::peripherals::$p::steal(),
                 ),
-                $crate::embassy_nrf::gpio::Level::High,
-                $crate::embassy_nrf::gpio::OutputDrive::Standard,
+                $crate::hw::mcu::embassy_nrf::gpio::Level::High,
+                $crate::hw::mcu::embassy_nrf::gpio::OutputDrive::Standard,
             )
         }
     };
@@ -206,18 +208,18 @@ pub async fn adc_task() {
 macro_rules! setup_i2c_inner {
     ($interrupt:ident, $i2c:ident, $sda:ident, $scl:ident) => {
         {
-            use $crate::embassy_nrf::interrupt::InterruptExt;
+            use $crate::hw::mcu::embassy_nrf::interrupt::InterruptExt;
             unsafe {
-                $crate::embassy_nrf::bind_interrupts! {
+                $crate::hw::mcu::embassy_nrf::bind_interrupts! {
                     struct Irqs {
-                        $interrupt => $crate::embassy_nrf::twim::InterruptHandler<$crate::embassy_nrf::peripherals::$i2c>;
+                        $interrupt => $crate::hw::mcu::embassy_nrf::twim::InterruptHandler<$crate::hw::mcu::embassy_nrf::peripherals::$i2c>;
                     }
                 };
-                $crate::embassy_nrf::interrupt::$interrupt.set_priority($crate::embassy_nrf::interrupt::Priority::P2);
-                let i2c = $crate::embassy_nrf::peripherals::$i2c::steal();
-                let sda = $crate::embassy_nrf::peripherals::$sda::steal();
-                let scl = $crate::embassy_nrf::peripherals::$scl::steal();
-                $crate::embassy_nrf::twim::Twim::new(i2c, Irqs, sda, scl, Default::default())
+                $crate::hw::mcu::embassy_nrf::interrupt::$interrupt.set_priority($crate::hw::mcu::embassy_nrf::interrupt::Priority::P2);
+                let i2c = $crate::hw::mcu::embassy_nrf::peripherals::$i2c::steal();
+                let sda = $crate::hw::mcu::embassy_nrf::peripherals::$sda::steal();
+                let scl = $crate::hw::mcu::embassy_nrf::peripherals::$scl::steal();
+                $crate::hw::mcu::embassy_nrf::twim::Twim::new(i2c, Irqs, sda, scl, Default::default())
             }
         }
     };

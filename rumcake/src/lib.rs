@@ -110,12 +110,6 @@ impl<'a, T: Clone + PartialEq> State<'a, T> {
 
 // TODO: remove re-exports
 
-#[cfg(feature = "stm32")]
-pub use embassy_stm32;
-
-#[cfg(feature = "nrf")]
-pub use embassy_nrf;
-
 pub use embassy_executor;
 pub use embedded_hal;
 pub use embedded_hal_async;
