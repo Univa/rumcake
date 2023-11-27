@@ -10,7 +10,6 @@
 <!--toc:start-->
 
 - [About](#about)
-- [Getting started](#getting-started)
   - [Minimum Supported Rust Version](#minimum-supported-rust-version)
 - [MCUs](#mcus)
   - [Tested](#tested)
@@ -18,7 +17,7 @@
 - [Features](#features)
   - [Working](#working)
   - [Planned](#planned)
-- [Why "rumcake"](#why-rumcake)
+- [Why the name "rumcake"](#why-the-name-rumcake)
 - [Acknowledgements](#acknowledgements)
 <!--toc:end-->
 
