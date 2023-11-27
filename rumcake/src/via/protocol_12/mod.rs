@@ -46,8 +46,8 @@ enum ViaKeyboardValueId {
     DeviceIndication,
 }
 
-// TODO: Since Via V3 is capable of custom UI, we don't necessarily need to fully follow QMK's
-// implementation. Remove unused channels (e.g. audio), and maybe add separate commands for
+// Note: Since Via V3 is capable of custom UI, we don't necessarily need to fully follow QMK's
+// implementation. We don't implement unused channels (e.g. audio), and add separate commands for
 // enabling/disabling lighting instead of setting an effect ID of 0 to disable, which is what QMK
 // does.
 #[derive(FromPrimitive, Debug)]
@@ -56,14 +56,16 @@ enum ViaChannelId {
     Backlight,
     RGBLight, // underglow
     RGBMatrix,
-    Audio,
-    LEDMatrix,
+    // Audio, // unused
+    LEDMatrix = 5,
 }
 
 #[derive(FromPrimitive, Debug)]
 enum ViaBacklightValue {
     Brightness = 1,
     Effect,
+    EffectSpeed,
+    Enabled,
 }
 
 #[derive(FromPrimitive, Debug)]
@@ -72,6 +74,7 @@ enum ViaRGBLightValue {
     Effect,
     EffectSpeed,
     Color,
+    Enabled,
 }
 
 #[derive(FromPrimitive, Debug)]
@@ -80,6 +83,7 @@ enum ViaRGBMatrixValue {
     Effect,
     EffectSpeed,
     Color,
+    Enabled,
 }
 
 #[derive(FromPrimitive, Debug)]
@@ -87,12 +91,7 @@ enum ViaLEDMatrixValue {
     Brightness = 1,
     Effect,
     EffectSpeed,
-}
-
-#[derive(FromPrimitive, Debug)]
-enum ViaAudioValue {
-    Enable = 1,
-    ClickyEnable,
+    Enabled,
 }
 
 pub(crate) struct ViaState<K: ViaKeyboard>
@@ -288,9 +287,13 @@ pub(crate) async fn process_via_command<K: ViaKeyboard + 'static>(
                                     }
                                     Some(ViaBacklightValue::Effect) => {
                                         backlight_get_effect(&mut data[3..=3], |effect| {
+                                            // Just directly convert to an ID. We assume that custom UI is being used.
                                             effect as u8
                                         })
                                         .await
+                                    }
+                                    Some(ViaBacklightValue::Enabled) => {
+                                        backlight_get_enabled(&mut data[3..=3]).await
                                     }
                                     None => {
                                         warn!(
@@ -307,9 +310,13 @@ pub(crate) async fn process_via_command<K: ViaKeyboard + 'static>(
                                     }
                                     Some(ViaBacklightValue::Effect) => {
                                         backlight_set_effect(&mut data[3..=3], |id| {
+                                            // Just directly convert to an effect from the ID. We assume that custom UI is being used.
                                             num::FromPrimitive::from_u8(id)
                                         })
                                         .await
+                                    }
+                                    Some(ViaBacklightValue::Enabled) => {
+                                        backlight_set_enabled(&mut data[3..=3]).await
                                     }
                                     None => {
                                         warn!(
@@ -333,12 +340,16 @@ pub(crate) async fn process_via_command<K: ViaKeyboard + 'static>(
                                     }
                                     Some(ViaLEDMatrixValue::Effect) => {
                                         backlight_get_effect(&mut data[3..=3], |effect| {
+                                            // Just directly convert to an ID. We assume that custom UI is being used.
                                             effect as u8
                                         })
                                         .await
                                     }
                                     Some(ViaLEDMatrixValue::EffectSpeed) => {
                                         backlight_get_speed(&mut data[3..=3]).await
+                                    }
+                                    Some(ViaLEDMatrixValue::Enabled) => {
+                                        backlight_get_enabled(&mut data[3..=3]).await
                                     }
                                     None => {
                                         warn!(
@@ -355,12 +366,16 @@ pub(crate) async fn process_via_command<K: ViaKeyboard + 'static>(
                                     }
                                     Some(ViaLEDMatrixValue::Effect) => {
                                         backlight_set_effect(&mut data[3..=3], |id| {
+                                            // Just directly convert to an effect from the ID. We assume that custom UI is being used.
                                             num::FromPrimitive::from_u8(id)
                                         })
                                         .await
                                     }
                                     Some(ViaLEDMatrixValue::EffectSpeed) => {
                                         backlight_set_speed(&mut data[3..=3]).await
+                                    }
+                                    Some(ViaLEDMatrixValue::Enabled) => {
+                                        backlight_set_enabled(&mut data[3..=3]).await
                                     }
                                     None => {
                                         warn!(
@@ -384,6 +399,7 @@ pub(crate) async fn process_via_command<K: ViaKeyboard + 'static>(
                                     }
                                     Some(ViaRGBMatrixValue::Effect) => {
                                         backlight_get_effect(&mut data[3..=3], |effect| {
+                                            // Just directly convert to an ID. We assume that custom UI is being used.
                                             effect as u8
                                         })
                                         .await
@@ -393,6 +409,9 @@ pub(crate) async fn process_via_command<K: ViaKeyboard + 'static>(
                                     }
                                     Some(ViaRGBMatrixValue::Color) => {
                                         backlight_get_color(&mut data[3..=4]).await
+                                    }
+                                    Some(ViaRGBMatrixValue::Enabled) => {
+                                        backlight_get_enabled(&mut data[3..=3]).await
                                     }
                                     None => {
                                         warn!(
@@ -409,6 +428,7 @@ pub(crate) async fn process_via_command<K: ViaKeyboard + 'static>(
                                     }
                                     Some(ViaRGBMatrixValue::Effect) => {
                                         backlight_set_effect(&mut data[3..=3], |id| {
+                                            // Just directly convert to an effect from the ID. We assume that custom UI is being used.
                                             num::FromPrimitive::from_u8(id)
                                         })
                                         .await
@@ -418,6 +438,9 @@ pub(crate) async fn process_via_command<K: ViaKeyboard + 'static>(
                                     }
                                     Some(ViaRGBMatrixValue::Color) => {
                                         backlight_set_color(&mut data[3..=4]).await
+                                    }
+                                    Some(ViaRGBMatrixValue::Enabled) => {
+                                        backlight_set_enabled(&mut data[3..=3]).await
                                     }
                                     None => {
                                         warn!(
@@ -452,6 +475,9 @@ pub(crate) async fn process_via_command<K: ViaKeyboard + 'static>(
                                     Some(ViaRGBLightValue::Color) => {
                                         underglow_get_color(&mut data[3..=4]).await;
                                     }
+                                    Some(ViaRGBLightValue::Enabled) => {
+                                        underglow_get_enabled(&mut data[3..=3]).await;
+                                    }
                                     None => {
                                         warn!(
                                             "[VIA] Unknown RGB underglow get command received from host {:?}",
@@ -466,28 +492,24 @@ pub(crate) async fn process_via_command<K: ViaKeyboard + 'static>(
                                         underglow_set_brightness(&mut data[3..=3]).await
                                     }
                                     Some(ViaRGBLightValue::Effect) => {
-                                        if data[3] == 0 {
-                                            crate::underglow::UNDERGLOW_COMMAND_CHANNEL.send(crate::underglow::animations::UnderglowCommand::TurnOff).await;
-                                        } else {
-                                            crate::underglow::UNDERGLOW_COMMAND_CHANNEL
-                                .send(crate::underglow::animations::UnderglowCommand::TurnOn)
-                                .await;
-                                            underglow_set_effect(&mut data[3..=3], |id| {
-                                                // Just directly convert to an effect from the ID. We assume that custom UI is being used.
-                                                (num::FromPrimitive::from_u8(id)
+                                        underglow_set_effect(&mut data[3..=3], |id| {
+                                            // Just directly convert to an effect from the ID. We assume that custom UI is being used.
+                                            (num::FromPrimitive::from_u8(id)
                                                 as Option<
                                                     crate::underglow::animations::UnderglowEffect,
                                                 >)
                                                 .map(|effect| (effect, None))
-                                            })
-                                            .await
-                                        }
+                                        })
+                                        .await
                                     }
                                     Some(ViaRGBLightValue::EffectSpeed) => {
                                         underglow_set_speed(&mut data[3..=3]).await
                                     }
                                     Some(ViaRGBLightValue::Color) => {
                                         underglow_set_color(&mut data[3..=4]).await
+                                    }
+                                    Some(ViaRGBLightValue::Enabled) => {
+                                        underglow_set_enabled(&mut data[3..=3]).await;
                                     }
                                     None => {
                                         warn!(

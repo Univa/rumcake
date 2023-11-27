@@ -343,6 +343,32 @@ where
     feature = "simple-backlight-matrix",
     feature = "rgb-backlight-matrix"
 ))]
+pub async fn backlight_get_enabled(data: &mut [u8]) {
+    data[0] = crate::backlight::BACKLIGHT_CONFIG_STATE.get().await.enabled as u8
+}
+
+#[cfg(any(
+    feature = "simple-backlight",
+    feature = "simple-backlight-matrix",
+    feature = "rgb-backlight-matrix"
+))]
+pub async fn backlight_set_enabled(data: &mut [u8]) {
+    let command = if data[0] == 1 {
+        crate::backlight::animations::BacklightCommand::TurnOn
+    } else {
+        crate::backlight::animations::BacklightCommand::TurnOff
+    };
+
+    crate::backlight::BACKLIGHT_COMMAND_CHANNEL
+        .send(command)
+        .await;
+}
+
+#[cfg(any(
+    feature = "simple-backlight",
+    feature = "simple-backlight-matrix",
+    feature = "rgb-backlight-matrix"
+))]
 pub async fn backlight_get_brightness(data: &mut [u8]) {
     data[0] = crate::backlight::BACKLIGHT_CONFIG_STATE.get().await.val
 }
@@ -449,6 +475,24 @@ pub async fn backlight_save() {
     ))]
     crate::backlight::BACKLIGHT_COMMAND_CHANNEL
         .send(crate::backlight::animations::BacklightCommand::SaveConfig)
+        .await;
+}
+
+#[cfg(feature = "underglow")]
+pub async fn underglow_get_enabled(data: &mut [u8]) {
+    data[0] = crate::underglow::UNDERGLOW_CONFIG_STATE.get().await.enabled as u8
+}
+
+#[cfg(feature = "underglow")]
+pub async fn underglow_set_enabled(data: &mut [u8]) {
+    let command = if data[0] == 1 {
+        crate::underglow::animations::UnderglowCommand::TurnOn
+    } else {
+        crate::underglow::animations::UnderglowCommand::TurnOff
+    };
+
+    crate::underglow::UNDERGLOW_COMMAND_CHANNEL
+        .send(command)
         .await;
 }
 
