@@ -64,10 +64,10 @@ The following features are _working_, but may not be stable or have missing comp
 - Displays (e.g. SSD1306)
 - Storage
 - Via/Vial
+- Media keys
 
 ## Planned
 
-- Media keys
 - Encoders
 
 # Why the name "rumcake"
