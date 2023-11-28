@@ -440,6 +440,17 @@ pub fn main(
             // HID Keyboard Report sending
             spawner.spawn(rumcake::usb_hid_kb_write_task!(kb_class)).unwrap();
         });
+
+        if cfg!(feature = "media-keycodes") {
+            initialization.extend(quote! {
+                // HID consumer
+                let consumer_class = rumcake::usb::setup_usb_hid_consumer_writer(&mut builder);
+            });
+            spawning.extend(quote! {
+                // HID Consumer Report sending
+                spawner.spawn(rumcake::usb_hid_consumer_write_task!(consumer_class)).unwrap();
+            });
+        }
     }
 
     if keyboard.via.is_some() || keyboard.vial.is_some() {

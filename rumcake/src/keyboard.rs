@@ -14,9 +14,13 @@ use heapless::Vec;
 use keyberon::debounce::Debouncer;
 use keyberon::layout::{CustomEvent, Event, Layers, Layout as KeyberonLayout};
 use keyberon::matrix::Matrix;
+use usbd_human_interface_device::device::consumer::MultipleConsumerReport;
 use usbd_human_interface_device::{
     device::keyboard::NKROBootKeyboardReport, page::Keyboard as KeyboardKeycode,
 };
+
+#[cfg(feature = "media-keycodes")]
+pub use usbd_human_interface_device::page::Consumer;
 
 #[macro_export]
 macro_rules! remap_matrix {
@@ -256,6 +260,9 @@ pub enum Keycode {
     /// Custom keycode, which can be used to run custom code. You can use
     /// [`KeyboardLayout::on_custom_keycode`] to handle it.
     Custom(u8),
+    #[cfg(feature = "media-keycodes")]
+    /// Media keycode, which can be any variant in [`usbd_human_interface_device::page::Consumer`]
+    Media(usbd_human_interface_device::page::Consumer),
     #[cfg(feature = "underglow")]
     /// Underglow keycode, which can be any variant in [`crate::underglow::animations::UnderglowCommand`]
     Underglow(crate::underglow::animations::UnderglowCommand),
@@ -340,6 +347,17 @@ pub static KEYBOARD_REPORT_HID_SEND_CHANNEL: Channel<
     1,
 > = Channel::new();
 
+/// Channel for sending consumer HID reports.
+///
+/// Channel messages should be consumed by the bluetooth task or USB task, so user-level code
+/// should **not** attempt to receive messages from the channel, otherwise commands may not be
+/// processed appropriately. You should only send to this channel.
+pub static CONSUMER_REPORT_HID_SEND_CHANNEL: Channel<
+    ThreadModeRawMutex,
+    MultipleConsumerReport,
+    1,
+> = Channel::new();
+
 #[rumcake_macros::task]
 pub async fn layout_collect<K: KeyboardLayout + 'static>(_k: K)
 where
@@ -349,6 +367,9 @@ where
 {
     let mut last_keys = Vec::<KeyboardKeycode, 24>::new();
     let layout = K::get_layout();
+
+    #[cfg(feature = "media-keycodes")]
+    let mut codes = [Consumer::Unassigned; 4];
 
     loop {
         let keys = {
@@ -365,6 +386,17 @@ where
                 CustomEvent::Press(keycode) => match keycode {
                     Keycode::Custom(id) => {
                         K::on_custom_keycode(id, true);
+                    }
+                    #[cfg(feature = "media-keycodes")]
+                    Keycode::Media(keycode) => {
+                        if let Some(c) =
+                            codes.iter_mut().find(|c| matches!(c, Consumer::Unassigned))
+                        {
+                            *c = keycode;
+                        }
+                        CONSUMER_REPORT_HID_SEND_CHANNEL
+                            .send(MultipleConsumerReport { codes })
+                            .await;
                     }
                     #[cfg(feature = "underglow")]
                     Keycode::Underglow(command) => {
@@ -397,13 +429,24 @@ where
                             .await;
                     }
                 },
-                CustomEvent::Release(keycode) =>
-                {
-                    #[allow(irrefutable_let_patterns)]
-                    if let Keycode::Custom(id) = keycode {
+                CustomEvent::Release(keycode) => match keycode {
+                    Keycode::Custom(id) => {
                         K::on_custom_keycode(id, false);
                     }
-                }
+                    #[cfg(feature = "media-keycodes")]
+                    Keycode::Media(keycode) => {
+                        if let Some(c) =
+                            codes.iter_mut().find(|c| matches!(c, Consumer::Unassigned))
+                        {
+                            *c = keycode;
+                        }
+                        CONSUMER_REPORT_HID_SEND_CHANNEL
+                            .send(MultipleConsumerReport { codes })
+                            .await;
+                    }
+                    #[allow(unreachable_patterns)]
+                    _ => {}
+                },
             }
 
             debug!("[KEYBOARD] Collecting keyboard keycodes");

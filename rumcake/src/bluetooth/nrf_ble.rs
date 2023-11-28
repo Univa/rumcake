@@ -27,7 +27,7 @@ use usbd_human_interface_device::device::keyboard::{
 
 use crate::hw::mcu::BLUETOOTH_ADVERTISING_MUTEX;
 use crate::hw::BATTERY_LEVEL_STATE;
-use crate::keyboard::KEYBOARD_REPORT_HID_SEND_CHANNEL;
+use crate::keyboard::{CONSUMER_REPORT_HID_SEND_CHANNEL, KEYBOARD_REPORT_HID_SEND_CHANNEL};
 
 #[cfg(feature = "usb")]
 use crate::usb::USB_STATE;
@@ -644,27 +644,28 @@ where
             let hid_fut = async {
                 // Discard any reports that haven't been processed due to lack of a connection
                 while KEYBOARD_REPORT_HID_SEND_CHANNEL.try_receive().is_ok() {}
+                while CONSUMER_REPORT_HID_SEND_CHANNEL.try_receive().is_ok() {}
 
                 #[cfg(feature = "usb")]
                 {
                     loop {
                         if !USB_STATE.get().await {
-                            match select(
+                            match select3(
                                 USB_STATE_LISTENER.wait(),
                                 KEYBOARD_REPORT_HID_SEND_CHANNEL.receive(),
+                                CONSUMER_REPORT_HID_SEND_CHANNEL.receive(),
                             )
                             .await
                             {
-                                select::Either::First(()) => {
+                                select::Either3::First(()) => {
                                     info!(
                                         "[BT_HID] Bluetooth HID reports enabled = {}",
                                         !USB_STATE.get().await
                                     );
                                 }
-                                select::Either::Second(report) => {
-                                    // TODO: media keys
+                                select::Either3::Second(report) => {
                                     info!(
-                                        "[BT_HID] Writing HID keyboard report to bluetooth: {:?}",
+                                        "[BT_HID] Writing NKRO HID report to bluetooth: {:?}",
                                         Debug2Format(&report)
                                     );
 
@@ -672,7 +673,22 @@ where
                                         server.hids.keyboard_report_notify(&connection, report)
                                     {
                                         error!(
-                                            "[BT_HID] Couldn't write HID keyboard report: {:?}",
+                                            "[BT_HID] Couldn't write NKRO HID report: {:?}",
+                                            Debug2Format(&err)
+                                        );
+                                    };
+                                }
+                                select::Either3::Third(report) => {
+                                    info!(
+                                        "[BT_HID] Writing consumer HID report to bluetooth: {:?}",
+                                        Debug2Format(&report)
+                                    );
+
+                                    if let Err(err) =
+                                        server.hids.consumer_report_notify(&connection, report)
+                                    {
+                                        error!(
+                                            "[BT_HID] Couldn't write consumer HID report: {:?}",
                                             Debug2Format(&err)
                                         );
                                     };
@@ -691,20 +707,43 @@ where
                 #[cfg(not(feature = "usb"))]
                 {
                     loop {
-                        let report = KEYBOARD_REPORT_HID_SEND_CHANNEL.receive().await;
+                        match select(
+                            KEYBOARD_REPORT_HID_SEND_CHANNEL.receive(),
+                            CONSUMER_REPORT_HID_SEND_CHANNEL.receive(),
+                        )
+                        .await
+                        {
+                            select::Either::First(report) => {
+                                info!(
+                                    "[BT_HID] Writing NKRO HID report to bluetooth: {:?}",
+                                    Debug2Format(&report)
+                                );
 
-                        // TODO: media keys
-                        info!(
-                            "[BT_HID] Writing HID keyboard report to bluetooth: {:?}",
-                            Debug2Format(&report)
-                        );
+                                if let Err(err) =
+                                    server.hids.keyboard_report_notify(&connection, report)
+                                {
+                                    error!(
+                                        "[BT_HID] Couldn't write NKRO HID report: {:?}",
+                                        Debug2Format(&err)
+                                    );
+                                };
+                            }
+                            select::Either::Second(report) => {
+                                info!(
+                                    "[BT_HID] Writing consumer HID report to bluetooth: {:?}",
+                                    Debug2Format(&report)
+                                );
 
-                        if let Err(err) = server.hids.keyboard_report_notify(&connection, report) {
-                            error!(
-                                "[BT_HID] Couldn't write HID keyboard report: {:?}",
-                                Debug2Format(&err)
-                            );
-                        };
+                                if let Err(err) =
+                                    server.hids.consumer_report_notify(&connection, report)
+                                {
+                                    error!(
+                                        "[BT_HID] Couldn't write consumer HID report: {:?}",
+                                        Debug2Format(&err)
+                                    );
+                                };
+                            }
+                        }
                     }
                 }
             };

@@ -415,6 +415,7 @@ No menu for RGB matrix is provided. RGB backlight animations still need to be im
 - Lighting keycodes, except for `QK_BACKLIGHT_TOGGLE_BREATHING`. RGB keycodes only work for underglow, not an RGB backlight matrix.
 - Momentary layers, and default layers (MO(x) and DF(x))
 - Custom keycodes (`customKeycodes` in your JSON definition)
+- Certain media keycodes. Support for this must be enabled manually. Check the ["Media Keys" doc](../feature-media-keys)
 - QK_OUTPUT_BLUETOOTH and QK_OUTPUT_USB
 
 Attempts to use unsupported keycodes will not result in any changes to your layout. It may show in the app, but reloading will revert the keycodes back to their previous state.

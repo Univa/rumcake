@@ -23,3 +23,5 @@ stm32 = []
 nrf = []
 
 storage = []
+
+media-keycodes = []

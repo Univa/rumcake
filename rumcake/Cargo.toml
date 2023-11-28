@@ -16,6 +16,7 @@ features = [
   "display",
   "split-peripheral",
   "split-central",
+  "media-keycodes"
 ]
 
 flavours = [
@@ -98,6 +99,9 @@ storage = ["rumcake-macros/storage"]
 #
 # Keyboard features
 #
+
+# Extra keycodes
+media-keycodes = ["rumcake-macros/media-keycodes"]
 
 # Via/Vial
 via = []

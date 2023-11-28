@@ -239,7 +239,7 @@ enum QMKKeycodes {
     // 0xA5-0xDF start (these values are reserved, but used by QMK for consumer-related keycodes)
     KC_SYSTEM_POWER = 0x00A5,
     KC_SYSTEM_SLEEP = 0x00A6,
-    KC_SYSTEM_WAKE = 0x00A7,
+    KC_SYSTEM_WAKE = 0x00A7, // TODO: unhandled
     KC_AUDIO_MUTE = 0x00A8,
     KC_AUDIO_VOL_UP = 0x00A9,
     KC_AUDIO_VOL_DOWN = 0x00AA,
@@ -251,41 +251,41 @@ enum QMKKeycodes {
     KC_MEDIA_EJECT = 0x00B0,
     KC_MAIL = 0x00B1,
     KC_CALCULATOR = 0x00B2,
-    KC_MY_COMPUTER = 0x00B3,
+    KC_MY_COMPUTER = 0x00B3, // TODO: unhandled
     KC_WWW_SEARCH = 0x00B4,
     KC_WWW_HOME = 0x00B5,
     KC_WWW_BACK = 0x00B6,
     KC_WWW_FORWARD = 0x00B7,
     KC_WWW_STOP = 0x00B8,
     KC_WWW_REFRESH = 0x00B9,
-    KC_WWW_FAVORITES = 0x00BA,
+    KC_WWW_FAVORITES = 0x00BA, // TODO: unhandled
     KC_MEDIA_FAST_FORWARD = 0x00BB,
     KC_MEDIA_REWIND = 0x00BC,
-    KC_BRIGHTNESS_UP = 0x00BD,
-    KC_BRIGHTNESS_DOWN = 0x00BE,
+    KC_BRIGHTNESS_UP = 0x00BD,   // TODO: unhandled
+    KC_BRIGHTNESS_DOWN = 0x00BE, // TODO: unhandled
     KC_CONTROL_PANEL = 0x00BF,
-    KC_ASSISTANT = 0x00C0,
-    KC_MISSION_CONTROL = 0x00C1,
-    KC_LAUNCHPAD = 0x00C2,
-    KC_MS_UP = 0x00CD,
-    KC_MS_DOWN = 0x00CE,
-    KC_MS_LEFT = 0x00CF,
-    KC_MS_RIGHT = 0x00D0,
-    KC_MS_BTN1 = 0x00D1,
-    KC_MS_BTN2 = 0x00D2,
-    KC_MS_BTN3 = 0x00D3,
-    KC_MS_BTN4 = 0x00D4,
-    KC_MS_BTN5 = 0x00D5,
-    KC_MS_BTN6 = 0x00D6,
-    KC_MS_BTN7 = 0x00D7,
-    KC_MS_BTN8 = 0x00D8,
-    KC_MS_WH_UP = 0x00D9,
-    KC_MS_WH_DOWN = 0x00DA,
-    KC_MS_WH_LEFT = 0x00DB,
-    KC_MS_WH_RIGHT = 0x00DC,
-    KC_MS_ACCEL0 = 0x00DD,
-    KC_MS_ACCEL1 = 0x00DE,
-    KC_MS_ACCEL2 = 0x00DF,
+    KC_ASSISTANT = 0x00C0,       // TODO: unhandled
+    KC_MISSION_CONTROL = 0x00C1, // TODO: unhandled
+    KC_LAUNCHPAD = 0x00C2,       // TODO: unhandled
+    KC_MS_UP = 0x00CD,           // TODO: unhandled
+    KC_MS_DOWN = 0x00CE,         // TODO: unhandled
+    KC_MS_LEFT = 0x00CF,         // TODO: unhandled
+    KC_MS_RIGHT = 0x00D0,        // TODO: unhandled
+    KC_MS_BTN1 = 0x00D1,         // TODO: unhandled
+    KC_MS_BTN2 = 0x00D2,         // TODO: unhandled
+    KC_MS_BTN3 = 0x00D3,         // TODO: unhandled
+    KC_MS_BTN4 = 0x00D4,         // TODO: unhandled
+    KC_MS_BTN5 = 0x00D5,         // TODO: unhandled
+    KC_MS_BTN6 = 0x00D6,         // TODO: unhandled
+    KC_MS_BTN7 = 0x00D7,         // TODO: unhandled
+    KC_MS_BTN8 = 0x00D8,         // TODO: unhandled
+    KC_MS_WH_UP = 0x00D9,        // TODO: unhandled
+    KC_MS_WH_DOWN = 0x00DA,      // TODO: unhandled
+    KC_MS_WH_LEFT = 0x00DB,      // TODO: unhandled
+    KC_MS_WH_RIGHT = 0x00DC,     // TODO: unhandled
+    KC_MS_ACCEL0 = 0x00DD,       // TODO: unhandled
+    KC_MS_ACCEL1 = 0x00DE,       // TODO: unhandled
+    KC_MS_ACCEL2 = 0x00DF,       // TODO: unhandled
     // 0xA5-0xDF end (these values are reserved, but used by QMK for consumer-related keycodes)
     KC_LEFT_CTRL = 0x00E0,
     KC_LEFT_SHIFT = 0x00E1,
@@ -931,6 +931,77 @@ pub(crate) fn convert_action_to_keycode(action: Action<Keycode>) -> u16 {
                     UNKNOWN_KEYCODE
                 }
             }
+            #[cfg(feature = "media-keycodes")]
+            Keycode::Media(keycode) => match keycode {
+                usbd_human_interface_device::page::Consumer::Power => {
+                    QMKKeycodes::KC_SYSTEM_POWER as u16
+                }
+                usbd_human_interface_device::page::Consumer::Sleep => {
+                    QMKKeycodes::KC_SYSTEM_SLEEP as u16
+                }
+                usbd_human_interface_device::page::Consumer::Mute => {
+                    QMKKeycodes::KC_AUDIO_MUTE as u16
+                }
+                usbd_human_interface_device::page::Consumer::VolumeIncrement => {
+                    QMKKeycodes::KC_AUDIO_VOL_UP as u16
+                }
+                usbd_human_interface_device::page::Consumer::VolumeDecrement => {
+                    QMKKeycodes::KC_AUDIO_VOL_DOWN as u16
+                }
+                usbd_human_interface_device::page::Consumer::ScanNextTrack => {
+                    QMKKeycodes::KC_MEDIA_NEXT_TRACK as u16
+                }
+                usbd_human_interface_device::page::Consumer::ScanPreviousTrack => {
+                    QMKKeycodes::KC_MEDIA_PREV_TRACK as u16
+                }
+                usbd_human_interface_device::page::Consumer::Stop => {
+                    QMKKeycodes::KC_MEDIA_STOP as u16
+                }
+                usbd_human_interface_device::page::Consumer::PlayPause => {
+                    QMKKeycodes::KC_MEDIA_PLAY_PAUSE as u16
+                }
+                usbd_human_interface_device::page::Consumer::MediaSelection => {
+                    // TODO: verify that this one is correct
+                    QMKKeycodes::KC_MEDIA_SELECT as u16
+                }
+                usbd_human_interface_device::page::Consumer::Eject => {
+                    QMKKeycodes::KC_MEDIA_EJECT as u16
+                }
+                usbd_human_interface_device::page::Consumer::ALEmailReader => {
+                    QMKKeycodes::KC_MAIL as u16
+                }
+                usbd_human_interface_device::page::Consumer::ALCalculator => {
+                    QMKKeycodes::KC_CALCULATOR as u16
+                }
+                usbd_human_interface_device::page::Consumer::ACSearch => {
+                    QMKKeycodes::KC_WWW_SEARCH as u16
+                }
+                usbd_human_interface_device::page::Consumer::ACHome => {
+                    QMKKeycodes::KC_WWW_HOME as u16
+                }
+                usbd_human_interface_device::page::Consumer::ACBack => {
+                    QMKKeycodes::KC_WWW_BACK as u16
+                }
+                usbd_human_interface_device::page::Consumer::ACForward => {
+                    QMKKeycodes::KC_WWW_FORWARD as u16
+                }
+                usbd_human_interface_device::page::Consumer::ACStop => {
+                    QMKKeycodes::KC_WWW_STOP as u16
+                }
+                usbd_human_interface_device::page::Consumer::ACRefresh => {
+                    QMKKeycodes::KC_WWW_REFRESH as u16
+                }
+                usbd_human_interface_device::page::Consumer::FastForward => {
+                    QMKKeycodes::KC_MEDIA_FAST_FORWARD as u16
+                }
+                usbd_human_interface_device::page::Consumer::Rewind => {
+                    QMKKeycodes::KC_MEDIA_REWIND as u16
+                }
+                usbd_human_interface_device::page::Consumer::ALControlPanel => {
+                    QMKKeycodes::KC_CONTROL_PANEL as u16
+                }
+                _ => UNKNOWN_KEYCODE,
+            },
             #[cfg(feature = "underglow")]
             Keycode::Underglow(command) => match command {
                 crate::underglow::animations::UnderglowCommand::Toggle => {
@@ -1074,6 +1145,7 @@ pub(crate) fn convert_action_to_keycode(action: Action<Keycode>) -> u16 {
                 }
                 _ => UNKNOWN_KEYCODE,
             },
+            _ => UNKNOWN_KEYCODE,
         },
         _ => UNKNOWN_KEYCODE,
     }
@@ -1091,9 +1163,148 @@ pub(crate) fn convert_keycode_to_action(keycode: u16) -> Option<Action<Keycode>>
     if QMKKeycodeRanges::QK_BASIC as u16 <= keycode
         && keycode <= QMKKeycodeRanges::QK_BASIC_MAX as u16
     {
-        // TODO: handle consumer-related keycodes in this range. They don't exist in keyberon's
-        // enum, but do exist in QMK (see the enum above)
-        return num::FromPrimitive::from_u16(keycode).map(Action::KeyCode);
+        return num::FromPrimitive::from_u16(keycode).map_or_else(
+            || {
+                #[cfg(feature = "media-keycodes")]
+                {
+                    if keycode == QMKKeycodes::KC_SYSTEM_POWER as u16 {
+                        return Some(Action::Custom(Keycode::Media(
+                            usbd_human_interface_device::page::Consumer::Power,
+                        )));
+                    }
+
+                    if keycode == QMKKeycodes::KC_SYSTEM_SLEEP as u16 {
+                        return Some(Action::Custom(Keycode::Media(
+                            usbd_human_interface_device::page::Consumer::Sleep,
+                        )));
+                    }
+
+                    if keycode == QMKKeycodes::KC_AUDIO_MUTE as u16 {
+                        return Some(Action::Custom(Keycode::Media(
+                            usbd_human_interface_device::page::Consumer::Mute,
+                        )));
+                    }
+
+                    if keycode == QMKKeycodes::KC_AUDIO_VOL_UP as u16 {
+                        return Some(Action::Custom(Keycode::Media(
+                            usbd_human_interface_device::page::Consumer::VolumeIncrement,
+                        )));
+                    }
+
+                    if keycode == QMKKeycodes::KC_AUDIO_VOL_DOWN as u16 {
+                        return Some(Action::Custom(Keycode::Media(
+                            usbd_human_interface_device::page::Consumer::VolumeDecrement,
+                        )));
+                    }
+
+                    if keycode == QMKKeycodes::KC_MEDIA_NEXT_TRACK as u16 {
+                        return Some(Action::Custom(Keycode::Media(
+                            usbd_human_interface_device::page::Consumer::ScanNextTrack,
+                        )));
+                    }
+
+                    if keycode == QMKKeycodes::KC_MEDIA_PREV_TRACK as u16 {
+                        return Some(Action::Custom(Keycode::Media(
+                            usbd_human_interface_device::page::Consumer::ScanPreviousTrack,
+                        )));
+                    }
+
+                    if keycode == QMKKeycodes::KC_MEDIA_STOP as u16 {
+                        return Some(Action::Custom(Keycode::Media(
+                            usbd_human_interface_device::page::Consumer::Stop,
+                        )));
+                    }
+
+                    if keycode == QMKKeycodes::KC_MEDIA_PLAY_PAUSE as u16 {
+                        return Some(Action::Custom(Keycode::Media(
+                            usbd_human_interface_device::page::Consumer::PlayPause,
+                        )));
+                    }
+
+                    if keycode == QMKKeycodes::KC_MEDIA_SELECT as u16 {
+                        // TODO: verify that this one is correct
+                        return Some(Action::Custom(Keycode::Media(
+                            usbd_human_interface_device::page::Consumer::MediaSelection,
+                        )));
+                    }
+
+                    if keycode == QMKKeycodes::KC_MEDIA_EJECT as u16 {
+                        return Some(Action::Custom(Keycode::Media(
+                            usbd_human_interface_device::page::Consumer::Eject,
+                        )));
+                    }
+
+                    if keycode == QMKKeycodes::KC_MAIL as u16 {
+                        return Some(Action::Custom(Keycode::Media(
+                            usbd_human_interface_device::page::Consumer::ALEmailReader,
+                        )));
+                    }
+
+                    if keycode == QMKKeycodes::KC_CALCULATOR as u16 {
+                        return Some(Action::Custom(Keycode::Media(
+                            usbd_human_interface_device::page::Consumer::ALCalculator,
+                        )));
+                    }
+
+                    if keycode == QMKKeycodes::KC_WWW_SEARCH as u16 {
+                        return Some(Action::Custom(Keycode::Media(
+                            usbd_human_interface_device::page::Consumer::ACSearch,
+                        )));
+                    }
+
+                    if keycode == QMKKeycodes::KC_WWW_HOME as u16 {
+                        return Some(Action::Custom(Keycode::Media(
+                            usbd_human_interface_device::page::Consumer::ACHome,
+                        )));
+                    }
+
+                    if keycode == QMKKeycodes::KC_WWW_BACK as u16 {
+                        return Some(Action::Custom(Keycode::Media(
+                            usbd_human_interface_device::page::Consumer::ACBack,
+                        )));
+                    }
+
+                    if keycode == QMKKeycodes::KC_WWW_FORWARD as u16 {
+                        return Some(Action::Custom(Keycode::Media(
+                            usbd_human_interface_device::page::Consumer::ACForward,
+                        )));
+                    }
+
+                    if keycode == QMKKeycodes::KC_WWW_STOP as u16 {
+                        return Some(Action::Custom(Keycode::Media(
+                            usbd_human_interface_device::page::Consumer::ACStop,
+                        )));
+                    }
+
+                    if keycode == QMKKeycodes::KC_WWW_REFRESH as u16 {
+                        return Some(Action::Custom(Keycode::Media(
+                            usbd_human_interface_device::page::Consumer::ACRefresh,
+                        )));
+                    }
+
+                    if keycode == QMKKeycodes::KC_MEDIA_FAST_FORWARD as u16 {
+                        return Some(Action::Custom(Keycode::Media(
+                            usbd_human_interface_device::page::Consumer::FastForward,
+                        )));
+                    }
+
+                    if keycode == QMKKeycodes::KC_MEDIA_REWIND as u16 {
+                        return Some(Action::Custom(Keycode::Media(
+                            usbd_human_interface_device::page::Consumer::Rewind,
+                        )));
+                    }
+
+                    if keycode == QMKKeycodes::KC_CONTROL_PANEL as u16 {
+                        return Some(Action::Custom(Keycode::Media(
+                            usbd_human_interface_device::page::Consumer::ALControlPanel,
+                        )));
+                    }
+                }
+
+                None
+            },
+            |k| Some(Action::KeyCode(k)),
+        );
     }
 
     if QMKKeycodeRanges::QK_MOMENTARY as u16 <= keycode
