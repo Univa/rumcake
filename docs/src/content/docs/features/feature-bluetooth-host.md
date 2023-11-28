@@ -64,8 +64,7 @@ impl BluetoothKeyboard for MyKeyboard {
 You can use Bluetooth and USB host communication on the same keyboard.
 
 If you are using a template, USB should already be configured, but if you manually
-set up your Cargo workspace, then see the docs for
-[USB host communication](../feature-usb-host).
+set up your Cargo workspace, then see the docs for [USB host communication](../feature-usb-host/).
 
 Also check the sections below for more information.
 :::

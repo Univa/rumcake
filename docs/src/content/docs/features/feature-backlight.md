@@ -72,7 +72,7 @@ struct MyKeyboard;
 ```
 
 You will need to do additional setup for your selected storage driver as well.
-For more information, see the docs for the [storage feature](../feature-storage).
+For more information, see the docs for the [storage feature](../feature-storage/).
 :::
 
 If you're implementing a backlight matrix (either the `simple-backlight-matrix` or `rgb-backlight-matrix`), your keyboard must also implement the `BacklightMatrixDevice` trait:

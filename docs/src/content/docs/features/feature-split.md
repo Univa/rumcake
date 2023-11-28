@@ -89,13 +89,13 @@ impl NRFBLECentralDevice for MyKeyboardLeftHalf {
 
 :::note
 In case you are using the `ble` driver, if your keyboard also communicates with your host device using Bluetooth
-(basically if you followed the [Bluetooth doc](../feature-bluetooth-host) or chose a template with Bluetooth),
+(basically if you followed the [Bluetooth doc](../feature-bluetooth-host/) or chose a template with Bluetooth),
 then the `BluetoothDevice` trait should already be implemented for you.
 :::
 
 :::caution
-Make sure your central device communicates with a host device over [USB](../feature-usb-host)
-or [Bluetooth](../feature-bluetooth-host). Please follow those documents to implement
+Make sure your central device communicates with a host device over [USB](../feature-usb-host/)
+or [Bluetooth](../feature-bluetooth-host/). Please follow those documents to implement
 your desired functionality.
 
 Although it is possible to compile a central device without them, your keyboard won't
@@ -153,7 +153,7 @@ For a peripheral device, you do not have to implement `KeyboardLayout`. Only `Ke
 
 :::note
 In case you are using the `ble` driver, if your keyboard also communicates with your host device using Bluetooth
-(basically if you followed the [Bluetooth doc](../feature-bluetooth-host) or chose a template with Bluetooth),
+(basically if you followed the [Bluetooth doc](../feature-bluetooth-host/) or chose a template with Bluetooth),
 then the `BluetoothDevice` trait should already be implemented for you.
 :::
 

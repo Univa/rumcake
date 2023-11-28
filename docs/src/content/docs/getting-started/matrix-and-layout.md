@@ -14,7 +14,7 @@ implementations in the same entrypoint. If you are using a split keyboard, you c
 implement the `KeyboardMatrix` and `KeyboardLayout` traits, but the placement of the `impl` blocks will depend
 on your split keyboard setup.
 
-See the [split keyboard document](../../features/feature-split) for more information.
+See the [split keyboard document](../../features/feature-split/) for more information.
 :::
 
 # Keyboard Information

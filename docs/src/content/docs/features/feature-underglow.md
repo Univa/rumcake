@@ -70,7 +70,7 @@ impl UnderglowDevice for MyKeyboard {
 ```
 
 You will need to do additional setup for your selected storage driver as well.
-For more information, see the docs for the [storage feature](../feature-storage).
+For more information, see the docs for the [storage feature](../feature-storage/).
 :::
 
 Lastly, you must also implement the appropriate trait that corresponds to your chosen driver in the `#[keyboard]` macro. For example, with `ws2812_bitbang`, you must implement `WS2812BitbangUnderglowDriver`:
