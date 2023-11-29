@@ -180,7 +180,8 @@ impl<T: Copy> CustomEvent<T> {
 #[derive(Debug, Eq, PartialEq)]
 enum State<T: 'static + Copy, K: 'static + Copy> {
     NormalKey { keycode: K, coord: (u8, u8) },
-    LayerModifier { value: usize, coord: (u8, u8) },
+    MomentaryLayerModifier { value: usize, coord: (u8, u8) },
+    ToggleLayerModifier { value: usize },
     Custom { value: T, coord: (u8, u8) },
 }
 impl<T: 'static + Copy, K: 'static + Copy> Copy for State<T, K> {}
@@ -202,7 +203,7 @@ impl<T: 'static + Copy, K: 'static + Copy> State<T, K> {
     }
     fn release(&self, c: (u8, u8), custom: &mut CustomEvent<T>) -> Option<Self> {
         match *self {
-            NormalKey { coord, .. } | LayerModifier { coord, .. } if coord == c => None,
+            NormalKey { coord, .. } | MomentaryLayerModifier { coord, .. } if coord == c => None,
             Custom { value, coord } if coord == c => {
                 custom.update(CustomEvent::Release(value));
                 None
@@ -212,7 +213,8 @@ impl<T: 'static + Copy, K: 'static + Copy> State<T, K> {
     }
     fn get_layer(&self) -> Option<usize> {
         match self {
-            LayerModifier { value, .. } => Some(*value),
+            MomentaryLayerModifier { value, .. } => Some(*value),
+            ToggleLayerModifier { value, .. } => Some(*value),
             _ => None,
         }
     }
@@ -522,7 +524,22 @@ impl<const C: usize, const R: usize, const L: usize, T: 'static + Copy, K: 'stat
             }
             Layer(value) => {
                 self.tap_hold_tracker.coord = coord;
-                let _ = self.states.push(LayerModifier { value, coord });
+                let _ = self.states.push(MomentaryLayerModifier { value, coord });
+            }
+            ToggleLayer(value) => {
+                self.tap_hold_tracker.coord = coord;
+                let mut removed = false;
+                self.states.retain(|s| {
+                    if matches!(s, ToggleLayerModifier { value: layer } if *layer == value) {
+                        removed = true;
+                        false
+                    } else {
+                        true
+                    }
+                });
+                if !removed {
+                    let _ = self.states.push(ToggleLayerModifier { value });
+                }
             }
             DefaultLayer(value) => {
                 self.tap_hold_tracker.coord = coord;
@@ -561,7 +578,7 @@ mod test {
     use super::{Event::*, Layout, *};
     use crate::action::Action::*;
     use crate::action::HoldTapConfig;
-    use crate::action::{k, l, m};
+    use crate::action::{k, l, m, t};
     use crate::key_code::KeyCode;
     use crate::key_code::KeyCode::*;
     use std::collections::BTreeSet;
@@ -1241,5 +1258,126 @@ mod test {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
             assert_keys(&[Enter], layout.keycodes());
         }
+    }
+
+    #[test]
+    fn toggle_multiple_layers() {
+        static LAYERS: Layers<2, 1, 5> = [
+            [[t(1), l(2)]],
+            [[k(A), t(1)]],
+            [[t(3), k(B)]],
+            [[t(3), t(4)]],
+            [[t(4), t(3)]],
+        ];
+        let mut layout = Layout::new(LAYERS);
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_eq!(0, layout.current_layer());
+        assert_keys(&[], layout.keycodes());
+
+        // toggle L1
+        layout.event(Press(0, 0));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_eq!(1, layout.current_layer());
+        layout.event(Release(0, 0));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_eq!(1, layout.current_layer());
+        assert_keys(&[], layout.keycodes());
+
+        // press and release A
+        layout.event(Press(0, 0));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[A], layout.keycodes());
+        layout.event(Release(0, 0));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[], layout.keycodes());
+
+        // toggle L1 to disable
+        layout.event(Press(0, 1));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_eq!(0, layout.current_layer());
+        layout.event(Release(0, 1));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_eq!(0, layout.current_layer());
+        assert_keys(&[], layout.keycodes());
+
+        // press L2
+        layout.event(Press(0, 1));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_eq!(2, layout.current_layer());
+        assert_keys(&[], layout.keycodes());
+
+        // toggle L3 on L2
+        layout.event(Press(0, 0));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_eq!(3, layout.current_layer());
+        assert_keys(&[], layout.keycodes());
+
+        // release L2, should stay on L3
+        layout.event(Release(0, 1));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_eq!(3, layout.current_layer());
+        assert_keys(&[], layout.keycodes());
+
+        // press and release L4 on L3
+        layout.event(Press(0, 1));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_eq!(4, layout.current_layer());
+        layout.event(Release(0, 1));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_eq!(4, layout.current_layer());
+
+        // toggle L3 from L4, should stay on L4
+        layout.event(Press(0, 1));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_eq!(4, layout.current_layer());
+        layout.event(Release(0, 1));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_eq!(4, layout.current_layer());
+
+        // toggle L4 to disable, should be back to L0
+        layout.event(Press(0, 0));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_eq!(0, layout.current_layer());
+        assert_keys(&[], layout.keycodes());
+
+        // press L2
+        layout.event(Press(0, 1));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_eq!(2, layout.current_layer());
+        assert_keys(&[], layout.keycodes());
+
+        // toggle L3 on L2
+        layout.event(Press(0, 0));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_eq!(3, layout.current_layer());
+        assert_keys(&[], layout.keycodes());
+
+        // release L2, should stay on L3
+        layout.event(Release(0, 1));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_eq!(3, layout.current_layer());
+        assert_keys(&[], layout.keycodes());
+
+        // press and release L4 on L3
+        layout.event(Press(0, 1));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_eq!(4, layout.current_layer());
+        layout.event(Release(0, 1));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_eq!(4, layout.current_layer());
+
+        // toggle L4 to disable, should be back to L3
+        layout.event(Press(0, 0));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_eq!(3, layout.current_layer());
+        layout.event(Release(0, 0));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_eq!(3, layout.current_layer());
+
+        // toggle L3 to disable, back to L0
+        layout.event(Press(0, 0));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_eq!(0, layout.current_layer());
+        assert_keys(&[], layout.keycodes());
     }
 }

@@ -193,6 +193,11 @@ where
     /// Fn key. If several layer actions are hold at the same time,
     /// the last pressed defines the current layer.
     Layer(usize),
+    /// Switch the current layer until the layer gets toggled again.
+    /// Make sure to also include a ToggleLayer(x) on layer x, otherwise
+    /// you will be stuck on that layer. If multiple layers are toggled on,
+    /// the last toggled layer will be the currently active one.
+    ToggleLayer(usize),
     /// Change the default layer.
     DefaultLayer(usize),
     /// Perform different actions on key hold/tap (see [`HoldTapAction`]).
@@ -245,6 +250,11 @@ pub const fn d<T, K>(layer: usize) -> Action<T, K> {
 /// create compact layout.
 pub const fn m<T, K>(kcs: &'static &'static [K]) -> Action<T, K> {
     Action::MultipleKeyCodes(kcs)
+}
+
+/// A shortcut to create a `Action::ToggleLayer`, useful to create compact layout.
+pub const fn t<T, K>(layer: usize) -> Action<T, K> {
+    Action::ToggleLayer(layer)
 }
 
 #[cfg(test)]

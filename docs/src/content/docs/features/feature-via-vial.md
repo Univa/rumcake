@@ -413,7 +413,7 @@ No menu for RGB matrix is provided. RGB backlight animations still need to be im
 
 - Basic keycodes (Basic tab in Via/Vial, or those available in HID keyboard reports)
 - Lighting keycodes, except for `QK_BACKLIGHT_TOGGLE_BREATHING`. RGB keycodes only work for underglow, not an RGB backlight matrix.
-- Momentary layers, and default layers (MO(x) and DF(x))
+- Momentary layers (`MO(x)`), default layers (`DF(x)`), toggle layers (`TG(x)`)
 - Custom keycodes (`customKeycodes` in your JSON definition)
 - Certain media keycodes. Support for this must be enabled manually. Check the ["Media Keys" doc](../feature-media-keys/)
 - QK_OUTPUT_BLUETOOTH and QK_OUTPUT_USB
@@ -424,7 +424,7 @@ For more information on how these keycodes get converted into `keyberon` actions
 
 # To-do List
 
-- [ ] Tap dance, one shot, layer toggling, one shot layer keycodes (and other keycodes in the "Layers" submenu)
+- [ ] Tap-toggle, one shot layer keycodes (and other keycodes in the "Layers" submenu)
 - [ ] Dynamic keymap macros (Via)
 - [ ] QMK settings (Vial)
 - [ ] Dynamic keymap tap dance, combo, key overrides (Vial)

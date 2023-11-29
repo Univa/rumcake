@@ -23,7 +23,7 @@ enum QMKKeycodeRanges {
     QK_MOMENTARY_MAX = 0x523F,
     QK_DEF_LAYER = 0x5240,
     QK_DEF_LAYER_MAX = 0x525F,
-    QK_TOGGLE_LAYER = 0x5260, // TODO: unhandled
+    QK_TOGGLE_LAYER = 0x5260,
     QK_TOGGLE_LAYER_MAX = 0x527F,
     QK_ONE_SHOT_LAYER = 0x5280, // TODO: unhandled, switch to kanata keyberon fork
     QK_ONE_SHOT_LAYER_MAX = 0x529F,
@@ -922,6 +922,16 @@ pub(crate) fn convert_action_to_keycode(action: Action<Keycode>) -> u16 {
                 UNKNOWN_KEYCODE
             }
         }
+        Action::ToggleLayer(layer) => {
+            if (layer as u16)
+                <= QMKKeycodeRanges::QK_TOGGLE_LAYER_MAX as u16
+                    - QMKKeycodeRanges::QK_TOGGLE_LAYER as u16
+            {
+                QMKKeycodeRanges::QK_TOGGLE_LAYER as u16 + layer as u16
+            } else {
+                UNKNOWN_KEYCODE
+            }
+        }
         Action::HoldTap(_) => todo!(),
         Action::Custom(key) => match key {
             Keycode::Custom(id) => {
@@ -1320,6 +1330,14 @@ pub(crate) fn convert_keycode_to_action(keycode: u16) -> Option<Action<Keycode>>
     {
         return Some(Action::DefaultLayer(
             (keycode - QMKKeycodeRanges::QK_DEF_LAYER as u16) as usize,
+        ));
+    }
+
+    if QMKKeycodeRanges::QK_TOGGLE_LAYER as u16 <= keycode
+        && keycode <= QMKKeycodeRanges::QK_TOGGLE_LAYER_MAX as u16
+    {
+        return Some(Action::DefaultLayer(
+            (keycode - QMKKeycodeRanges::QK_TOGGLE_LAYER as u16) as usize,
         ));
     }
 
