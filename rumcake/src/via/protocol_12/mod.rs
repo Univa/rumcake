@@ -276,7 +276,7 @@ pub(crate) async fn process_via_command<K: ViaKeyboard + 'static>(
                     || command == ViaCommandId::CustomSetValue
                     || command == ViaCommandId::CustomSave =>
             {
-                match num::FromPrimitive::from_u8(data[1]) {
+                match num::FromPrimitive::from_u8(data[1]) as Option<ViaChannelId> {
                     #[cfg(feature = "simple-backlight")]
                     Some(ViaChannelId::Backlight) => {
                         match command {
