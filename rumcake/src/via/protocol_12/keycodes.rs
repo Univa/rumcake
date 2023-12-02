@@ -1,4 +1,5 @@
-use keyberon::action::Action;
+use keyberon::action::{Action, OneShotAction, OneShotEndConfig};
+use keyberon::key_code::KeyCode;
 use num_derive::FromPrimitive;
 
 use crate::keyboard::Keycode;
@@ -25,7 +26,7 @@ enum QMKKeycodeRanges {
     QK_DEF_LAYER_MAX = 0x525F,
     QK_TOGGLE_LAYER = 0x5260,
     QK_TOGGLE_LAYER_MAX = 0x527F,
-    QK_ONE_SHOT_LAYER = 0x5280, // TODO: unhandled, switch to kanata keyberon fork
+    QK_ONE_SHOT_LAYER = 0x5280,
     QK_ONE_SHOT_LAYER_MAX = 0x529F,
     QK_ONE_SHOT_MOD = 0x52A0, // TODO: unhandled, switch to kanata keyberon fork
     QK_ONE_SHOT_MOD_MAX = 0x52BF,
@@ -933,6 +934,20 @@ pub(crate) fn convert_action_to_keycode(action: Action<Keycode>) -> u16 {
             }
         }
         Action::HoldTap(_) => todo!(),
+        Action::OneShot(&OneShotAction {
+            action: keyberon::action::Action::Layer(layer),
+            ..
+        }) => {
+            // TODO: one shot config is lost to this conversion
+            if (layer as u16)
+                <= QMKKeycodeRanges::QK_ONE_SHOT_LAYER_MAX as u16
+                    - QMKKeycodeRanges::QK_ONE_SHOT_LAYER as u16
+            {
+                QMKKeycodeRanges::QK_ONE_SHOT_LAYER as u16 + layer as u16
+            } else {
+                UNKNOWN_KEYCODE
+            }
+        }
         Action::Custom(key) => match key {
             Keycode::Custom(id) => {
                 if id as u16 <= 31 {
@@ -1161,6 +1176,24 @@ pub(crate) fn convert_action_to_keycode(action: Action<Keycode>) -> u16 {
     }
 }
 
+/// An array of reusable one shot layer actions. This is used for the conversion from a QMK keycode
+/// to a keyberon action. This array has a size of 16, one for each layer that can be assigned by
+/// Via. It should still be possible to assign any number of one shot keys to the layout at once
+/// with this method. This is needed to satisfy the &'static type used in the OneShot variant.
+static ONE_SHOT_LAYER_ACTIONS: [OneShotAction<Keycode, KeyCode>; 16] = {
+    let mut pool = [OneShotAction {
+        action: keyberon::action::l(0),
+        timeout: 5000,
+        end_config: OneShotEndConfig::EndOnFirstPress,
+    }; 16];
+    let mut i = 0;
+    while i < pool.len() {
+        pool[i].action = keyberon::action::l(i);
+        i += 1;
+    }
+    pool
+};
+
 pub(crate) fn convert_keycode_to_action(keycode: u16) -> Option<Action<Keycode>> {
     if keycode == QMKKeycodes::KC_NO as u16 {
         return Some(Action::NoOp);
@@ -1339,6 +1372,14 @@ pub(crate) fn convert_keycode_to_action(keycode: u16) -> Option<Action<Keycode>>
         return Some(Action::DefaultLayer(
             (keycode - QMKKeycodeRanges::QK_TOGGLE_LAYER as u16) as usize,
         ));
+    }
+
+    if QMKKeycodeRanges::QK_ONE_SHOT_LAYER as u16 <= keycode
+        && keycode <= QMKKeycodeRanges::QK_ONE_SHOT_LAYER_MAX as u16
+    {
+        let layer = (keycode - QMKKeycodeRanges::QK_ONE_SHOT_LAYER as u16) as usize;
+        let action = &ONE_SHOT_LAYER_ACTIONS[layer];
+        return Some(Action::OneShot(action));
     }
 
     if QMKKeycodeRanges::QK_LIGHTING as u16 <= keycode

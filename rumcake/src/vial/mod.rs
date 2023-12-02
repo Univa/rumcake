@@ -104,6 +104,7 @@ pub async fn usb_hid_vial_write_task<K: VialKeyboard + 'static>(
     [(); K::LAYOUT_COLS]:,
 {
     assert!(K::DYNAMIC_KEYMAP_LAYER_COUNT <= K::LAYERS);
+    assert!(K::DYNAMIC_KEYMAP_LAYER_COUNT <= 16);
     assert!(K::VIAL_UNLOCK_COMBO.len() < 15);
 
     let vial_state: Mutex<ThreadModeRawMutex, protocol::VialState> = Mutex::new(Default::default());

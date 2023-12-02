@@ -191,6 +191,7 @@ pub async fn usb_hid_via_write_task<K: ViaKeyboard + 'static>(
     [(); K::LAYOUT_COLS]:,
 {
     assert!(K::DYNAMIC_KEYMAP_LAYER_COUNT <= K::LAYERS);
+    assert!(K::DYNAMIC_KEYMAP_LAYER_COUNT <= 16);
 
     let via_state: Mutex<ThreadModeRawMutex, protocol::ViaState<K>> =
         Mutex::new(Default::default());
