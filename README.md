@@ -90,6 +90,8 @@ A huge thanks goes to the following projects:
   - Their existing bluetooth, and split keyboard implementations have been helpful references for rumcake's implementation
 - [TeXitoi's `keyberon` crate](https://github.com/TeXitoi/keyberon)
   - For providing the logic for keyboard matrix and layouts
+- [jtroo's `keyberon` fork](https://github.com/jtroo/kanata/tree/main/keyberon)
+  - For the implementation of extra layout actions, like one shot and tap dance keys
 - [simmsb's corne firmware](https://github.com/simmsb/keyboard)
   - Very helpful reference for developing a keyboard firmware using [embassy-rs](https://github.com/embassy-rs/embassy)
 - [TeXitoi's keyseebee project](https://github.com/TeXitoi/keyseebee)
