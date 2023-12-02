@@ -435,10 +435,8 @@ where
                     }
                     #[cfg(feature = "media-keycodes")]
                     Keycode::Media(keycode) => {
-                        if let Some(c) =
-                            codes.iter_mut().find(|c| matches!(c, Consumer::Unassigned))
-                        {
-                            *c = keycode;
+                        if let Some(c) = codes.iter_mut().find(|c| **c == keycode) {
+                            *c = Consumer::Unassigned;
                         }
                         CONSUMER_REPORT_HID_SEND_CHANNEL
                             .send(MultipleConsumerReport { codes })
