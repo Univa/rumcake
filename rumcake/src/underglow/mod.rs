@@ -121,12 +121,32 @@ where
             {
                 crate::split::central::MESSAGE_TO_PERIPHERALS
                     .send(crate::split::MessageToPeripheral::Underglow(
-                        UnderglowCommand::SetTime(animator.tick),
+                        UnderglowCommand::ResetTime,
                     ))
                     .await;
                 crate::split::central::MESSAGE_TO_PERIPHERALS
                     .send(crate::split::MessageToPeripheral::Underglow(
-                        UnderglowCommand::SetConfig(animator.config),
+                        UnderglowCommand::SetEffect(animator.config.effect),
+                    ))
+                    .await;
+                crate::split::central::MESSAGE_TO_PERIPHERALS
+                    .send(crate::split::MessageToPeripheral::Underglow(
+                        UnderglowCommand::SetHue(animator.config.hue),
+                    ))
+                    .await;
+                crate::split::central::MESSAGE_TO_PERIPHERALS
+                    .send(crate::split::MessageToPeripheral::Underglow(
+                        UnderglowCommand::SetSaturation(animator.config.sat),
+                    ))
+                    .await;
+                crate::split::central::MESSAGE_TO_PERIPHERALS
+                    .send(crate::split::MessageToPeripheral::Underglow(
+                        UnderglowCommand::SetValue(animator.config.val),
+                    ))
+                    .await;
+                crate::split::central::MESSAGE_TO_PERIPHERALS
+                    .send(crate::split::MessageToPeripheral::Underglow(
+                        UnderglowCommand::SetSpeed(animator.config.speed),
                     ))
                     .await;
             }

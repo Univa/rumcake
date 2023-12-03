@@ -170,16 +170,19 @@ NextEffect,
 PrevEffect,
 SetEffect(BacklightEffect), // List of available effects depends on the chosen backlight mode
 SetHue(u8), // RGB Matrix only
-AdjustHue(i16), // RGB Matrix only
+IncreaseHue(u8), // RGB Matrix only
+DecreaseHue(u8), // RGB Matrix only
 SetSaturation(u8), // RGB Matrix only
-AdjustSaturation(i16), // RGB Matrix only
+IncreaseSaturation(u8), // RGB Matrix only
+DecreaseSaturation(u8), // RGB Matrix only
 SetValue(u8),
-AdjustValue(i16),
+IncreaseValue(u8),
+DecreaseValue(u8),
 SetSpeed(u8),
-AdjustSpeed(i16),
-SetConfig(BacklightConfig),
+IncreaseSpeed(u8),
+DecreaseSpeed(u8),
 SaveConfig, // normally called internally when the backlight config changes, only available if `storage` is enabled
-SetTime(u32), // normally used internally for syncing LEDs for split keyboards
+ResetTime, // normally used internally for syncing LEDs for split keyboards
 ```
 
 Example of usage:

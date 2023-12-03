@@ -54,17 +54,20 @@ pub enum UnderglowCommand {
     PrevEffect,
     SetEffect(UnderglowEffect),
     SetHue(u8),
-    AdjustHue(i16),
+    IncreaseHue(u8),
+    DecreaseHue(u8),
     SetSaturation(u8),
-    AdjustSaturation(i16),
+    IncreaseSaturation(u8),
+    DecreaseSaturation(u8),
     SetValue(u8),
-    AdjustValue(i16),
+    IncreaseValue(u8),
+    DecreaseValue(u8),
     SetSpeed(u8),
-    AdjustSpeed(i16),
-    SetConfig(UnderglowConfig),
+    IncreaseSpeed(u8),
+    DecreaseSpeed(u8),
     #[cfg(feature = "storage")]
     SaveConfig,
-    SetTime(u32), // normally used internally for syncing LEDs for split keyboards
+    ResetTime, // normally used internally for syncing LEDs for split keyboards
 }
 
 #[generate_items_from_enum_variants("const {variant_shouty_snake_case}_ENABLED: bool = true")]
@@ -214,40 +217,45 @@ where
             UnderglowCommand::SetHue(hue) => {
                 self.config.hue = hue;
             }
-            UnderglowCommand::AdjustHue(amount) => {
-                self.config.hue =
-                    (self.config.hue as i16 + amount).clamp(u8::MIN as i16, u8::MAX as i16) as u8;
+            UnderglowCommand::IncreaseHue(amount) => {
+                self.config.hue = self.config.hue.saturating_add(amount);
+            }
+            UnderglowCommand::DecreaseHue(amount) => {
+                self.config.hue = self.config.hue.saturating_sub(amount);
             }
             UnderglowCommand::SetSaturation(sat) => {
                 self.config.sat = sat;
             }
-            UnderglowCommand::AdjustSaturation(amount) => {
-                self.config.sat =
-                    (self.config.sat as i16 + amount).clamp(u8::MIN as i16, u8::MAX as i16) as u8;
+            UnderglowCommand::IncreaseSaturation(amount) => {
+                self.config.sat = self.config.sat.saturating_add(amount);
+            }
+            UnderglowCommand::DecreaseSaturation(amount) => {
+                self.config.sat = self.config.sat.saturating_sub(amount);
             }
             UnderglowCommand::SetValue(val) => {
                 self.config.val = val;
             }
-            UnderglowCommand::AdjustValue(amount) => {
-                self.config.val =
-                    (self.config.val as i16 + amount).clamp(u8::MIN as i16, u8::MAX as i16) as u8;
+            UnderglowCommand::IncreaseValue(amount) => {
+                self.config.val = self.config.val.saturating_add(amount);
+            }
+            UnderglowCommand::DecreaseValue(amount) => {
+                self.config.val = self.config.val.saturating_sub(amount);
             }
             UnderglowCommand::SetSpeed(speed) => {
                 self.config.speed = speed;
             }
-            UnderglowCommand::AdjustSpeed(amount) => {
-                self.config.speed =
-                    (self.config.speed as i16 + amount).clamp(u8::MIN as i16, u8::MAX as i16) as u8;
+            UnderglowCommand::IncreaseSpeed(amount) => {
+                self.config.speed = self.config.speed.saturating_add(amount);
             }
-            UnderglowCommand::SetConfig(config) => {
-                self.config = config;
+            UnderglowCommand::DecreaseSpeed(amount) => {
+                self.config.speed = self.config.speed.saturating_sub(amount);
             }
             #[cfg(feature = "storage")]
             UnderglowCommand::SaveConfig => {
                 super::storage::UNDERGLOW_SAVE_SIGNAL.signal(());
             }
-            UnderglowCommand::SetTime(time) => {
-                self.tick = time;
+            UnderglowCommand::ResetTime => {
+                self.tick = 0;
             }
         };
     }

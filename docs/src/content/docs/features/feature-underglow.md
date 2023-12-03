@@ -96,16 +96,19 @@ NextEffect,
 PrevEffect,
 SetEffect(UnderglowEffect),
 SetHue(u8),
-AdjustHue(i16),
+IncreaseHue(u8),
+DecreaseHue(u8),
 SetSaturation(u8),
-AdjustSaturation(i16),
+IncreaseSaturation(u8),
+DecreaseSaturation(u8),
 SetValue(u8),
-AdjustValue(i16),
+IncreaseValue(u8),
+DecreaseValue(u8),
 SetSpeed(u8),
-AdjustSpeed(i16),
-SetConfig(UnderglowConfig),
+IncreaseSpeed(u8),
+DecreaseSpeed(u8),
 SaveConfig, // normally called internally when the underglow config changes, only available if `storage` is enabled
-SetTime(u32), // normally used internally for syncing LEDs for split keyboards
+ResetTime, // normally used internally for syncing LEDs for split keyboards
 ```
 
 Example of usage:

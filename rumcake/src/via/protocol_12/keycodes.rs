@@ -1071,49 +1071,29 @@ pub(crate) fn convert_action_to_keycode(action: Action<Keycode>) -> u16 {
                     }
                     _ => UNKNOWN_KEYCODE,
                 },
-                crate::underglow::animations::UnderglowCommand::AdjustHue(hue) => {
-                    if hue.is_positive() {
-                        return QMKKeycodes::RGB_HUI as u16;
-                    }
-
-                    if hue.is_negative() {
-                        return QMKKeycodes::RGB_HUD as u16;
-                    }
-
-                    UNKNOWN_KEYCODE
+                crate::underglow::animations::UnderglowCommand::IncreaseHue(_) => {
+                    QMKKeycodes::RGB_HUI as u16
                 }
-                crate::underglow::animations::UnderglowCommand::AdjustSaturation(sat) => {
-                    if sat.is_positive() {
-                        return QMKKeycodes::RGB_SAI as u16;
-                    }
-
-                    if sat.is_negative() {
-                        return QMKKeycodes::RGB_SAD as u16;
-                    }
-
-                    UNKNOWN_KEYCODE
+                crate::underglow::animations::UnderglowCommand::DecreaseHue(_) => {
+                    QMKKeycodes::RGB_HUD as u16
                 }
-                crate::underglow::animations::UnderglowCommand::AdjustValue(val) => {
-                    if val.is_positive() {
-                        return QMKKeycodes::RGB_VAI as u16;
-                    }
-
-                    if val.is_negative() {
-                        return QMKKeycodes::RGB_VAD as u16;
-                    }
-
-                    UNKNOWN_KEYCODE
+                crate::underglow::animations::UnderglowCommand::IncreaseSaturation(_) => {
+                    QMKKeycodes::RGB_SAI as u16
                 }
-                crate::underglow::animations::UnderglowCommand::AdjustSpeed(speed) => {
-                    if speed.is_positive() {
-                        return QMKKeycodes::RGB_SPI as u16;
-                    }
-
-                    if speed.is_negative() {
-                        return QMKKeycodes::RGB_SPD as u16;
-                    }
-
-                    UNKNOWN_KEYCODE
+                crate::underglow::animations::UnderglowCommand::DecreaseSaturation(_) => {
+                    QMKKeycodes::RGB_SAD as u16
+                }
+                crate::underglow::animations::UnderglowCommand::IncreaseValue(_) => {
+                    QMKKeycodes::RGB_VAI as u16
+                }
+                crate::underglow::animations::UnderglowCommand::DecreaseValue(_) => {
+                    QMKKeycodes::RGB_VAD as u16
+                }
+                crate::underglow::animations::UnderglowCommand::IncreaseSpeed(_) => {
+                    QMKKeycodes::RGB_SPI as u16
+                }
+                crate::underglow::animations::UnderglowCommand::DecreaseSpeed(_) => {
+                    QMKKeycodes::RGB_SPD as u16
                 }
                 _ => UNKNOWN_KEYCODE,
             },
@@ -1135,29 +1115,13 @@ pub(crate) fn convert_action_to_keycode(action: Action<Keycode>) -> u16 {
                 crate::backlight::animations::BacklightCommand::NextEffect => {
                     QMKKeycodes::QK_BACKLIGHT_STEP as u16
                 }
-                crate::backlight::animations::BacklightCommand::AdjustValue(val) => {
-                    if val.is_positive() {
-                        return QMKKeycodes::QK_BACKLIGHT_UP as u16;
-                    }
-
-                    if val.is_negative() {
-                        return QMKKeycodes::QK_BACKLIGHT_DOWN as u16;
-                    }
-
-                    UNKNOWN_KEYCODE
+                crate::backlight::animations::BacklightCommand::IncreaseValue(_) => {
+                    QMKKeycodes::QK_BACKLIGHT_UP as u16
                 }
-                crate::backlight::animations::BacklightCommand::AdjustSpeed(speed) => {
-                    if speed.is_positive() {
-                        return QMKKeycodes::RGB_SPI as u16;
-                    }
-
-                    if speed.is_negative() {
-                        return QMKKeycodes::RGB_SPD as u16;
-                    }
-
-                    UNKNOWN_KEYCODE
+                crate::backlight::animations::BacklightCommand::DecreaseSpeed(_) => {
+                    QMKKeycodes::QK_BACKLIGHT_DOWN as u16
                 }
-                // Note: AdjustHue and AdjustSaturation is not handled for RGB matrices. See the note on line 679
+                // Note: Increase/DecreaseHue and Increase/DecreaseSaturation is not handled for RGB matrices. See the note on line 679
                 _ => UNKNOWN_KEYCODE,
             },
             #[cfg(feature = "bluetooth")]
@@ -1412,13 +1376,13 @@ pub(crate) fn convert_keycode_to_action(keycode: u16) -> Option<Action<Keycode>>
 
             if keycode == QMKKeycodes::QK_BACKLIGHT_DOWN as u16 {
                 return Some(Action::Custom(Keycode::Backlight(
-                    crate::backlight::animations::BacklightCommand::AdjustValue(-17),
+                    crate::backlight::animations::BacklightCommand::IncreaseValue(17),
                 )));
             }
 
             if keycode == QMKKeycodes::QK_BACKLIGHT_UP as u16 {
                 return Some(Action::Custom(Keycode::Backlight(
-                    crate::backlight::animations::BacklightCommand::AdjustValue(17),
+                    crate::backlight::animations::BacklightCommand::DecreaseValue(17),
                 )));
             }
 
@@ -1451,49 +1415,49 @@ pub(crate) fn convert_keycode_to_action(keycode: u16) -> Option<Action<Keycode>>
 
             if keycode == QMKKeycodes::RGB_HUI as u16 {
                 return Some(Action::Custom(Keycode::Underglow(
-                    crate::underglow::animations::UnderglowCommand::AdjustHue(17),
+                    crate::underglow::animations::UnderglowCommand::IncreaseHue(17),
                 )));
             }
 
             if keycode == QMKKeycodes::RGB_HUD as u16 {
                 return Some(Action::Custom(Keycode::Underglow(
-                    crate::underglow::animations::UnderglowCommand::AdjustHue(-17),
+                    crate::underglow::animations::UnderglowCommand::DecreaseHue(17),
                 )));
             }
 
             if keycode == QMKKeycodes::RGB_SAI as u16 {
                 return Some(Action::Custom(Keycode::Underglow(
-                    crate::underglow::animations::UnderglowCommand::AdjustSaturation(17),
+                    crate::underglow::animations::UnderglowCommand::IncreaseHue(17),
                 )));
             }
 
             if keycode == QMKKeycodes::RGB_SAD as u16 {
                 return Some(Action::Custom(Keycode::Underglow(
-                    crate::underglow::animations::UnderglowCommand::AdjustSaturation(-17),
+                    crate::underglow::animations::UnderglowCommand::DecreaseSaturation(17),
                 )));
             }
 
             if keycode == QMKKeycodes::RGB_VAI as u16 {
                 return Some(Action::Custom(Keycode::Underglow(
-                    crate::underglow::animations::UnderglowCommand::AdjustValue(17),
+                    crate::underglow::animations::UnderglowCommand::IncreaseValue(17),
                 )));
             }
 
             if keycode == QMKKeycodes::RGB_VAD as u16 {
                 return Some(Action::Custom(Keycode::Underglow(
-                    crate::underglow::animations::UnderglowCommand::AdjustValue(-17),
+                    crate::underglow::animations::UnderglowCommand::DecreaseValue(17),
                 )));
             }
 
             if keycode == QMKKeycodes::RGB_SPI as u16 {
                 return Some(Action::Custom(Keycode::Underglow(
-                    crate::underglow::animations::UnderglowCommand::AdjustSpeed(17),
+                    crate::underglow::animations::UnderglowCommand::IncreaseSpeed(17),
                 )));
             }
 
             if keycode == QMKKeycodes::RGB_SPD as u16 {
                 return Some(Action::Custom(Keycode::Underglow(
-                    crate::underglow::animations::UnderglowCommand::AdjustSpeed(-17),
+                    crate::underglow::animations::UnderglowCommand::DecreaseSpeed(17),
                 )));
             }
 

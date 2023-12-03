@@ -52,17 +52,20 @@ pub enum BacklightCommand {
     PrevEffect,
     SetEffect(BacklightEffect),
     SetHue(u8),
-    AdjustHue(i16),
+    IncreaseHue(u8),
+    DecreaseHue(u8),
     SetSaturation(u8),
-    AdjustSaturation(i16),
+    IncreaseSaturation(u8),
+    DecreaseSaturation(u8),
     SetValue(u8),
-    AdjustValue(i16),
+    IncreaseValue(u8),
+    DecreaseValue(u8),
     SetSpeed(u8),
-    AdjustSpeed(i16),
-    SetConfig(BacklightConfig),
+    IncreaseSpeed(u8),
+    DecreaseSpeed(u8),
     #[cfg(feature = "storage")]
     SaveConfig,
-    SetTime(u32), // normally used internally for syncing LEDs for split keyboards
+    ResetTime, // normally used internally for syncing LEDs for split keyboards
 }
 
 #[generate_items_from_enum_variants("const {variant_shouty_snake_case}_ENABLED: bool = true")]
@@ -346,40 +349,45 @@ where
             BacklightCommand::SetHue(hue) => {
                 self.config.hue = hue;
             }
-            BacklightCommand::AdjustHue(amount) => {
-                self.config.hue =
-                    (self.config.hue as i16 + amount).clamp(u8::MIN as i16, u8::MAX as i16) as u8;
+            BacklightCommand::IncreaseHue(amount) => {
+                self.config.hue = self.config.hue.saturating_add(amount);
+            }
+            BacklightCommand::DecreaseHue(amount) => {
+                self.config.hue = self.config.hue.saturating_sub(amount);
             }
             BacklightCommand::SetSaturation(sat) => {
                 self.config.sat = sat;
             }
-            BacklightCommand::AdjustSaturation(amount) => {
-                self.config.sat =
-                    (self.config.sat as i16 + amount).clamp(u8::MIN as i16, u8::MAX as i16) as u8;
+            BacklightCommand::IncreaseSaturation(amount) => {
+                self.config.sat = self.config.sat.saturating_add(amount);
+            }
+            BacklightCommand::DecreaseSaturation(amount) => {
+                self.config.sat = self.config.sat.saturating_sub(amount);
             }
             BacklightCommand::SetValue(val) => {
                 self.config.val = val;
             }
-            BacklightCommand::AdjustValue(amount) => {
-                self.config.val =
-                    (self.config.val as i16 + amount).clamp(u8::MIN as i16, u8::MAX as i16) as u8;
+            BacklightCommand::IncreaseValue(amount) => {
+                self.config.val = self.config.val.saturating_add(amount);
+            }
+            BacklightCommand::DecreaseValue(amount) => {
+                self.config.val = self.config.val.saturating_sub(amount);
             }
             BacklightCommand::SetSpeed(speed) => {
                 self.config.speed = speed;
             }
-            BacklightCommand::AdjustSpeed(amount) => {
-                self.config.speed =
-                    (self.config.speed as i16 + amount).clamp(u8::MIN as i16, u8::MAX as i16) as u8;
+            BacklightCommand::IncreaseSpeed(amount) => {
+                self.config.speed = self.config.speed.saturating_add(amount);
             }
-            BacklightCommand::SetConfig(config) => {
-                self.config = config;
+            BacklightCommand::DecreaseSpeed(amount) => {
+                self.config.speed = self.config.speed.saturating_sub(amount);
             }
             #[cfg(feature = "storage")]
             BacklightCommand::SaveConfig => {
                 super::storage::BACKLIGHT_SAVE_SIGNAL.signal(());
             }
-            BacklightCommand::SetTime(time) => {
-                self.tick = time;
+            BacklightCommand::ResetTime => {
+                self.tick = 0;
             }
         };
     }

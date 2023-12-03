@@ -48,13 +48,14 @@ pub enum BacklightCommand {
     PrevEffect,
     SetEffect(BacklightEffect),
     SetValue(u8),
-    AdjustValue(i16),
+    IncreaseValue(u8),
+    DecreaseValue(u8),
     SetSpeed(u8),
-    AdjustSpeed(i16),
-    SetConfig(BacklightConfig),
+    IncreaseSpeed(u8),
+    DecreaseSpeed(u8),
     #[cfg(feature = "storage")]
     SaveConfig,
-    SetTime(u32), // normally used internally for syncing LEDs for split keyboards
+    ResetTime, // normally used internally for syncing LEDs for split keyboards
 }
 
 #[generate_items_from_enum_variants("const {variant_shouty_snake_case}_ENABLED: bool = true")]
@@ -156,26 +157,27 @@ impl<K: BacklightDevice, D: SimpleBacklightDriver<K>> BacklightAnimator<K, D> {
             BacklightCommand::SetValue(val) => {
                 self.config.val = val;
             }
-            BacklightCommand::AdjustValue(amount) => {
-                self.config.val =
-                    (self.config.val as i16 + amount).clamp(u8::MIN as i16, u8::MAX as i16) as u8;
+            BacklightCommand::IncreaseValue(amount) => {
+                self.config.val = self.config.val.saturating_add(amount);
+            }
+            BacklightCommand::DecreaseValue(amount) => {
+                self.config.val = self.config.val.saturating_sub(amount);
             }
             BacklightCommand::SetSpeed(speed) => {
                 self.config.speed = speed;
             }
-            BacklightCommand::AdjustSpeed(amount) => {
-                self.config.speed =
-                    (self.config.speed as i16 + amount).clamp(u8::MIN as i16, u8::MAX as i16) as u8;
+            BacklightCommand::IncreaseSpeed(amount) => {
+                self.config.speed = self.config.speed.saturating_add(amount);
             }
-            BacklightCommand::SetConfig(config) => {
-                self.config = config;
+            BacklightCommand::DecreaseSpeed(amount) => {
+                self.config.speed = self.config.speed.saturating_sub(amount);
             }
             #[cfg(feature = "storage")]
             BacklightCommand::SaveConfig => {
                 super::storage::BACKLIGHT_SAVE_SIGNAL.signal(());
             }
-            BacklightCommand::SetTime(time) => {
-                self.tick = time;
+            BacklightCommand::ResetTime => {
+                self.tick = 0;
             }
         }
     }

@@ -370,12 +370,35 @@ where
             {
                 crate::split::central::MESSAGE_TO_PERIPHERALS
                     .send(crate::split::MessageToPeripheral::Backlight(
-                        BacklightCommand::SetTime(animator.tick),
+                        BacklightCommand::ResetTime,
                     ))
                     .await;
                 crate::split::central::MESSAGE_TO_PERIPHERALS
                     .send(crate::split::MessageToPeripheral::Backlight(
-                        BacklightCommand::SetConfig(animator.config),
+                        BacklightCommand::SetEffect(animator.config.effect),
+                    ))
+                    .await;
+                crate::split::central::MESSAGE_TO_PERIPHERALS
+                    .send(crate::split::MessageToPeripheral::Backlight(
+                        BacklightCommand::SetValue(animator.config.val),
+                    ))
+                    .await;
+                crate::split::central::MESSAGE_TO_PERIPHERALS
+                    .send(crate::split::MessageToPeripheral::Backlight(
+                        BacklightCommand::SetSpeed(animator.config.speed),
+                    ))
+                    .await;
+
+                #[cfg(feature = "rgb-backlight-matrix")]
+                crate::split::central::MESSAGE_TO_PERIPHERALS
+                    .send(crate::split::MessageToPeripheral::Backlight(
+                        BacklightCommand::SetHue(animator.config.hue),
+                    ))
+                    .await;
+                #[cfg(feature = "rgb-backlight-matrix")]
+                crate::split::central::MESSAGE_TO_PERIPHERALS
+                    .send(crate::split::MessageToPeripheral::Backlight(
+                        BacklightCommand::SetSaturation(animator.config.sat),
                     ))
                     .await;
             }
