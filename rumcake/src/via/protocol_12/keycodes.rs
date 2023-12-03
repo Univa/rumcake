@@ -1170,6 +1170,7 @@ pub(crate) fn convert_action_to_keycode(action: Action<Keycode>) -> u16 {
                 }
                 _ => UNKNOWN_KEYCODE,
             },
+            #[allow(unreachable_patterns)]
             _ => UNKNOWN_KEYCODE,
         },
         _ => UNKNOWN_KEYCODE,

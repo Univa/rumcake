@@ -33,7 +33,7 @@ pub async fn get_layout_options<K: ViaKeyboard>(layout_options: &u32, data: &mut
         .copy_from_slice(&layout_options.to_be_bytes()[(4 - K::VIA_EEPROM_LAYOUT_OPTIONS_SIZE)..=3])
 }
 
-pub async fn set_layout_options<K: ViaKeyboard>(layout_options: &mut u32, data: &mut [u8]) {
+pub async fn set_layout_options<K: ViaKeyboard>(layout_options: &mut u32, data: &[u8]) {
     let mut bytes = [0; 4];
     bytes[(4 - K::VIA_EEPROM_LAYOUT_OPTIONS_SIZE)..]
         .copy_from_slice(&data[2..(2 + K::VIA_EEPROM_LAYOUT_OPTIONS_SIZE)]);
@@ -92,11 +92,7 @@ pub async fn dynamic_keymap_macro_get_buffer<K: ViaKeyboard>(
     // TODO: macro support
 }
 
-pub async fn dynamic_keymap_macro_set_buffer<K: ViaKeyboard>(
-    offset: u16,
-    size: u8,
-    data: &mut [u8],
-) {
+pub async fn dynamic_keymap_macro_set_buffer<K: ViaKeyboard>(offset: u16, size: u8, data: &[u8]) {
     let len = if offset as usize + size as usize > K::DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE {
         K::DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE.saturating_sub(offset as usize)
     } else {
@@ -151,7 +147,7 @@ pub async fn dynamic_keymap_set_keycode<K: ViaKeyboard + 'static>(
     layer: u8,
     row: u8,
     col: u8,
-    data: &mut [u8],
+    data: &[u8],
     convert_keycode_to_action: impl Fn(u16) -> Option<Action<Keycode>>,
 ) where
     [(); K::LAYERS]:,
@@ -217,7 +213,7 @@ pub async fn dynamic_keymap_set_encoder<K: ViaKeyboard>(
     layer: u8,
     encoder_id: u8,
     clockwise: bool,
-    data: &mut [u8],
+    data: &[u8],
 ) {
     let keycode = &data[0..=1];
 
@@ -279,7 +275,7 @@ pub async fn dynamic_keymap_get_buffer<K: ViaKeyboard + 'static>(
 pub async fn dynamic_keymap_set_buffer<K: ViaKeyboard + 'static>(
     offset: u16,
     size: u8,
-    data: &mut [u8],
+    data: &[u8],
     convert_keycode_to_action: impl Fn(u16) -> Option<Action<Keycode>>,
 ) where
     [(); K::LAYERS]:,
@@ -336,13 +332,13 @@ where
     [(); K::LAYOUT_COLS]:,
 {
     let mut layout = K::get_layout().lock().await;
-    let mut original = K::get_original_layout();
+    let original = K::get_original_layout();
 
-    for layer in 0..K::LAYERS {
-        for row in 0..K::LAYOUT_ROWS {
-            for col in 0..K::LAYOUT_COLS {
+    for (layer_idx, layer) in original.iter().enumerate() {
+        for (row_idx, row) in layer.iter().enumerate() {
+            for (col_idx, action) in row.iter().enumerate() {
                 layout
-                    .change_action((row as u8, col as u8), layer, original[layer][row][col])
+                    .change_action((row_idx as u8, col_idx as u8), layer_idx, *action)
                     .unwrap();
             }
         }
@@ -363,7 +359,7 @@ pub async fn backlight_get_enabled(data: &mut [u8]) {
     feature = "simple-backlight-matrix",
     feature = "rgb-backlight-matrix"
 ))]
-pub async fn backlight_set_enabled(data: &mut [u8]) {
+pub async fn backlight_set_enabled(data: &[u8]) {
     let command = if data[0] == 1 {
         crate::backlight::animations::BacklightCommand::TurnOn
     } else {
@@ -389,7 +385,7 @@ pub async fn backlight_get_brightness(data: &mut [u8]) {
     feature = "simple-backlight-matrix",
     feature = "rgb-backlight-matrix"
 ))]
-pub async fn backlight_set_brightness(data: &mut [u8]) {
+pub async fn backlight_set_brightness(data: &[u8]) {
     crate::backlight::BACKLIGHT_COMMAND_CHANNEL
         .send(crate::backlight::animations::BacklightCommand::SetValue(
             data[0],
@@ -415,7 +411,7 @@ pub async fn backlight_get_effect(
     feature = "rgb-backlight-matrix"
 ))]
 pub async fn backlight_set_effect(
-    data: &mut [u8],
+    data: &[u8],
     convert_qmk_id_to_effect: impl Fn(u8) -> Option<crate::backlight::animations::BacklightEffect>,
 ) {
     if let Some(effect) = convert_qmk_id_to_effect(data[0]) {
@@ -446,7 +442,7 @@ pub async fn backlight_get_speed(data: &mut [u8]) {
     feature = "simple-backlight-matrix",
     feature = "rgb-backlight-matrix"
 ))]
-pub async fn backlight_set_speed(data: &mut [u8]) {
+pub async fn backlight_set_speed(data: &[u8]) {
     crate::backlight::BACKLIGHT_COMMAND_CHANNEL
         .send(crate::backlight::animations::BacklightCommand::SetSpeed(
             data[0],
@@ -463,7 +459,7 @@ pub async fn backlight_get_color(data: &mut [u8]) {
 }
 
 #[cfg(feature = "rgb-backlight-matrix")]
-pub async fn backlight_set_color(data: &mut [u8]) {
+pub async fn backlight_set_color(data: &[u8]) {
     // Color only available on RGB matrices
     crate::backlight::BACKLIGHT_COMMAND_CHANNEL
         .send(crate::backlight::animations::BacklightCommand::SetHue(
@@ -495,7 +491,7 @@ pub async fn underglow_get_enabled(data: &mut [u8]) {
 }
 
 #[cfg(feature = "underglow")]
-pub async fn underglow_set_enabled(data: &mut [u8]) {
+pub async fn underglow_set_enabled(data: &[u8]) {
     let command = if data[0] == 1 {
         crate::underglow::animations::UnderglowCommand::TurnOn
     } else {
@@ -513,7 +509,7 @@ pub async fn underglow_get_brightness(data: &mut [u8]) {
 }
 
 #[cfg(feature = "underglow")]
-pub async fn underglow_set_brightness(data: &mut [u8]) {
+pub async fn underglow_set_brightness(data: &[u8]) {
     crate::underglow::UNDERGLOW_COMMAND_CHANNEL
         .send(crate::underglow::animations::UnderglowCommand::SetValue(
             data[0],
@@ -536,7 +532,7 @@ pub async fn underglow_get_effect(
 /// handle these cases. This only really applies to Vial, since it uses an older protocol. In the
 /// new Via protocol, we never set the speed, and instead use a custom UI to control speed.
 pub async fn underglow_set_effect(
-    data: &mut [u8],
+    data: &[u8],
     convert_qmk_id_to_effect: impl Fn(
         u8,
     ) -> Option<(
@@ -572,7 +568,7 @@ pub async fn underglow_get_speed(data: &mut [u8]) {
 }
 
 #[cfg(feature = "underglow")]
-pub async fn underglow_set_speed(data: &mut [u8]) {
+pub async fn underglow_set_speed(data: &[u8]) {
     crate::underglow::UNDERGLOW_COMMAND_CHANNEL
         .send(crate::underglow::animations::UnderglowCommand::SetSpeed(
             data[0],
@@ -588,7 +584,7 @@ pub async fn underglow_get_color(data: &mut [u8]) {
 }
 
 #[cfg(feature = "underglow")]
-pub async fn underglow_set_color(data: &mut [u8]) {
+pub async fn underglow_set_color(data: &[u8]) {
     crate::underglow::UNDERGLOW_COMMAND_CHANNEL
         .send(crate::underglow::animations::UnderglowCommand::SetHue(
             data[0],

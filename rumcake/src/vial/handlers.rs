@@ -36,7 +36,7 @@ pub fn get_definition<K: VialKeyboard>(data: &mut [u8]) {
     data[0..(end - start)].copy_from_slice(&K::KEYBOARD_DEFINITION[start..end])
 }
 
-pub fn get_unlock_status<K: VialKeyboard>(data: &mut [u8], vial_state: &mut VialState) {
+pub fn get_unlock_status<K: VialKeyboard>(data: &mut [u8], vial_state: &VialState) {
     data.fill(0xFF);
     data[0] = vial_state.unlocked as u8;
     data[1] = vial_state.unlock_in_progress as u8;
@@ -58,7 +58,7 @@ pub fn unlock_start(vial_state: &mut VialState) {
 pub fn unlock_poll<K: VialKeyboard>(
     data: &mut [u8],
     vial_state: &mut VialState,
-    via_state: &mut ViaState<K>,
+    via_state: &ViaState<K>,
 ) where
     [(); (K::LAYOUT_COLS + u8::BITS as usize - 1) / u8::BITS as usize * K::LAYOUT_ROWS]:,
 {
@@ -182,7 +182,7 @@ where
 }
 
 #[cfg(feature = "rgb-backlight-matrix")]
-pub async fn vialrgb_set_mode<K: VialKeyboard + 'static>(data: &mut [u8])
+pub async fn vialrgb_set_mode<K: VialKeyboard + 'static>(data: &[u8])
 where
     [(); K::BacklightMatrixDevice::LIGHTING_COLS]:,
     [(); K::BacklightMatrixDevice::LIGHTING_ROWS]:,
@@ -238,7 +238,7 @@ where
 }
 
 #[cfg(feature = "rgb-backlight-matrix")]
-pub async fn vialrgb_direct_fast_set<K: VialKeyboard + 'static>(data: &mut [u8])
+pub async fn vialrgb_direct_fast_set<K: VialKeyboard + 'static>(data: &[u8])
 where
     [(); K::BacklightMatrixDevice::LIGHTING_COLS]:,
     [(); K::BacklightMatrixDevice::LIGHTING_ROWS]:,

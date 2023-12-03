@@ -9,12 +9,10 @@
 
 use defmt::{error, Debug2Format};
 use embassy_futures::select::{select, Either};
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
-use embassy_sync::pubsub::PubSubBehavior;
-use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, mutex::Mutex};
-use keyberon::layout::Layout;
 
-use crate::keyboard::{KeyboardLayout, Keycode, POLLED_EVENTS_CHANNEL};
+use crate::keyboard::{KeyboardLayout, POLLED_EVENTS_CHANNEL};
 use crate::split::MessageToCentral;
 
 use super::drivers::CentralDeviceDriver;

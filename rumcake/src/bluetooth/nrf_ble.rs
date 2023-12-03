@@ -2,7 +2,7 @@ use core::cell::{Cell, RefCell};
 
 use defmt::{debug, error, info, warn, Debug2Format};
 use embassy_futures::join;
-use embassy_futures::select::{self, select, select3};
+use embassy_futures::select::{self, select3};
 use heapless::Vec;
 use nrf_softdevice::ble::gatt_server::builder::ServiceBuilder;
 use nrf_softdevice::ble::gatt_server::characteristic::{Attribute, Metadata, Properties};
