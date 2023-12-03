@@ -335,7 +335,18 @@ where
     [(); K::LAYOUT_ROWS]:,
     [(); K::LAYOUT_COLS]:,
 {
-    K::get_layout().reset().await;
+    let mut layout = K::get_layout().lock().await;
+    let mut original = K::get_original_layout();
+
+    for layer in 0..K::LAYERS {
+        for row in 0..K::LAYOUT_ROWS {
+            for col in 0..K::LAYOUT_COLS {
+                layout
+                    .change_action((row as u8, col as u8), layer, original[layer][row][col])
+                    .unwrap();
+            }
+        }
+    }
 }
 
 #[cfg(any(

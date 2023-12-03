@@ -85,12 +85,19 @@ pub trait KeyboardLayout {
     /// It is recommended to use [`build_layout`] to set this constant.
     const LAYERS: usize;
 
-    /// Get a reference to the keyboard's layout. This should initialize the keyboard layout on
-    /// first call.
+    /// Get a reference to the mutex-guarded keyboard layout, which can then be locked to be used
+    /// like a normal [`keyberon::layout::Layout`].
     ///
     /// It is recommended to use [`build_layout`] to implement this function.
     fn get_layout(
     ) -> &'static Layout<{ Self::LAYOUT_COLS }, { Self::LAYOUT_ROWS }, { Self::LAYERS }>;
+
+    /// A function that returns the original layout. This can be used to reset the layout in case
+    /// any changes are made to it.
+    ///
+    /// It is recommended to use [`build_layout`] to implement this function.
+    fn get_original_layout(
+    ) -> Layers<{ Self::LAYOUT_COLS }, { Self::LAYOUT_ROWS }, { Self::LAYERS }, Keycode>;
 
     /// Handle a [`Keycode::Custom`] event. By default this does nothing.
     ///
@@ -102,41 +109,23 @@ pub trait KeyboardLayout {
 /// A mutex-guaraded [`keyberon::layout::Layout`]. This also stores the original layout, so that it
 /// can be reset to it's initial state if modifications are made to it.
 pub struct Layout<const C: usize, const R: usize, const L: usize> {
-    original: Layers<C, R, L, Keycode>,
     layout: once_cell::sync::OnceCell<Mutex<ThreadModeRawMutex, KeyberonLayout<C, R, L, Keycode>>>,
 }
 
 impl<const C: usize, const R: usize, const L: usize> Layout<C, R, L> {
-    pub const fn new(layers: Layers<C, R, L, Keycode>) -> Self {
+    pub const fn new() -> Self {
         Self {
-            original: layers,
             layout: once_cell::sync::OnceCell::new(),
         }
     }
 
-    pub async fn lock(&self) -> MutexGuard<ThreadModeRawMutex, KeyberonLayout<C, R, L, Keycode>> {
+    pub fn init(&self, layers: &'static mut Layers<C, R, L, Keycode>) {
         self.layout
-            .get_or_init(|| Mutex::new(KeyberonLayout::new(self.original)))
-            .lock()
-            .await
+            .get_or_init(|| Mutex::new(KeyberonLayout::new(layers)));
     }
 
-    pub async fn reset(&self) {
-        let mut layout = self.lock().await;
-
-        for layer in 0..L {
-            for row in 0..R {
-                for col in 0..C {
-                    layout
-                        .change_action(
-                            (row as u8, col as u8),
-                            layer,
-                            self.original[layer][row][col],
-                        )
-                        .unwrap();
-                }
-            }
-        }
+    pub async fn lock(&self) -> MutexGuard<ThreadModeRawMutex, KeyberonLayout<C, R, L, Keycode>> {
+        self.layout.get().unwrap().lock().await
     }
 }
 
@@ -144,15 +133,15 @@ impl<const C: usize, const R: usize, const L: usize> Layout<C, R, L> {
 macro_rules! build_layout {
     // Pass the layers to the keyberon macro
     ($layers:literal, $rows:literal, $cols:literal, ($($l:tt)*)) => {
-        // fn get_original_layout() -> $crate::keyberon::layout::Layers<$cols, $rows, $layers, $crate::keyboard::Keycode> {
-        //     $crate::keyberon::layout::layout! { $($l)* }
-        // }
+        fn get_original_layout() -> $crate::keyberon::layout::Layers<{ Self::LAYOUT_COLS }, { Self::LAYOUT_ROWS }, { Self::LAYERS }, $crate::keyboard::Keycode> {
+            $crate::keyberon::layout::layout! { $($l)* }
+        }
 
         fn get_layout(
         ) -> &'static rumcake::keyboard::Layout<{ Self::LAYOUT_COLS }, { Self::LAYOUT_ROWS }, { Self::LAYERS }> {
-            static KEYBOARD_LAYOUT: rumcake::keyboard::Layout<$cols, $rows, $layers> = rumcake::keyboard::Layout::new($crate::keyberon::layout::layout! { $($l)* });
-            // const LAYERS: $crate::keyberon::layout::Layers<$cols, $rows, $layers, $crate::keyboard::Keycode> = $crate::keyberon::layout::layout! { $($l)* };
-            // static KEYBOARD_LAYOUT: $crate::keyboard::Layout<$cols, $rows, $layers> = $crate::keyboard::Layout::new(LAYERS);
+            static KEYBOARD_LAYOUT: $crate::keyboard::Layout<$cols, $rows, $layers> = $crate::keyboard::Layout::new();
+            static mut LAYERS: $crate::keyberon::layout::Layers<$cols, $rows, $layers, $crate::keyboard::Keycode> = $crate::keyberon::layout::layout! { $($l)* };
+            KEYBOARD_LAYOUT.init(unsafe { &mut LAYERS });
             &KEYBOARD_LAYOUT
         }
     };

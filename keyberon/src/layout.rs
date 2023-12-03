@@ -85,7 +85,7 @@ pub struct Layout<
     T: 'static + Copy,
     K: 'static + Copy,
 {
-    layers: [[[Action<T, K>; C]; R]; L],
+    layers: &'static mut [[[Action<T, K>; C]; R]; L],
     default_layer: usize,
     states: Vec<State<T, K>, 64>,
     waiting: Option<WaitingState<T, K>>,
@@ -434,7 +434,7 @@ impl<const C: usize, const R: usize, const L: usize, T: 'static + Copy, K: 'stat
     Layout<C, R, L, T, K>
 {
     /// Creates a new `Layout` object.
-    pub fn new(layers: [[[Action<T, K>; C]; R]; L]) -> Self {
+    pub fn new(layers: &'static mut [[[Action<T, K>; C]; R]; L]) -> Self {
         Self {
             layers,
             default_layer: 0,
@@ -796,7 +796,7 @@ mod test {
 
     #[test]
     fn basic_hold_tap() {
-        static LAYERS: Layers<2, 1, 2> = [
+        static mut LAYERS: Layers<2, 1, 2> = [
             [[
                 HoldTap(&HoldTapAction {
                     timeout: 200,
@@ -815,7 +815,7 @@ mod test {
             ]],
             [[Trans, m(&[LCtrl, Enter].as_slice())]],
         ];
-        let mut layout = Layout::new(LAYERS);
+        let mut layout = Layout::new(unsafe { &mut LAYERS });
         assert_eq!(CustomEvent::NoEvent, layout.tick());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 1));
@@ -846,7 +846,7 @@ mod test {
 
     #[test]
     fn hold_tap_interleaved_timeout() {
-        static LAYERS: Layers<2, 1, 1> = [[[
+        static mut LAYERS: Layers<2, 1, 1> = [[[
             HoldTap(&HoldTapAction {
                 timeout: 200,
                 hold: k(LAlt),
@@ -862,7 +862,7 @@ mod test {
                 tap_hold_interval: 0,
             }),
         ]]];
-        let mut layout = Layout::new(LAYERS);
+        let mut layout = Layout::new(unsafe { &mut LAYERS });
         assert_eq!(CustomEvent::NoEvent, layout.tick());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 0));
@@ -893,7 +893,7 @@ mod test {
 
     #[test]
     fn hold_on_press() {
-        static LAYERS: Layers<2, 1, 1> = [[[
+        static mut LAYERS: Layers<2, 1, 1> = [[[
             HoldTap(&HoldTapAction {
                 timeout: 200,
                 hold: k(LAlt),
@@ -903,7 +903,7 @@ mod test {
             }),
             k(Enter),
         ]]];
-        let mut layout = Layout::new(LAYERS);
+        let mut layout = Layout::new(unsafe { &mut LAYERS });
 
         // Press another key before timeout
         assert_eq!(CustomEvent::NoEvent, layout.tick());
@@ -950,7 +950,7 @@ mod test {
 
     #[test]
     fn permissive_hold() {
-        static LAYERS: Layers<2, 1, 1> = [[[
+        static mut LAYERS: Layers<2, 1, 1> = [[[
             HoldTap(&HoldTapAction {
                 timeout: 200,
                 hold: k(LAlt),
@@ -960,7 +960,7 @@ mod test {
             }),
             k(Enter),
         ]]];
-        let mut layout = Layout::new(LAYERS);
+        let mut layout = Layout::new(unsafe { &mut LAYERS });
 
         // Press and release another key before timeout
         assert_eq!(CustomEvent::NoEvent, layout.tick());
@@ -989,11 +989,11 @@ mod test {
 
     #[test]
     fn multiple_actions() {
-        static LAYERS: Layers<2, 1, 2> = [
+        static mut LAYERS: Layers<2, 1, 2> = [
             [[MultipleActions(&[l(1), k(LShift)].as_slice()), k(F)]],
             [[Trans, k(E)]],
         ];
-        let mut layout = Layout::new(LAYERS);
+        let mut layout = Layout::new(unsafe { &mut LAYERS });
         assert_eq!(CustomEvent::NoEvent, layout.tick());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 0));
@@ -1012,8 +1012,8 @@ mod test {
 
     #[test]
     fn custom() {
-        static LAYERS: Layers<1, 1, 1, u8> = [[[Action::Custom(42)]]];
-        let mut layout = Layout::new(LAYERS);
+        static mut LAYERS: Layers<1, 1, 1, u8> = [[[Action::Custom(42)]]];
+        let mut layout = Layout::new(unsafe { &mut LAYERS });
         assert_eq!(CustomEvent::NoEvent, layout.tick());
         assert_keys(&[], layout.keycodes());
 
@@ -1034,13 +1034,13 @@ mod test {
 
     #[test]
     fn multiple_layers() {
-        static LAYERS: Layers<2, 1, 4> = [
+        static mut LAYERS: Layers<2, 1, 4> = [
             [[l(1), l(2)]],
             [[k(A), l(3)]],
             [[l(0), k(B)]],
             [[k(C), k(D)]],
         ];
-        let mut layout = Layout::new(LAYERS);
+        let mut layout = Layout::new(unsafe { &mut LAYERS });
         assert_eq!(CustomEvent::NoEvent, layout.tick());
         assert_eq!(0, layout.current_layer());
         assert_keys(&[], layout.keycodes());
@@ -1109,7 +1109,7 @@ mod test {
         fn always_none(_: StackedIter) -> Option<WaitingAction> {
             None
         }
-        static LAYERS: Layers<4, 1, 1> = [[[
+        static mut LAYERS: Layers<4, 1, 1> = [[[
             HoldTap(&HoldTapAction {
                 timeout: 200,
                 hold: k(Kb1),
@@ -1139,7 +1139,7 @@ mod test {
                 tap_hold_interval: 0,
             }),
         ]]];
-        let mut layout = Layout::new(LAYERS);
+        let mut layout = Layout::new(unsafe { &mut LAYERS });
         assert_eq!(CustomEvent::NoEvent, layout.tick());
         assert_keys(&[], layout.keycodes());
 
@@ -1202,7 +1202,7 @@ mod test {
 
     #[test]
     fn tap_hold_interval() {
-        static LAYERS: Layers<2, 1, 1> = [[[
+        static mut LAYERS: Layers<2, 1, 1> = [[[
             HoldTap(&HoldTapAction {
                 timeout: 200,
                 hold: k(LAlt),
@@ -1212,7 +1212,7 @@ mod test {
             }),
             k(Enter),
         ]]];
-        let mut layout = Layout::new(LAYERS);
+        let mut layout = Layout::new(unsafe { &mut LAYERS });
 
         // press and release the HT key, expect tap action
         assert_eq!(CustomEvent::NoEvent, layout.tick());
@@ -1256,7 +1256,7 @@ mod test {
 
     #[test]
     fn tap_hold_interval_interleave() {
-        static LAYERS: Layers<3, 1, 1> = [[[
+        static mut LAYERS: Layers<3, 1, 1> = [[[
             HoldTap(&HoldTapAction {
                 timeout: 200,
                 hold: k(LAlt),
@@ -1273,7 +1273,7 @@ mod test {
                 tap_hold_interval: 200,
             }),
         ]]];
-        let mut layout = Layout::new(LAYERS);
+        let mut layout = Layout::new(unsafe { &mut LAYERS });
 
         // press and release the HT key, expect tap action
         assert_eq!(CustomEvent::NoEvent, layout.tick());
@@ -1377,14 +1377,14 @@ mod test {
 
     #[test]
     fn tap_hold_interval_short_hold() {
-        static LAYERS: Layers<1, 1, 1> = [[[HoldTap(&HoldTapAction {
+        static mut LAYERS: Layers<1, 1, 1> = [[[HoldTap(&HoldTapAction {
             timeout: 50,
             hold: k(LAlt),
             tap: k(Space),
             config: HoldTapConfig::Default,
             tap_hold_interval: 200,
         })]]];
-        let mut layout = Layout::new(LAYERS);
+        let mut layout = Layout::new(unsafe { &mut LAYERS });
 
         // press and hold the HT key, expect hold action
         assert_eq!(CustomEvent::NoEvent, layout.tick());
@@ -1418,7 +1418,7 @@ mod test {
 
     #[test]
     fn tap_hold_interval_different_hold() {
-        static LAYERS: Layers<2, 1, 1> = [[[
+        static mut LAYERS: Layers<2, 1, 1> = [[[
             HoldTap(&HoldTapAction {
                 timeout: 50,
                 hold: k(LAlt),
@@ -1434,7 +1434,7 @@ mod test {
                 tap_hold_interval: 200,
             }),
         ]]];
-        let mut layout = Layout::new(LAYERS);
+        let mut layout = Layout::new(unsafe { &mut LAYERS });
 
         // press HT1, press HT2, release HT1 after hold timeout, release HT2, press HT2
         layout.event(Press(0, 0));
@@ -1466,14 +1466,14 @@ mod test {
 
     #[test]
     fn toggle_multiple_layers() {
-        static LAYERS: Layers<2, 1, 5> = [
+        static mut LAYERS: Layers<2, 1, 5> = [
             [[t(1), l(2)]],
             [[k(A), t(1)]],
             [[t(3), k(B)]],
             [[t(3), t(4)]],
             [[t(4), t(3)]],
         ];
-        let mut layout = Layout::new(LAYERS);
+        let mut layout = Layout::new(unsafe { &mut LAYERS });
         assert_eq!(CustomEvent::NoEvent, layout.tick());
         assert_eq!(0, layout.current_layer());
         assert_keys(&[], layout.keycodes());
@@ -1587,7 +1587,7 @@ mod test {
 
     #[test]
     fn one_shot() {
-        static LAYERS: Layers<3, 1, 1> = [[[
+        static mut LAYERS: Layers<3, 1, 1> = [[[
             OneShot(&crate::action::OneShotAction {
                 timeout: 100,
                 action: k(LShift),
@@ -1596,7 +1596,7 @@ mod test {
             k(A),
             k(B),
         ]]];
-        let mut layout = Layout::new(LAYERS);
+        let mut layout = Layout::new(unsafe { &mut LAYERS });
 
         // Test:
         // 1. press one-shot
@@ -1698,7 +1698,7 @@ mod test {
 
     #[test]
     fn one_shot_overlap_release() {
-        static LAYERS: Layers<1, 1, 2> = [
+        static mut LAYERS: Layers<1, 1, 2> = [
             [[OneShot(&crate::action::OneShotAction {
                 timeout: 100,
                 action: l(1),
@@ -1706,7 +1706,7 @@ mod test {
             })]],
             [[k(A)]],
         ];
-        let mut layout = Layout::new(LAYERS);
+        let mut layout = Layout::new(unsafe { &mut LAYERS });
 
         // Test:
         // 1. press one-shot
@@ -1762,7 +1762,7 @@ mod test {
 
     #[test]
     fn one_shot_overlap_press() {
-        static LAYERS: Layers<1, 1, 2> = [
+        static mut LAYERS: Layers<1, 1, 2> = [
             [[OneShot(&crate::action::OneShotAction {
                 timeout: 100,
                 action: l(1),
@@ -1770,7 +1770,7 @@ mod test {
             })]],
             [[k(A)]],
         ];
-        let mut layout = Layout::new(LAYERS);
+        let mut layout = Layout::new(unsafe { &mut LAYERS });
 
         // Test:
         // 1. press one-shot
@@ -1826,7 +1826,7 @@ mod test {
 
     #[test]
     fn one_shot_end_press_or_repress() {
-        static LAYERS: Layers<3, 1, 1> = [[[
+        static mut LAYERS: Layers<3, 1, 1> = [[[
             OneShot(&crate::action::OneShotAction {
                 timeout: 100,
                 action: k(LShift),
@@ -1835,7 +1835,7 @@ mod test {
             k(A),
             k(B),
         ]]];
-        let mut layout = Layout::new(LAYERS);
+        let mut layout = Layout::new(unsafe { &mut LAYERS });
 
         // Test:
         // 1. press one-shot
@@ -1979,7 +1979,7 @@ mod test {
 
     #[test]
     fn one_shot_end_on_release() {
-        static LAYERS: Layers<3, 1, 1> = [[[
+        static mut LAYERS: Layers<3, 1, 1> = [[[
             OneShot(&crate::action::OneShotAction {
                 timeout: 100,
                 action: k(LShift),
@@ -1988,7 +1988,7 @@ mod test {
             k(A),
             k(B),
         ]]];
-        let mut layout = Layout::new(LAYERS);
+        let mut layout = Layout::new(unsafe { &mut LAYERS });
 
         // Test:
         // 1. press one-shot
@@ -2122,7 +2122,7 @@ mod test {
 
     #[test]
     fn one_shot_multi() {
-        static LAYERS: Layers<4, 1, 2> = [
+        static mut LAYERS: Layers<4, 1, 2> = [
             [[
                 OneShot(&crate::action::OneShotAction {
                     timeout: 100,
@@ -2143,7 +2143,7 @@ mod test {
             ]],
             [[k(A), k(B), k(C), k(D)]],
         ];
-        let mut layout = Layout::new(LAYERS);
+        let mut layout = Layout::new(unsafe { &mut LAYERS });
 
         layout.event(Press(0, 0));
         layout.event(Release(0, 0));
@@ -2179,7 +2179,7 @@ mod test {
 
     #[test]
     fn one_shot_tap_hold() {
-        static LAYERS: Layers<3, 1, 2> = [
+        static mut LAYERS: Layers<3, 1, 2> = [
             [[
                 OneShot(&crate::action::OneShotAction {
                     timeout: 200,
@@ -2197,7 +2197,7 @@ mod test {
             ]],
             [[k(A), k(B), k(C)]],
         ];
-        let mut layout = Layout::new(LAYERS);
+        let mut layout = Layout::new(unsafe { &mut LAYERS });
 
         layout.event(Press(0, 0));
         layout.event(Release(0, 0));
