@@ -124,15 +124,7 @@ pub enum BacklightEffect {
 
     #[animated]
     #[reactive]
-    ReactiveMultiWide,
-
-    #[animated]
-    #[reactive]
     ReactiveCross,
-
-    #[animated]
-    #[reactive]
-    ReactiveMultiCross,
 
     #[animated]
     #[reactive]
@@ -140,15 +132,7 @@ pub enum BacklightEffect {
 
     #[animated]
     #[reactive]
-    ReactiveMultiNexus,
-
-    #[animated]
-    #[reactive]
     ReactiveSplash,
-
-    #[animated]
-    #[reactive]
-    ReactiveMultiSplash,
 }
 
 impl BacklightEffect {
@@ -171,13 +155,9 @@ impl BacklightEffect {
             BacklightEffect::WaveUpDown => D::WAVE_UP_DOWN_ENABLED,
             BacklightEffect::Reactive => D::REACTIVE_ENABLED,
             BacklightEffect::ReactiveWide => D::REACTIVE_WIDE_ENABLED,
-            BacklightEffect::ReactiveMultiWide => D::REACTIVE_MULTI_WIDE_ENABLED,
             BacklightEffect::ReactiveCross => D::REACTIVE_CROSS_ENABLED,
-            BacklightEffect::ReactiveMultiCross => D::REACTIVE_MULTI_CROSS_ENABLED,
             BacklightEffect::ReactiveNexus => D::REACTIVE_NEXUS_ENABLED,
-            BacklightEffect::ReactiveMultiNexus => D::REACTIVE_MULTI_NEXUS_ENABLED,
             BacklightEffect::ReactiveSplash => D::REACTIVE_SPLASH_ENABLED,
-            BacklightEffect::ReactiveMultiSplash => D::REACTIVE_MULTI_SPLASH_ENABLED,
         }
     }
 }
@@ -562,7 +542,6 @@ where
                     })
                 }
             }
-            BacklightEffect::ReactiveMultiWide => todo!(),
             BacklightEffect::ReactiveCross => {
                 if K::REACTIVE_CROSS_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, _coord, (led_x, led_y)| {
@@ -592,7 +571,6 @@ where
                     })
                 }
             }
-            BacklightEffect::ReactiveMultiCross => todo!(),
             BacklightEffect::ReactiveNexus => {
                 if K::REACTIVE_NEXUS_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, _coord, (led_x, led_y)| {
@@ -628,7 +606,6 @@ where
                     })
                 }
             }
-            BacklightEffect::ReactiveMultiNexus => todo!(),
             BacklightEffect::ReactiveSplash => {
                 if K::REACTIVE_SPLASH_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, _coord, (led_x, led_y)| {
@@ -661,7 +638,6 @@ where
                     })
                 }
             }
-            BacklightEffect::ReactiveMultiSplash => todo!(),
         }
 
         if let Err(err) = self.driver.write(&self.buf).await {

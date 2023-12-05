@@ -384,13 +384,9 @@ No menu for RGB matrix is provided. RGB backlight animations still need to be im
                 "Wave Up Down",
                 "Reactive",
                 "Reactive Wide",
-                "Reactive Multi Wide",
                 "Reactive Cross",
-                "Reactive Multi Cross",
                 "Reactive Nexus",
-                "Reactive Multi Nexus",
-                "Reactive Splash",
-                "Reactive Multi Splash"
+                "Reactive Splash"
               ],
               "content": [
                 "rumcake__via__protocol_12__ViaLEDMatrixValue__Effect",
