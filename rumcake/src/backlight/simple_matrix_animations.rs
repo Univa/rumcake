@@ -2,7 +2,7 @@ use super::drivers::SimpleBacklightMatrixDriver;
 use super::{
     get_led_layout_bounds, BacklightDevice, BacklightMatrixDevice, LEDFlags, LayoutBounds,
 };
-use crate::math::{atan2f, cos, sin, sqrtf};
+use crate::math::{atan2f, cos, scale, sin, sqrtf};
 use crate::{Cycle, LEDEffect};
 use rumcake_macros::{generate_items_from_enum_variants, Cycle, LEDEffect};
 
@@ -282,23 +282,29 @@ where
 
     pub fn set_brightness_for_each_led(
         &mut self,
-        calc: impl Fn(&mut Self, f32, (u8, u8), (u8, u8)) -> u8,
+        calc: impl Fn(&mut Self, u32, (u8, u8), (u8, u8)) -> u8,
     ) {
+        let time = (self.tick << 8)
+            / (((K::FPS as u32) << 8)
+                / (self.config.speed as u32 + 128 + (self.config.speed as u32 >> 1))); // `time` should increment by 255 every second
+
         for row in 0..K::LIGHTING_ROWS {
             for col in 0..K::LIGHTING_COLS {
                 if let Some(position) = K::get_backlight_matrix().layout[row][col] {
-                    let seconds = (self.tick as f32 / K::FPS as f32)
-                        * (self.config.speed as f32 * 1.5 / u8::MAX as f32 + 0.5);
-                    self.buf[row][col] = (calc(self, seconds, (row as u8, col as u8), position)
-                        as u16
-                        * self.config.val as u16
-                        / u8::MAX as u16) as u8
+                    self.buf[row][col] = scale(
+                        calc(self, time, (row as u8, col as u8), position),
+                        self.config.val,
+                    )
                 }
             }
         }
     }
 
     pub fn register_event(&mut self, event: Event) {
+        let time = (self.tick << 8)
+            / (((K::FPS as u32) << 8)
+                / (self.config.speed as u32 + 128 + (self.config.speed as u32 >> 1)));
+
         match event {
             Event::Press(row, col) => {
                 match self
@@ -308,7 +314,7 @@ where
                         *pressed_row == row && *pressed_col == col
                     }) {
                     Some(press) => {
-                        press.1 = self.tick;
+                        press.1 = time;
                     }
                     None => {
                         // Check if the matrix position corresponds to a LED position before pushing
@@ -319,7 +325,7 @@ where
                             .and_then(|pos| *pos)
                             .is_some()
                         {
-                            self.last_presses.push(((row, col), self.tick));
+                            self.last_presses.push(((row, col), time));
                         }
                     }
                 };
@@ -354,46 +360,45 @@ where
             }
             BacklightEffect::GradientUpDown => {
                 if K::GRADIENT_UP_DOWN_ENABLED {
+                    let size = self.bounds.max.1 - self.bounds.min.1;
                     self.set_brightness_for_each_led(|animator, _time, _coord, (_x, y)| {
                         // Calculate the brightness for each LED based on it's Y position
                         // Speed will be used to determine where the "peak" of the gradient is.
-                        let size = animator.bounds.max.1 - animator.bounds.min.1;
-                        ((sin((y as f32 + (size as f32 / 2.0)
-                            - (animator.config.speed as f32 * size as f32 / u8::MAX as f32))
-                            * (PI / size as f32))
-                            + 1.0)
-                            * 127.0) as u8
+                        sin(
+                            (((((y - animator.bounds.min.1) as u16) << 7) / size as u16) as u8)
+                                .wrapping_add(64)
+                                .wrapping_sub(animator.config.speed),
+                        )
                     })
                 }
             }
             BacklightEffect::GradientLeftRight => {
                 if K::GRADIENT_LEFT_RIGHT_ENABLED {
+                    let size = self.bounds.max.0 - self.bounds.min.0;
                     self.set_brightness_for_each_led(|animator, _time, _coord, (x, _y)| {
                         // Calculate the brightness for each LED based on it's X position
                         // Speed will be used to determine where the "peak" of the gradient is.
-                        let size = animator.bounds.max.0 - animator.bounds.min.0;
-                        ((sin((x as f32 + (size as f32 / 2.0)
-                            - (animator.config.speed as f32 * size as f32 / u8::MAX as f32))
-                            * (PI / size as f32))
-                            + 1.0)
-                            * 127.0) as u8
+                        sin(
+                            (((((x - animator.bounds.min.0) as u16) << 7) / size as u16) as u8)
+                                .wrapping_add(64)
+                                .wrapping_sub(animator.config.speed),
+                        )
                     })
                 }
             }
             BacklightEffect::Breathing => {
                 if K::BREATHING_ENABLED {
                     self.set_brightness_for_each_led(|_animator, time, _coord, _pos| {
-                        ((sin(time) + 1.0) * u8::MAX as f32 / 2.0) as u8
+                        sin((time >> 2) as u8) // 4 seconds for one full cycle
                     })
                 }
             }
             BacklightEffect::Band => {
                 if K::BAND_ENABLED {
+                    let size = self.bounds.max.0 - self.bounds.min.0;
                     self.set_brightness_for_each_led(|animator, time, _coord, (x, _y)| {
-                        let size = animator.bounds.max.0 - animator.bounds.min.0;
-                        let pos = (time * size as f32 % size as f32) as u8;
-
-                        0.max(u8::MAX as i32 - (x as i32 - pos as i32).abs() * 8) as u8
+                        let pos = scale(time as u8, size);
+                        u8::MAX.saturating_sub(x.abs_diff(pos).saturating_mul(8))
                     })
                 }
             }
@@ -401,9 +406,9 @@ where
                 if K::BAND_PIN_WHEEL_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, _coord, (x, y)| {
                         // Base speed: 1 half-cycle every second
-                        let pos = ((time % 1.0) * u8::MAX as f32) as u8;
-                        let dy = y as i32 - animator.bounds.mid.1 as i32;
-                        let dx = x as i32 - animator.bounds.mid.0 as i32;
+                        let pos = time as u8;
+                        let dy = y as i16 - animator.bounds.mid.1 as i16;
+                        let dx = x as i16 - animator.bounds.mid.0 as i16;
                         ((atan2f(dy as f32, dx as f32) * u8::MAX as f32 / PI) as i32) as u8 - pos
                     })
                 }
@@ -412,13 +417,13 @@ where
                 if K::BAND_SPIRAL_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, _coord, (x, y)| {
                         // Base speed: 1 half-cycle every second
-                        let pos = ((time % 1.0) * u8::MAX as f32) as u8;
-                        let dy = y as i32 - animator.bounds.mid.1 as i32;
-                        let dx = x as i32 - animator.bounds.mid.0 as i32;
-                        let dist = sqrtf((dx.pow(2) + dy.pow(2)) as f32);
-                        ((atan2f(dy as f32, dx as f32) * u8::MAX as f32 / PI) as i32) as u8
-                            + dist as u8
-                            - pos
+                        let pos = time as u8;
+                        let dy = y as i16 - animator.bounds.mid.1 as i16;
+                        let dx = x as i16 - animator.bounds.mid.0 as i16;
+                        let dist = sqrtf((dx.pow(2) + dy.pow(2)) as f32) as u16;
+                        (((atan2f(dy as f32, dx as f32) * u8::MAX as f32 / PI) as i32) as u8)
+                            .wrapping_add(dist as u8)
+                            .wrapping_sub(pos)
                     })
                 }
             }
@@ -426,9 +431,7 @@ where
                 if K::CYCLE_LEFT_RIGHT_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, _coord, (x, _y)| {
                         // Base speed: 1 cycle every second
-                        let size = animator.bounds.max.0 - animator.bounds.min.0;
-                        let pos = ((time % 1.0) * size as f32) as u8;
-                        (x - animator.bounds.min.0) + (pos * u8::MAX)
+                        (x - animator.bounds.min.0).wrapping_sub(time as u8)
                     })
                 }
             }
@@ -436,9 +439,7 @@ where
                 if K::CYCLE_UP_DOWN_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, _coord, (_x, y)| {
                         // Base speed: 1 cycle every second
-                        let size = animator.bounds.max.1 - animator.bounds.min.1;
-                        let pos = ((time % 1.0) * size as f32) as u8;
-                        (y - animator.bounds.min.1) + (pos * u8::MAX)
+                        (y - animator.bounds.min.1).wrapping_sub(time as u8)
                     })
                 }
             }
@@ -447,42 +448,33 @@ where
                     self.set_brightness_for_each_led(|animator, time, _coord, (x, y)| {
                         // Base speed: 1 cycle every second
                         let d = sqrtf(
-                            ((x as i32 - animator.bounds.mid.0 as i32).pow(2)
-                                + (y as i32 - animator.bounds.mid.1 as i32).pow(2))
+                            ((x.abs_diff(animator.bounds.mid.0) as u16).pow(2)
+                                + (y.abs_diff(animator.bounds.mid.1) as u16).pow(2))
                                 as f32,
                         ) as u8;
-                        let pos = ((time % 1.0) * u8::MAX as f32) as u8;
 
-                        u8::MAX - d - pos
+                        u8::MAX.wrapping_sub(d).wrapping_sub(time as u8)
                     })
                 }
             }
             BacklightEffect::Raindrops => {
                 if K::RAINDROPS_ENABLED {
+                    let adjusted_fps = (((K::FPS as u32) << 8)
+                        / (self.config.speed as u32 + 128 + (self.config.speed as u32 >> 1)))
+                        as u8;
+
                     // Randomly choose an LED to light up every 0.05 seconds
-                    if self.tick
-                        % (1.0
-                            + 0.05
-                                * (K::FPS as f32
-                                    / (self.config.speed as f32 * 1.5 / u8::MAX as f32 + 0.5)))
-                            as u32
-                        == 0
-                    {
-                        let row = (self.rng.next_u32() as f32 * K::LIGHTING_ROWS as f32
-                            / u32::MAX as f32) as u8;
-                        let col = (self.rng.next_u32() as f32 * K::LIGHTING_COLS as f32
-                            / u32::MAX as f32) as u8;
-                        self.buf[row as usize][col as usize] = 255
+                    if self.tick % (1 + scale(adjusted_fps, 13)) as u32 == 0 {
+                        let rand = self.rng.next_u32();
+                        let row = rand as u8 % K::LIGHTING_ROWS as u8;
+                        let col = (rand >> 8) as u8 % K::LIGHTING_COLS as u8;
+                        self.buf[row as usize][col as usize] = u8::MAX
                     }
 
                     // Update the rest of the LEDs
                     self.set_brightness_for_each_led(|animator, _time, (row, col), _pos| {
-                        animator.buf[row as usize][col as usize].saturating_sub(
-                            u8::MAX
-                                / (K::FPS as f32
-                                    / (animator.config.speed as f32 * 1.5 / u8::MAX as f32 + 0.5))
-                                    as u8,
-                        )
+                        animator.buf[row as usize][col as usize]
+                            .saturating_sub(u8::MAX / adjusted_fps)
                     })
                 }
             }
@@ -490,44 +482,42 @@ where
                 if K::DUAL_BEACON_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, _coord, (x, y)| {
                         // Base speed: 1 cycle every second
-                        let pos = ((time % 1.0) * u8::MAX as f32) as u8;
-                        let dy = y as i32 - animator.bounds.mid.1 as i32;
-                        let dx = x as i32 - animator.bounds.mid.0 as i32;
-                        let sin = (sin(PI * pos as f32 / 127.0) * 127.0) as i32;
-                        let cos = (cos(PI * pos as f32 / 127.0) * 127.0) as i32;
+                        let pos = time as u8;
+                        let dy = y as i16 - animator.bounds.mid.1 as i16;
+                        let dx = x as i16 - animator.bounds.mid.0 as i16;
+                        let sin = sin(pos) as i16 - 128;
+                        let cos = cos(pos) as i16 - 128;
                         ((dy * cos + dx * sin) / 127) as u8
                     })
                 }
             }
             BacklightEffect::WaveLeftRight => {
                 if K::WAVE_LEFT_RIGHT_ENABLED {
+                    let size = self.bounds.max.0 - self.bounds.min.0;
                     self.set_brightness_for_each_led(|animator, time, _coord, (x, _y)| {
                         // Base speed: 1 cycle every second
-                        let size = animator.bounds.max.0 - animator.bounds.min.0;
-                        let pos = ((time % 1.0) * size as f32) as u8;
-                        ((sin(((x - animator.bounds.min.0) + size - pos) as f32
-                            * (2.0 * PI / size as f32))
-                            + 1.0)
-                            * 127.0) as u8
+                        sin(
+                            (((((x - animator.bounds.min.0) as u16) << 8) / size as u16) as u8)
+                                .wrapping_sub(time as u8),
+                        )
                     })
                 }
             }
             BacklightEffect::WaveUpDown => {
                 if K::WAVE_UP_DOWN_ENABLED {
+                    let size = self.bounds.max.1 - self.bounds.min.1;
                     self.set_brightness_for_each_led(|animator, time, _coord, (_x, y)| {
                         // Base speed: 1 cycle every second
-                        let size = animator.bounds.max.1 - animator.bounds.min.1;
-                        let pos = ((time % 1.0) * size as f32) as u8;
-                        ((sin(((y - animator.bounds.min.1) + size - pos) as f32
-                            * (2.0 * PI / size as f32))
-                            + 1.0)
-                            * 127.0) as u8
+                        sin(
+                            (((((y - animator.bounds.min.0) as u16) << 8) / size as u16) as u8)
+                                .wrapping_sub(time as u8),
+                        )
                     })
                 }
             }
             BacklightEffect::Reactive => {
                 if K::REACTIVE_ENABLED {
-                    self.set_brightness_for_each_led(|animator, _time, (row, col), _pos| {
+                    self.set_brightness_for_each_led(|animator, time, (row, col), _pos| {
                         // Base speed: LED fades after one second
                         let time_of_last_press = animator.last_presses.iter().find(
                             |((pressed_row, pressed_col), _time)| {
@@ -535,11 +525,8 @@ where
                             },
                         );
 
-                        if let Some((_coord, time)) = time_of_last_press {
-                            let pos = (((animator.tick - time) as f32 / K::FPS as f32)
-                                * (animator.config.speed as f32 * 1.5 / u8::MAX as f32 + 0.5))
-                                .min(1.0);
-                            u8::MAX - (u8::MAX as f32 * pos) as u8
+                        if let Some((_coord, press_time)) = time_of_last_press {
+                            (u8::MAX as u32).saturating_sub(time - press_time) as u8
                         } else {
                             0
                         }
@@ -548,106 +535,79 @@ where
             }
             BacklightEffect::ReactiveWide => {
                 if K::REACTIVE_WIDE_ENABLED {
-                    self.set_brightness_for_each_led(|animator, _time, _coord, (led_x, led_y)| {
-                        let brightness = animator.last_presses.iter().fold(
+                    self.set_brightness_for_each_led(|animator, time, _coord, (led_x, led_y)| {
+                        animator.last_presses.iter().fold(
                             0,
-                            |brightness, ((pressed_row, pressed_col), press_time)| {
+                            |brightness: u8, ((pressed_row, pressed_col), press_time)| {
                                 // Base speed: LED fades after one second
                                 if let Some((key_x, key_y)) = K::get_backlight_matrix().layout
                                     [*pressed_row as usize]
                                     [*pressed_col as usize]
                                 {
-                                    let dx = key_x as i32 - led_x as i32;
-                                    let dy = key_y as i32 - led_y as i32;
-                                    let dist = sqrtf((dx.pow(2) + dy.pow(2)) as f32);
+                                    let dx = key_x.abs_diff(led_x) as u16;
+                                    let dy = key_y.abs_diff(led_y) as u16;
+                                    let dist = sqrtf((dx.pow(2) + dy.pow(2)) as f32) as u16;
 
-                                    let pos = (((animator.tick - press_time) as f32
-                                        / K::FPS as f32)
-                                        * (animator.config.speed as f32 * 1.5 / u8::MAX as f32
-                                            + 0.5))
-                                        .min(1.0);
+                                    let brightness_increase = (u8::MAX as u16).saturating_sub(
+                                        dist.saturating_mul(5) + time.abs_diff(*press_time) as u16,
+                                    )
+                                        as u8;
 
-                                    let brightness_increase = 0.max(
-                                        u8::MAX as i32
-                                            - ((dist * 5.0) as i32 + (pos * u8::MAX as f32) as i32),
-                                    );
-
-                                    (u8::MAX as u16)
-                                        .min(brightness as u16 + brightness_increase as u16)
-                                        as u8
+                                    brightness.saturating_add(brightness_increase)
                                 } else {
                                     brightness
                                 }
                             },
-                        );
-
-                        brightness
+                        )
                     })
                 }
             }
             BacklightEffect::ReactiveMultiWide => todo!(),
             BacklightEffect::ReactiveCross => {
                 if K::REACTIVE_CROSS_ENABLED {
-                    self.set_brightness_for_each_led(|animator, _time, _coord, (led_x, led_y)| {
-                        let brightness = animator.last_presses.iter().fold(
+                    self.set_brightness_for_each_led(|animator, time, _coord, (led_x, led_y)| {
+                        animator.last_presses.iter().fold(
                             0,
-                            |brightness, ((pressed_row, pressed_col), press_time)| {
+                            |brightness: u8, ((pressed_row, pressed_col), press_time)| {
                                 if let Some((key_x, key_y)) = K::get_backlight_matrix().layout
                                     [*pressed_row as usize]
                                     [*pressed_col as usize]
                                 {
-                                    let dx = (key_x as i32 - led_x as i32).abs();
-                                    let dy = (key_y as i32 - led_y as i32).abs();
+                                    let dx = key_x.abs_diff(led_x) as u16;
+                                    let dy = key_y.abs_diff(led_y) as u16;
                                     let daxis = dx.min(dy);
-                                    let dist = sqrtf((dx.pow(2) + dy.pow(2)) as f32);
+                                    let dist = sqrtf((dx.pow(2) + dy.pow(2)) as f32) as u16;
 
-                                    let pos = (((animator.tick - press_time) as f32
-                                        / K::FPS as f32)
-                                        * (animator.config.speed as f32 * 1.5 / u8::MAX as f32
-                                            + 0.5))
-                                        .min(1.0);
+                                    let brightness_increase = (u8::MAX as u16).saturating_sub(
+                                        (daxis * 16) + (time.abs_diff(*press_time) as u16 + dist),
+                                    )
+                                        as u8;
 
-                                    let brightness_increase = 0.max(
-                                        u8::MAX as i32
-                                            - ((daxis * 16) + (pos * u8::MAX as f32 + dist) as i32),
-                                    );
-
-                                    (u8::MAX as u16)
-                                        .min(brightness as u16 + brightness_increase as u16)
-                                        as u8
+                                    brightness.saturating_add(brightness_increase)
                                 } else {
                                     brightness
                                 }
                             },
-                        );
-
-                        brightness
+                        )
                     })
                 }
             }
             BacklightEffect::ReactiveMultiCross => todo!(),
             BacklightEffect::ReactiveNexus => {
                 if K::REACTIVE_NEXUS_ENABLED {
-                    self.set_brightness_for_each_led(|animator, _time, _coord, (led_x, led_y)| {
-                        let brightness = animator.last_presses.iter().fold(
+                    self.set_brightness_for_each_led(|animator, time, _coord, (led_x, led_y)| {
+                        animator.last_presses.iter().fold(
                             0,
-                            |brightness, ((pressed_row, pressed_col), press_time)| {
+                            |brightness: u8, ((pressed_row, pressed_col), press_time)| {
                                 if let Some((key_x, key_y)) = K::get_backlight_matrix().layout
                                     [*pressed_row as usize]
                                     [*pressed_col as usize]
                                 {
-                                    let dx = (key_x as i32 - led_x as i32).abs();
-                                    let dy = (key_y as i32 - led_y as i32).abs();
-                                    let dist = sqrtf((dx.pow(2) + dy.pow(2)) as f32);
+                                    let dx = key_x.abs_diff(led_x) as u16;
+                                    let dy = key_y.abs_diff(led_y) as u16;
+                                    let dist = sqrtf((dx.pow(2) + dy.pow(2)) as f32) as u16;
 
-                                    let pos = (((animator.tick - press_time) as f32
-                                        / K::FPS as f32
-                                        * 2.0)
-                                        * (animator.config.speed as f32 * 1.5 / u8::MAX as f32
-                                            + 0.5))
-                                        .min(2.0);
-
-                                    let effect = (pos * u8::MAX as f32) as u16 - dist as u16;
+                                    let effect = (time.abs_diff(*press_time) * 2) as u16 - dist;
 
                                     let brightness_increase = if dist as u8 > 72
                                         || (dx > 8 && dy > 8)
@@ -655,62 +615,49 @@ where
                                     {
                                         0
                                     } else {
-                                        u8::MAX as u16 - effect
-                                    };
+                                        (u8::MAX as u16).saturating_sub(effect)
+                                    }
+                                        as u8;
 
-                                    (u8::MAX as u16)
-                                        .min(brightness as u16 + brightness_increase as u16)
-                                        as u8
+                                    brightness.saturating_add(brightness_increase)
                                 } else {
                                     brightness
                                 }
                             },
-                        );
-
-                        brightness
+                        )
                     })
                 }
             }
             BacklightEffect::ReactiveMultiNexus => todo!(),
             BacklightEffect::ReactiveSplash => {
                 if K::REACTIVE_SPLASH_ENABLED {
-                    self.set_brightness_for_each_led(|animator, _time, _coord, (led_x, led_y)| {
-                        let brightness = animator.last_presses.iter().fold(
+                    self.set_brightness_for_each_led(|animator, time, _coord, (led_x, led_y)| {
+                        animator.last_presses.iter().fold(
                             0,
-                            |brightness, ((pressed_row, pressed_col), press_time)| {
+                            |brightness: u8, ((pressed_row, pressed_col), press_time)| {
                                 if let Some((key_x, key_y)) = K::get_backlight_matrix().layout
                                     [*pressed_row as usize]
                                     [*pressed_col as usize]
                                 {
-                                    let dx = (key_x as i32 - led_x as i32).abs();
-                                    let dy = (key_y as i32 - led_y as i32).abs();
-                                    let dist = sqrtf((dx.pow(2) + dy.pow(2)) as f32);
+                                    let dx = key_x.abs_diff(led_x) as u16;
+                                    let dy = key_y.abs_diff(led_y) as u16;
+                                    let dist = sqrtf((dx.pow(2) + dy.pow(2)) as f32) as u16;
 
-                                    let pos = (((animator.tick - press_time) as f32
-                                        / K::FPS as f32
-                                        * 2.0)
-                                        * (animator.config.speed as f32 * 1.5 / u8::MAX as f32
-                                            + 0.5))
-                                        .min(2.0);
-
-                                    let effect = (pos * u8::MAX as f32) as u16 - dist as u16;
+                                    let effect = (time.abs_diff(*press_time) * 2) as u16 - dist;
 
                                     let brightness_increase = if effect > u8::MAX as u16 {
                                         0
                                     } else {
-                                        u8::MAX as u16 - effect
-                                    };
+                                        (u8::MAX as u16).saturating_sub(effect)
+                                    }
+                                        as u8;
 
-                                    (u8::MAX as u16)
-                                        .min(brightness as u16 + brightness_increase as u16)
-                                        as u8
+                                    brightness.saturating_add(brightness_increase)
                                 } else {
                                     brightness
                                 }
                             },
-                        );
-
-                        brightness
+                        )
                     })
                 }
             }

@@ -1,8 +1,6 @@
-use core::f32::consts::PI;
-
 use super::drivers::UnderglowDriver;
 use super::UnderglowDevice;
-use crate::math::sin;
+use crate::math::{scale, sin};
 use crate::{Cycle, LEDEffect};
 use postcard::experimental::max_size::MaxSize;
 use rumcake_macros::{generate_items_from_enum_variants, Cycle, LEDEffect};
@@ -260,12 +258,14 @@ where
         };
     }
 
-    pub fn set_brightness_for_each_led(&mut self, calc: impl Fn(&mut Self, f32, u8) -> Hsv) {
+    pub fn set_brightness_for_each_led(&mut self, calc: impl Fn(&mut Self, u32, u8) -> Hsv) {
+        let time = (self.tick << 8)
+            / (((D::FPS as u32) << 8)
+                / (self.config.speed as u32 + 128 + (self.config.speed as u32 >> 1))); // `time` should increment by 255 every second
+
         for led in 0..D::NUM_LEDS {
-            let seconds = (self.tick as f32 / D::FPS as f32)
-                * (self.config.speed as f32 * 1.5 / u8::MAX as f32 + 0.5);
-            let mut hsv = calc(self, seconds, led as u8);
-            hsv.val = (hsv.val as u16 * self.config.val as u16 / u8::MAX as u16) as u8;
+            let mut hsv = calc(self, time, led as u8);
+            hsv.val = scale(hsv.val, self.config.val);
             self.buf[led] = hsv2rgb(hsv);
         }
     }
@@ -273,7 +273,9 @@ where
     pub fn register_event(&mut self, event: Event) {
         match event {
             Event::Press(_x, _y) => {
-                self.time_of_last_press = self.tick;
+                self.time_of_last_press = (self.tick << 8)
+                    / (((D::FPS as u32) << 8)
+                        / (self.config.speed as u32 + 128 + (self.config.speed as u32 >> 1)));
             }
             Event::Release(_x, _y) => {} // nothing for now. maybe change some effects to behave depending on the state of a key.
         }
@@ -299,14 +301,14 @@ where
                     self.set_brightness_for_each_led(|animator, time, _led| Hsv {
                         hue: animator.config.hue,
                         sat: animator.config.sat,
-                        val: (sin(time) * u8::MAX as f32 / 2.0 + u8::MAX as f32 / 2.0) as u8,
+                        val: sin((time >> 2) as u8), // 4 seconds for one full cycle
                     })
                 }
             }
             UnderglowEffect::RainbowMood => {
                 if D::RAINBOW_MOOD_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, _led| Hsv {
-                        hue: (time * 15.0 % u8::MAX as f32) as u8,
+                        hue: (time >> 4) as u8, // 16 seconds for a full cycle
                         sat: animator.config.sat,
                         val: u8::MAX,
                     })
@@ -315,8 +317,8 @@ where
             UnderglowEffect::RainbowSwirl => {
                 if D::RAINBOW_SWIRL_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, led| Hsv {
-                        hue: (led as u16 * u8::MAX as u16 / D::NUM_LEDS as u16
-                            + (time * 15.0) as u16) as u8,
+                        hue: ((((led as u16) << 8) / D::NUM_LEDS as u16) as u8)
+                            .wrapping_add((time >> 4) as u8), // 16 seconds for a full cycle
                         sat: animator.config.sat,
                         val: u8::MAX,
                     })
@@ -324,84 +326,70 @@ where
             }
             UnderglowEffect::Snake => {
                 if D::SNAKE_ENABLED {
-                    // Base speed: 1 second to do a full cycle.
                     let length = 4;
 
                     self.set_brightness_for_each_led(|animator, time, led| {
-                        let pos = (time * D::NUM_LEDS as f32) as u32;
-                        let mut hsv: Hsv = Hsv::default();
+                        let pos = scale(time as u8, D::NUM_LEDS as u8); // 1 second for a full cycle
 
                         for j in 0..length {
-                            let lit = (pos + j) % D::NUM_LEDS as u32;
+                            let lit = (pos + j) % D::NUM_LEDS as u8;
 
-                            if led as u32 == lit {
-                                hsv = Hsv {
+                            if led == lit {
+                                return Hsv {
                                     hue: animator.config.hue,
                                     sat: animator.config.sat,
-                                    val: (u8::MAX as f32 * (j + 1) as f32 / length as f32) as u8,
+                                    val: (u8::MAX as u16 * (j + 1) as u16 / length as u16) as u8,
                                 };
                             }
                         }
 
-                        hsv
+                        Hsv::default()
                     })
                 }
             }
             UnderglowEffect::Knight => {
                 if D::KNIGHT_ENABLED {
-                    // Base speed: 1 second to traverse a length of NUM_LEDS
                     let length: u32 = 4;
 
                     self.set_brightness_for_each_led(|animator, time, led| {
-                        let pos = (time * D::NUM_LEDS as f32) as u32
-                            % ((D::NUM_LEDS as u32 + length - 1) * 2);
+                        let pos = ((time * D::NUM_LEDS as u32) >> 8)
+                            % ((D::NUM_LEDS as u32 + length - 1) * 2); // 1 second to traverse a length of NUM_LEDS
 
                         let direction = if pos >= (D::NUM_LEDS as u32 + length - 1) {
-                            -1
+                            1 // going back
                         } else {
-                            1
+                            0 // going forward
                         };
 
-                        let start: i32 = if direction == -1 {
+                        let start = if direction == 1 {
                             2 * D::NUM_LEDS as u32 - pos + length - 2
                         } else {
                             pos - length + 1
                         } as i32;
 
-                        let end: i32 = if direction == -1 {
+                        let end = if direction == 1 {
                             2 * D::NUM_LEDS as u32 - pos + 2 * length - 3
                         } else {
                             pos
                         } as i32;
 
-                        if start <= led as i32 && led as i32 <= end {
-                            Hsv {
-                                hue: animator.config.hue,
-                                sat: animator.config.sat,
-                                val: if (led as usize == D::NUM_LEDS - 1 && direction == 1)
-                                    || (led == 0 && direction == -1)
-                                {
-                                    u8::MAX
-                                } else if direction == 1 {
-                                    (u8::MAX as f32 * (led as i32 - start + 1) as f32
-                                        / length as f32) as u8
-                                } else {
-                                    (u8::MAX as f32 * (end - led as i32 + 1) as f32 / length as f32)
-                                        as u8
-                                },
-                            }
-                        } else {
-                            Hsv::default()
+                        Hsv {
+                            hue: animator.config.hue,
+                            sat: animator.config.sat,
+                            val: if start <= led as i32 && led as i32 <= end {
+                                u8::MAX
+                            } else {
+                                0
+                            },
                         }
                     })
                 }
             }
             UnderglowEffect::Christmas => {
                 if D::CHRISTMAS_ENABLED {
-                    // Base speed: 1 second to transition colors
                     // 85 is the hue value corresponding to green.
                     self.set_brightness_for_each_led(|animator, time, led| {
-                        let pos = ((time * 32.0) as i32 % 64 - 32).abs();
+                        let pos = (((time * 32) >> 8) % 64).abs_diff(32); // 1 second to transition colors
                         let hue = 85 * pos.pow(3) / (pos.pow(3) + (32 - pos).pow(3)); // Cubic bezier curve transition from QMK
 
                         Hsv {
@@ -412,7 +400,7 @@ where
                             },
                             sat: animator.config.sat,
                             // val calculation modified from QMK to use animator's val setting
-                            val: (u8::MAX - (3 * (42 - (hue % 85 - 42).abs()) as u8) / 2),
+                            val: (u8::MAX - (3 * (42 - (hue % 85).abs_diff(42)) as u8) / 2),
                         }
                     })
                 }
@@ -434,119 +422,102 @@ where
             }
             UnderglowEffect::RGBTest => {
                 if D::RGB_TEST_ENABLED {
-                    // Base speed: change colors every second
                     self.set_brightness_for_each_led(|animator, time, _led| {
-                        let pos = (time as u32) % 3;
-                        let mut hsv = Hsv::default();
+                        let pos = (time >> 8) % 3; // Change colors every second
 
                         // Test red
                         if pos == 0 {
-                            hsv = Hsv {
+                            return Hsv {
                                 hue: 0,
                                 sat: animator.config.sat,
                                 val: u8::MAX,
-                            }
+                            };
                         }
 
                         // Test green
                         if pos == 1 {
-                            hsv = Hsv {
+                            return Hsv {
                                 hue: 85,
                                 sat: animator.config.sat,
                                 val: u8::MAX,
-                            }
+                            };
                         }
 
                         // Test blue
                         if pos == 2 {
-                            hsv = Hsv {
+                            return Hsv {
                                 hue: 170,
                                 sat: animator.config.sat,
                                 val: u8::MAX,
-                            }
+                            };
                         }
 
-                        hsv
+                        Hsv::default()
                     })
                 }
             }
             UnderglowEffect::Alternating => {
                 if D::ALTERNATING_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, led| {
-                        let pos = (time as u32) % 2;
-                        if (led as usize) < D::NUM_LEDS / 2 && pos == 1
-                            || (led as usize) >= D::NUM_LEDS / 2 && pos == 0
-                        {
-                            Hsv {
-                                hue: animator.config.hue,
-                                sat: animator.config.sat,
-                                val: u8::MAX,
-                            }
-                        } else {
-                            Hsv {
-                                hue: animator.config.hue,
-                                sat: animator.config.sat,
-                                val: 0,
-                            }
+                        let pos = (time >> 8) % 2; // Flip every second
+                        let threshold = (D::NUM_LEDS / 2) as u16;
+                        let led = led as u16;
+
+                        Hsv {
+                            hue: animator.config.hue,
+                            sat: animator.config.sat,
+                            val: if (pos == 1 && led < threshold) || (pos == 0 && led >= threshold)
+                            {
+                                u8::MAX
+                            } else {
+                                0
+                            },
                         }
                     })
                 }
             }
             UnderglowEffect::Twinkle => {
                 if D::TWINKLE_ENABLED {
+                    let adjusted_fps = (((D::FPS as u32) << 8)
+                        / (self.config.speed as u32 + 128 + (self.config.speed as u32 >> 1)))
+                        as u8;
+
                     self.set_brightness_for_each_led(|animator, _time, led| {
-                        // if selected
-                        if ((animator.rng.next_u32() as f32 * u8::MAX as f32 / u32::MAX as f32)
-                            as u8)
-                            < ((0.05 * u8::MAX as f32) as u8)
-                            && animator.twinkle_state[led as usize].1 == 0
-                            && animator.tick % (0.05 * D::FPS as f32) as u32 == 0
+                        // we will dissect the bits of this random number to set some parameters
+                        let rand = animator.rng.next_u32();
+                        let data = animator.twinkle_state.get_mut(led as usize).unwrap();
+
+                        // 5% chance of being selected
+                        // check if the upper 8 bits correspond to a u8 that is less than 13
+                        if (rand as u8) < 13
+                            && data.1 == 0
+                            && animator.tick % (1 + scale(adjusted_fps, 13) as u32) == 0
                         {
-                            animator.twinkle_state[led as usize].0.hue =
-                                (animator.rng.next_u32() as f32 * u8::MAX as f32 / u32::MAX as f32)
-                                    as u8;
-                            animator.twinkle_state[led as usize].0.sat =
-                                (animator.rng.next_u32() as f32 * u8::MAX as f32 / u32::MAX as f32)
-                                    as u8;
-                            animator.twinkle_state[led as usize].1 = u8::MAX;
+                            // use the next 8 bits for hue
+                            data.0.hue = (rand >> 8) as u8;
+                            // use the next 8 bits for saturation
+                            data.0.sat = (rand >> 16) as u8;
+                            data.1 = u8::MAX;
                         }
 
                         // update the rest
-                        if animator.twinkle_state[led as usize].1 > 0 {
-                            animator.twinkle_state[led as usize].1 = animator.twinkle_state
-                                [led as usize]
-                                .1
-                                .saturating_sub((u8::MAX as f32 / D::FPS as f32) as u8);
+                        data.1 = data.1.saturating_sub(u8::MAX / adjusted_fps);
 
-                            Hsv {
-                                hue: animator.twinkle_state[led as usize].0.hue,
-                                sat: (animator.twinkle_state[led as usize].0.sat as u16
-                                    * animator.config.sat as u16
-                                    / u8::MAX as u16) as u8,
-                                val: (sin((animator.twinkle_state[led as usize].1 as f32 - 64.0)
-                                    * PI
-                                    / 127.0)
-                                    * u8::MAX as f32
-                                    / 2.0
-                                    + u8::MAX as f32 / 2.0)
-                                    as u8,
-                            }
-                        } else {
-                            Hsv::default()
+                        Hsv {
+                            hue: data.0.hue,
+                            sat: scale(data.0.sat, animator.config.sat),
+                            val: sin(data.1.wrapping_sub(64)),
                         }
                     })
                 }
             }
             UnderglowEffect::Reactive => {
                 if D::REACTIVE_ENABLED {
-                    let pos = (((self.tick - self.time_of_last_press) as f32 / D::FPS as f32)
-                        * (self.config.speed as f32 * 1.5 / u8::MAX as f32 + 0.5))
-                        .min(1.0);
-
-                    self.set_brightness_for_each_led(|animator, _time, _led| Hsv {
+                    self.set_brightness_for_each_led(|animator, time, _led| Hsv {
                         hue: animator.config.hue,
                         sat: animator.config.sat,
-                        val: u8::MAX - (animator.config.val as f32 * pos) as u8,
+                        val: (u8::MAX as u32).saturating_sub(time - animator.time_of_last_press)
+                            as u8, // LED fades after one second
                     })
                 }
             }

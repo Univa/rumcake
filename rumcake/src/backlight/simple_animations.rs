@@ -1,6 +1,6 @@
 use super::drivers::SimpleBacklightDriver;
 use super::BacklightDevice;
-use crate::math::sin;
+use crate::math::{scale, sin};
 use crate::{Cycle, LEDEffect};
 use postcard::experimental::max_size::MaxSize;
 use rumcake_macros::{generate_items_from_enum_variants, Cycle, LEDEffect};
@@ -182,16 +182,20 @@ impl<K: BacklightDevice, D: SimpleBacklightDriver<K>> BacklightAnimator<K, D> {
         }
     }
 
-    pub fn set_brightness(&mut self, calc: impl Fn(&mut Self, f32) -> u8) {
-        let seconds = (self.tick as f32 / K::FPS as f32)
-            * (self.config.speed as f32 * 1.5 / u8::MAX as f32 + 0.5);
-        self.buf = (calc(self, seconds) as u16 * self.config.val as u16 / u8::MAX as u16) as u8
+    pub fn set_brightness(&mut self, calc: impl Fn(&mut Self, u32) -> u8) {
+        let time = (self.tick << 8)
+            / (((K::FPS as u32) << 8)
+                / (self.config.speed as u32 + 128 + (self.config.speed as u32 >> 1))); // `time` should increment by 255 every second
+
+        self.buf = scale(calc(self, time), self.config.val)
     }
 
     pub fn register_event(&mut self, event: Event) {
         match event {
-            Event::Press(row, col) => {
-                self.time_of_last_press = self.tick;
+            Event::Press(_row, _col) => {
+                self.time_of_last_press = (self.tick << 8)
+                    / (((K::FPS as u32) << 8)
+                        / (self.config.speed as u32 + 128 + (self.config.speed as u32 >> 1)));
             }
             Event::Release(_row, _col) => {} // nothing for now. maybe change some effects to behave depending on the state of a key.
         }
@@ -210,20 +214,14 @@ impl<K: BacklightDevice, D: SimpleBacklightDriver<K>> BacklightAnimator<K, D> {
             }
             BacklightEffect::Breathing => {
                 if K::BREATHING_ENABLED {
-                    self.set_brightness(|_animator, time| {
-                        ((sin(time) + 1.0) * u8::MAX as f32 / 2.0) as u8
-                    })
+                    self.set_brightness(|_animator, time| sin((time >> 2) as u8))
                 }
             }
             BacklightEffect::Reactive => {
                 if K::REACTIVE_ENABLED {
-                    self.set_brightness(|animator, _time| {
-                        // Base speed: LED fades after one second
-                        let pos = (((animator.tick - animator.time_of_last_press) as f32
-                            / K::FPS as f32)
-                            * (animator.config.speed as f32 * 1.5 / u8::MAX as f32 + 0.5))
-                            .min(1.0);
-                        u8::MAX - (u8::MAX as f32 * pos) as u8
+                    self.set_brightness(|animator, time| {
+                        // LED fades after one second
+                        (u8::MAX as u32).saturating_sub(time - animator.time_of_last_press) as u8
                     })
                 }
             }
