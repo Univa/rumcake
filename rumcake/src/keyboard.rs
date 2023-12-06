@@ -134,7 +134,8 @@ macro_rules! build_layout {
     // Pass the layers to the keyberon macro
     ($layers:literal, $rows:literal, $cols:literal, ($($l:tt)*)) => {
         fn get_original_layout() -> $crate::keyberon::layout::Layers<{ Self::LAYOUT_COLS }, { Self::LAYOUT_ROWS }, { Self::LAYERS }, $crate::keyboard::Keycode> {
-            $crate::keyberon::layout::layout! { $($l)* }
+            const LAYERS: $crate::keyberon::layout::Layers<$cols, $rows, $layers, $crate::keyboard::Keycode> = $crate::keyberon::layout::layout! { $($l)* };
+            LAYERS
         }
 
         fn get_layout(
