@@ -664,8 +664,8 @@ pub fn main(
     }
 
     quote! {
-        #[rumcake::embassy_executor::main]
-        async fn main(spawner: rumcake::embassy_executor::Spawner) {
+        #[::embassy_executor::main]
+        async fn main(spawner: ::embassy_executor::Spawner) {
             #initialization
             #spawning
         }
@@ -722,7 +722,7 @@ pub fn task(
             (#($#arg_names:expr),*) => {
                 {
                     type Fut = impl ::core::future::Future + 'static;
-                    static POOL: $crate::embassy_executor::raw::TaskPool<Fut, 1> = $crate::embassy_executor::raw::TaskPool::new();
+                    static POOL: ::embassy_executor::raw::TaskPool<Fut, 1> = ::embassy_executor::raw::TaskPool::new();
                     unsafe { POOL._spawn_async_fn(move || $crate::tasks::#inner_ident(#($#arg_names,)*)) }
                 }
             };

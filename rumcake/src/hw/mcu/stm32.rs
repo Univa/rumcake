@@ -131,6 +131,8 @@ pub fn setup_usb_driver<K: crate::usb::USBKeyboard>(
         let config_descriptor = CONFIG_DESCRIPTOR.init([0; 256]);
         static BOS_DESCRIPTOR: static_cell::StaticCell<[u8; 256]> = static_cell::StaticCell::new();
         let bos_descriptor = BOS_DESCRIPTOR.init([0; 256]);
+        static MSOS_DESCRIPTOR: StaticCell<[u8; 256]> = StaticCell::new();
+        let msos_descriptor = MSOS_DESCRIPTOR.init([0; 256]);
         static CONTROL_BUF: static_cell::StaticCell<[u8; 128]> = static_cell::StaticCell::new();
         let control_buf = CONTROL_BUF.init([0; 128]);
 
@@ -140,6 +142,7 @@ pub fn setup_usb_driver<K: crate::usb::USBKeyboard>(
             device_descriptor,
             config_descriptor,
             bos_descriptor,
+            msos_descriptor,
             control_buf,
         )
     }
@@ -191,12 +194,13 @@ pub fn setup_internal_flash() -> Flash {
 
 #[macro_export]
 macro_rules! setup_i2c {
-    ($interrupt:ident, $i2c:ident, $scl:ident, $sda:ident, $rxdma:ident, $txdma:ident) => {
+    ($event_interrupt:ident, $error_interrupt:ident, $i2c:ident, $scl:ident, $sda:ident, $rxdma:ident, $txdma:ident) => {
         fn setup_i2c() -> impl $crate::embedded_hal_async::i2c::I2c<Error = impl core::fmt::Debug> {
             unsafe {
                 $crate::hw::mcu::embassy_stm32::bind_interrupts! {
                     struct Irqs {
-                        $interrupt => $crate::hw::mcu::embassy_stm32::i2c::InterruptHandler<$crate::hw::mcu::embassy_stm32::peripherals::$i2c>;
+                        $event_interrupt => $crate::hw::mcu::embassy_stm32::i2c::EventInterruptHandler<$crate::hw::mcu::embassy_stm32::peripherals::$i2c>;
+                        $error_interrupt => $crate::hw::mcu::embassy_stm32::i2c::ErrorInterruptHandler<$crate::hw::mcu::embassy_stm32::peripherals::$i2c>;
                     }
                 };
                 let i2c = $crate::hw::mcu::embassy_stm32::peripherals::$i2c::steal();

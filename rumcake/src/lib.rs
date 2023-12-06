@@ -4,8 +4,6 @@
 #![feature(generic_const_exprs)]
 #![feature(type_alias_impl_trait)]
 #![feature(associated_type_defaults)]
-#![feature(return_position_impl_trait_in_trait)]
-#![feature(async_fn_in_trait)]
 #![warn(missing_docs)]
 #![doc = include_str!("../../README.md")]
 
@@ -110,7 +108,6 @@ impl<'a, T: Clone + PartialEq> State<'a, T> {
 
 // TODO: remove re-exports
 
-pub use embassy_executor;
 pub use embedded_hal;
 pub use embedded_hal_async;
 pub use embedded_storage_async;
