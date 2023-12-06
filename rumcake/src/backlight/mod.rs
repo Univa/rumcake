@@ -25,21 +25,15 @@ use crate::{LEDEffect, State};
 pub mod drivers;
 
 #[cfg(feature = "simple-backlight")]
-use drivers::SimpleBacklightDriver as DriverType;
-#[cfg(feature = "simple-backlight")]
 pub mod simple_animations;
 #[cfg(feature = "simple-backlight")]
 pub use simple_animations as animations;
 
 #[cfg(feature = "simple-backlight-matrix")]
-use drivers::SimpleBacklightMatrixDriver as DriverType;
-#[cfg(feature = "simple-backlight-matrix")]
 pub mod simple_matrix_animations;
 #[cfg(feature = "simple-backlight-matrix")]
 pub use simple_matrix_animations as animations;
 
-#[cfg(feature = "rgb-backlight-matrix")]
-use drivers::RGBBacklightMatrixDriver as DriverType;
 #[cfg(feature = "rgb-backlight-matrix")]
 pub mod rgb_matrix_animations;
 #[cfg(feature = "rgb-backlight-matrix")]
@@ -265,152 +259,167 @@ pub static BACKLIGHT_CONFIG_STATE: State<BacklightConfig> = State::new(
     ],
 );
 
-#[cfg(feature = "simple-backlight")]
-use BacklightDevice as DeviceTrait;
-#[cfg(any(feature = "simple-backlight-matrix", feature = "rgb-backlight-matrix"))]
-use BacklightMatrixDevice as DeviceTrait;
+macro_rules! backlight_task_fn {
+    ($gen:ident: $backlight_trait:tt $(+ $other_bounds:tt)*, $driver_type:ty $(, where $($wc:tt)+)?) => {
+        #[rumcake_macros::task]
+        pub async fn backlight_task<$gen: $backlight_trait $(+ $other_bounds)*>(
+            _k: $gen,
+            driver: $driver_type,
+        ) $(where $($wc)+)?
+        {
+            let mut subscriber = MATRIX_EVENTS.subscriber().unwrap();
+            let mut ticker = Ticker::every(Duration::from_millis(1000 / $gen::FPS as u64));
 
-#[cfg(any(
-    feature = "simple-backlight",
-    feature = "simple-backlight-matrix",
-    feature = "rgb-backlight-matrix"
-))]
-#[rumcake_macros::task]
-pub async fn backlight_task<D: DeviceTrait + 'static>(_k: D, driver: impl DriverType<D> + 'static)
-where
-    [(); D::LIGHTING_COLS]:,
-    [(); D::LIGHTING_ROWS]:,
-{
-    let mut subscriber = MATRIX_EVENTS.subscriber().unwrap();
-    let mut ticker = Ticker::every(Duration::from_millis(1000 / D::FPS as u64));
+            // The animator has a local copy of the backlight config state so that it doesn't have to lock the config every frame
+            let mut animator = BacklightAnimator::new(BACKLIGHT_CONFIG_STATE.get().await, driver);
+            match animator.config.enabled {
+                true => animator.turn_on().await,
+                false => animator.turn_off().await,
+            }
+            animator.tick().await; // Force a frame to be rendered in the event that the initial effect is static.
 
-    // The animator has a local copy of the backlight config state so that it doesn't have to lock the config every frame
-    let mut animator = BacklightAnimator::new(BACKLIGHT_CONFIG_STATE.get().await, driver);
-    match animator.config.enabled {
-        true => animator.turn_on().await,
-        false => animator.turn_off().await,
-    }
-    animator.tick().await; // Force a frame to be rendered in the event that the initial effect is static.
+            loop {
+                let command = if !(animator.config.enabled && animator.config.effect.is_animated())
+                {
+                    // We want to wait for a command if the animator is not rendering any animated effects. This allows the task to sleep when the LEDs are static.
+                    Some(BACKLIGHT_COMMAND_CHANNEL.receive().await)
+                } else {
+                    #[cfg(not(all(feature = "vial", feature = "rgb-backlight-matrix")))]
+                    match select::select(ticker.next(), BACKLIGHT_COMMAND_CHANNEL.receive()).await {
+                        select::Either::First(()) => {
+                            while let Some(event) = subscriber.try_next_message_pure() {
+                                if animator.config.enabled && animator.config.effect.is_reactive() {
+                                    animator.register_event(event);
+                                }
+                            }
 
-    loop {
-        let command = if !(animator.config.enabled && animator.config.effect.is_animated()) {
-            // We want to wait for a command if the animator is not rendering any animated effects. This allows the task to sleep when the LEDs are static.
-            Some(BACKLIGHT_COMMAND_CHANNEL.receive().await)
-        } else {
-            #[cfg(not(all(feature = "vial", feature = "rgb-backlight-matrix")))]
-            match select::select(ticker.next(), BACKLIGHT_COMMAND_CHANNEL.receive()).await {
-                select::Either::First(()) => {
-                    while let Some(event) = subscriber.try_next_message_pure() {
-                        if animator.config.enabled && animator.config.effect.is_reactive() {
-                            animator.register_event(event);
+                            None
+                        }
+                        select::Either::Second(command) => Some(command),
+                    }
+
+                    #[cfg(all(feature = "vial", feature = "rgb-backlight-matrix"))]
+                    match select::select3(
+                        ticker.next(),
+                        BACKLIGHT_COMMAND_CHANNEL.receive(),
+                        crate::vial::VIAL_DIRECT_SET_CHANNEL.receive(),
+                    )
+                    .await
+                    {
+                        select::Either3::First(()) => {
+                            while let Some(event) = subscriber.try_next_message_pure() {
+                                if animator.config.enabled && animator.config.effect.is_reactive() {
+                                    animator.register_event(event);
+                                }
+                            }
+
+                            None
+                        }
+                        select::Either3::Second(command) => Some(command),
+                        select::Either3::Third((led, color)) => {
+                            let col = led as usize % $gen::LIGHTING_COLS;
+                            let row = led as usize / $gen::LIGHTING_COLS % $gen::LIGHTING_ROWS;
+                            animator.buf[row][col] = color;
+                            continue;
+                        }
+                    }
+                };
+
+                // Process the command if one was received, otherwise continue to render
+                if let Some(command) = command {
+                    animator.process_command(command).await;
+
+                    // Process commands until there are no more to process
+                    while let Ok(command) = BACKLIGHT_COMMAND_CHANNEL.try_receive() {
+                        animator.process_command(command).await;
+                    }
+
+                    // Update the config state, after updating the animator's own copy, and check if it was enabled/disabled
+                    let toggled = BACKLIGHT_CONFIG_STATE
+                        .update(|config| {
+                            let toggled = config.enabled != animator.config.enabled;
+                            **config = animator.config;
+                            toggled
+                        })
+                        .await;
+
+                    if toggled {
+                        match animator.config.enabled {
+                            true => animator.turn_on().await,
+                            false => animator.turn_off().await,
                         }
                     }
 
-                    None
-                }
-                select::Either::Second(command) => Some(command),
-            }
+                    // Send commands to be consumed by the split peripherals
+                    #[cfg(feature = "split-central")]
+                    {
+                        crate::split::central::MESSAGE_TO_PERIPHERALS
+                            .send(crate::split::MessageToPeripheral::Backlight(
+                                BacklightCommand::ResetTime,
+                            ))
+                            .await;
+                        crate::split::central::MESSAGE_TO_PERIPHERALS
+                            .send(crate::split::MessageToPeripheral::Backlight(
+                                BacklightCommand::SetEffect(animator.config.effect),
+                            ))
+                            .await;
+                        crate::split::central::MESSAGE_TO_PERIPHERALS
+                            .send(crate::split::MessageToPeripheral::Backlight(
+                                BacklightCommand::SetValue(animator.config.val),
+                            ))
+                            .await;
+                        crate::split::central::MESSAGE_TO_PERIPHERALS
+                            .send(crate::split::MessageToPeripheral::Backlight(
+                                BacklightCommand::SetSpeed(animator.config.speed),
+                            ))
+                            .await;
 
-            #[cfg(all(feature = "vial", feature = "rgb-backlight-matrix"))]
-            match select::select3(
-                ticker.next(),
-                BACKLIGHT_COMMAND_CHANNEL.receive(),
-                crate::vial::VIAL_DIRECT_SET_CHANNEL.receive(),
-            )
-            .await
-            {
-                select::Either3::First(()) => {
-                    while let Some(event) = subscriber.try_next_message_pure() {
-                        if animator.config.enabled && animator.config.effect.is_reactive() {
-                            animator.register_event(event);
-                        }
+                        #[cfg(feature = "rgb-backlight-matrix")]
+                        crate::split::central::MESSAGE_TO_PERIPHERALS
+                            .send(crate::split::MessageToPeripheral::Backlight(
+                                BacklightCommand::SetHue(animator.config.hue),
+                            ))
+                            .await;
+                        #[cfg(feature = "rgb-backlight-matrix")]
+                        crate::split::central::MESSAGE_TO_PERIPHERALS
+                            .send(crate::split::MessageToPeripheral::Backlight(
+                                BacklightCommand::SetSaturation(animator.config.sat),
+                            ))
+                            .await;
                     }
 
-                    None
+                    // Ignore any unprocessed matrix events
+                    while subscriber.try_next_message_pure().is_some() {}
+
+                    // Reset the ticker so that it doesn't try to catch up on "missed" ticks.
+                    ticker.reset();
                 }
-                select::Either3::Second(command) => Some(command),
-                select::Either3::Third((led, color)) => {
-                    let col = led as usize % D::LIGHTING_COLS;
-                    let row = led as usize / D::LIGHTING_COLS % D::LIGHTING_ROWS;
-                    animator.buf[row][col] = color;
-                    continue;
-                }
+
+                animator.tick().await;
             }
-        };
-
-        // Process the command if one was received, otherwise continue to render
-        if let Some(command) = command {
-            animator.process_command(command).await;
-
-            // Process commands until there are no more to process
-            while let Ok(command) = BACKLIGHT_COMMAND_CHANNEL.try_receive() {
-                animator.process_command(command).await;
-            }
-
-            // Update the config state, after updating the animator's own copy, and check if it was enabled/disabled
-            let toggled = BACKLIGHT_CONFIG_STATE
-                .update(|config| {
-                    let toggled = config.enabled != animator.config.enabled;
-                    **config = animator.config;
-                    toggled
-                })
-                .await;
-
-            if toggled {
-                match animator.config.enabled {
-                    true => animator.turn_on().await,
-                    false => animator.turn_off().await,
-                }
-            }
-
-            // Send commands to be consumed by the split peripherals
-            #[cfg(feature = "split-central")]
-            {
-                crate::split::central::MESSAGE_TO_PERIPHERALS
-                    .send(crate::split::MessageToPeripheral::Backlight(
-                        BacklightCommand::ResetTime,
-                    ))
-                    .await;
-                crate::split::central::MESSAGE_TO_PERIPHERALS
-                    .send(crate::split::MessageToPeripheral::Backlight(
-                        BacklightCommand::SetEffect(animator.config.effect),
-                    ))
-                    .await;
-                crate::split::central::MESSAGE_TO_PERIPHERALS
-                    .send(crate::split::MessageToPeripheral::Backlight(
-                        BacklightCommand::SetValue(animator.config.val),
-                    ))
-                    .await;
-                crate::split::central::MESSAGE_TO_PERIPHERALS
-                    .send(crate::split::MessageToPeripheral::Backlight(
-                        BacklightCommand::SetSpeed(animator.config.speed),
-                    ))
-                    .await;
-
-                #[cfg(feature = "rgb-backlight-matrix")]
-                crate::split::central::MESSAGE_TO_PERIPHERALS
-                    .send(crate::split::MessageToPeripheral::Backlight(
-                        BacklightCommand::SetHue(animator.config.hue),
-                    ))
-                    .await;
-                #[cfg(feature = "rgb-backlight-matrix")]
-                crate::split::central::MESSAGE_TO_PERIPHERALS
-                    .send(crate::split::MessageToPeripheral::Backlight(
-                        BacklightCommand::SetSaturation(animator.config.sat),
-                    ))
-                    .await;
-            }
-
-            // Ignore any unprocessed matrix events
-            while subscriber.try_next_message_pure().is_some() {}
-
-            // Reset the ticker so that it doesn't try to catch up on "missed" ticks.
-            ticker.reset();
         }
-
-        animator.tick().await;
-    }
+    };
 }
+
+#[cfg(feature = "simple-backlight")]
+backlight_task_fn!(
+    D: BacklightDevice + 'static,
+    impl drivers::SimpleBacklightDriver<D> + 'static
+);
+
+#[cfg(feature = "simple-backlight-matrix")]
+backlight_task_fn!(
+    D: BacklightMatrixDevice + 'static,
+    impl drivers::SimpleBacklightMatrixDriver<D> + 'static,
+    where [(); D::LIGHTING_COLS]:, [(); D::LIGHTING_ROWS]:,
+);
+
+#[cfg(feature = "rgb-backlight-matrix")]
+backlight_task_fn!(
+    D: BacklightMatrixDevice + 'static,
+    impl drivers::RGBBacklightMatrixDriver<D> + 'static,
+    where [(); D::LIGHTING_COLS]:, [(); D::LIGHTING_ROWS]:,
+);
 
 #[cfg(all(
     feature = "storage",
