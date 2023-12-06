@@ -49,7 +49,7 @@ pub trait VialKeyboard: ViaKeyboard {
     // TODO: replace with specialization if it doesn't cause an ICE
     type BacklightMatrixDevice: BacklightMatrixDevice = EmptyBacklightMatrix;
     fn get_backlight_matrix() -> Option<
-        &'static crate::backlight::BacklightMatrix<
+        crate::backlight::BacklightMatrix<
             { <Self::BacklightMatrixDevice as BacklightMatrixDevice>::LIGHTING_COLS },
             { <Self::BacklightMatrixDevice as BacklightMatrixDevice>::LIGHTING_ROWS },
         >,
@@ -76,7 +76,7 @@ macro_rules! enable_vial_rgb {
         const VIALRGB_ENABLE: bool = true;
         type BacklightMatrixDevice = Self;
         fn get_backlight_matrix() -> Option<
-            &'static $crate::backlight::BacklightMatrix<
+            $crate::backlight::BacklightMatrix<
                 { <Self::BacklightMatrixDevice as $crate::backlight::BacklightMatrixDevice>::LIGHTING_COLS },
                 { <Self::BacklightMatrixDevice as $crate::backlight::BacklightMatrixDevice>::LIGHTING_ROWS },
             >,

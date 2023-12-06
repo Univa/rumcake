@@ -111,8 +111,7 @@ pub trait BacklightMatrixDevice: BacklightDevice {
     /// Function to return a reference to the [`BacklightMatrix`], containing information about
     /// physical LED position, and LED flags. It is recommended to use the
     /// [`setup_backlight_matrix`] macro to set this value.
-    fn get_backlight_matrix(
-    ) -> &'static BacklightMatrix<{ Self::LIGHTING_COLS }, { Self::LIGHTING_ROWS }>;
+    fn get_backlight_matrix() -> BacklightMatrix<{ Self::LIGHTING_COLS }, { Self::LIGHTING_ROWS }>;
 }
 
 #[doc(hidden)]
@@ -122,11 +121,10 @@ impl crate::backlight::BacklightMatrixDevice for EmptyBacklightMatrix {
     const LIGHTING_COLS: usize = 0;
     const LIGHTING_ROWS: usize = 0;
     fn get_backlight_matrix(
-    ) -> &'static crate::backlight::BacklightMatrix<{ Self::LIGHTING_COLS }, { Self::LIGHTING_ROWS }>
-    {
-        static EMPTY_BACKLIGHT_MATRIX: crate::backlight::BacklightMatrix<0, 0> =
+    ) -> crate::backlight::BacklightMatrix<{ Self::LIGHTING_COLS }, { Self::LIGHTING_ROWS }> {
+        const EMPTY_BACKLIGHT_MATRIX: crate::backlight::BacklightMatrix<0, 0> =
             crate::backlight::BacklightMatrix::new([], []);
-        &EMPTY_BACKLIGHT_MATRIX
+        EMPTY_BACKLIGHT_MATRIX
     }
 }
 
@@ -134,11 +132,11 @@ impl crate::backlight::BacklightMatrixDevice for EmptyBacklightMatrix {
 macro_rules! setup_backlight_matrix {
     ($rows:literal, $cols:literal, ({$($led_layout:tt)*} {$($led_flags:tt)*})) => {
         fn get_backlight_matrix(
-        ) -> &'static $crate::backlight::BacklightMatrix<{ Self::LIGHTING_COLS }, { Self::LIGHTING_ROWS }>
+        ) -> $crate::backlight::BacklightMatrix<{ Self::LIGHTING_COLS }, { Self::LIGHTING_ROWS }>
         {
-            static EMPTY_BACKLIGHT_MATRIX: $crate::backlight::BacklightMatrix<$cols, $rows> =
+            const BACKLIGHT_MATRIX: $crate::backlight::BacklightMatrix<$cols, $rows> =
                 $crate::backlight::BacklightMatrix::new($crate::led_layout!($($led_layout)*), $crate::led_flags!($($led_flags)*));
-            &EMPTY_BACKLIGHT_MATRIX
+            BACKLIGHT_MATRIX
         }
     };
     // We count the number of keys in the first row to determine the number of columns
