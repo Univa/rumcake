@@ -50,13 +50,19 @@ pub async fn set_layout_options<K: ViaKeyboard>(layout_options: &mut u32, data: 
 }
 
 pub async fn device_indication() {
-    #[cfg(any(
-        feature = "simple-backlight",
-        feature = "simple-backlight-matrix",
-        feature = "rgb-backlight-matrix"
-    ))]
-    crate::backlight::BACKLIGHT_COMMAND_CHANNEL
-        .send(crate::backlight::animations::BacklightCommand::Toggle)
+    #[cfg(feature = "simple-backlight")]
+    crate::backlight::simple_backlight::BACKLIGHT_COMMAND_CHANNEL
+        .send(crate::backlight::simple_backlight::animations::BacklightCommand::Toggle)
+        .await;
+
+    #[cfg(feature = "simple-backlight-matrix")]
+    crate::backlight::simple_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
+        .send(crate::backlight::simple_backlight_matrix::animations::BacklightCommand::Toggle)
+        .await;
+
+    #[cfg(feature = "rgb-backlight-matrix")]
+    crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
+        .send(crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::Toggle)
         .await;
 
     #[cfg(feature = "underglow")]
@@ -345,80 +351,179 @@ where
     }
 }
 
-#[cfg(any(
-    feature = "simple-backlight",
-    feature = "simple-backlight-matrix",
-    feature = "rgb-backlight-matrix"
-))]
-pub async fn backlight_get_enabled(data: &mut [u8]) {
-    data[0] = crate::backlight::BACKLIGHT_CONFIG_STATE.get().await.enabled as u8
+#[cfg(feature = "simple-backlight")]
+pub async fn simple_backlight_get_enabled(data: &mut [u8]) {
+    data[0] = crate::backlight::simple_backlight::BACKLIGHT_CONFIG_STATE
+        .get()
+        .await
+        .enabled as u8
 }
 
-#[cfg(any(
-    feature = "simple-backlight",
-    feature = "simple-backlight-matrix",
-    feature = "rgb-backlight-matrix"
-))]
-pub async fn backlight_set_enabled(data: &[u8]) {
+#[cfg(feature = "simple-backlight-matrix")]
+pub async fn simple_backlight_matrix_get_enabled(data: &mut [u8]) {
+    data[0] = crate::backlight::simple_backlight_matrix::BACKLIGHT_CONFIG_STATE
+        .get()
+        .await
+        .enabled as u8
+}
+
+#[cfg(feature = "rgb-backlight-matrix")]
+pub async fn rgb_backlight_matrix_get_enabled(data: &mut [u8]) {
+    data[0] = crate::backlight::rgb_backlight_matrix::BACKLIGHT_CONFIG_STATE
+        .get()
+        .await
+        .enabled as u8
+}
+
+#[cfg(feature = "simple-backlight")]
+pub async fn simple_backlight_set_enabled(data: &[u8]) {
     let command = if data[0] == 1 {
-        crate::backlight::animations::BacklightCommand::TurnOn
+        crate::backlight::simple_backlight::animations::BacklightCommand::TurnOn
     } else {
-        crate::backlight::animations::BacklightCommand::TurnOff
+        crate::backlight::simple_backlight::animations::BacklightCommand::TurnOff
     };
 
-    crate::backlight::BACKLIGHT_COMMAND_CHANNEL
+    crate::backlight::simple_backlight::BACKLIGHT_COMMAND_CHANNEL
         .send(command)
         .await;
 }
 
-#[cfg(any(
-    feature = "simple-backlight",
-    feature = "simple-backlight-matrix",
-    feature = "rgb-backlight-matrix"
-))]
-pub async fn backlight_get_brightness(data: &mut [u8]) {
-    data[0] = crate::backlight::BACKLIGHT_CONFIG_STATE.get().await.val
-}
+#[cfg(feature = "simple-backlight-matrix")]
+pub async fn simple_backlight_matrix_set_enabled(data: &[u8]) {
+    let command = if data[0] == 1 {
+        crate::backlight::simple_backlight_matrix::animations::BacklightCommand::TurnOn
+    } else {
+        crate::backlight::simple_backlight_matrix::animations::BacklightCommand::TurnOff
+    };
 
-#[cfg(any(
-    feature = "simple-backlight",
-    feature = "simple-backlight-matrix",
-    feature = "rgb-backlight-matrix"
-))]
-pub async fn backlight_set_brightness(data: &[u8]) {
-    crate::backlight::BACKLIGHT_COMMAND_CHANNEL
-        .send(crate::backlight::animations::BacklightCommand::SetValue(
-            data[0],
-        ))
+    crate::backlight::simple_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
+        .send(command)
         .await;
 }
 
-#[cfg(any(
-    feature = "simple-backlight",
-    feature = "simple-backlight-matrix",
-    feature = "rgb-backlight-matrix"
-))]
-pub async fn backlight_get_effect(
-    data: &mut [u8],
-    convert_effect_to_qmk_id: impl Fn(crate::backlight::animations::BacklightEffect) -> u8,
-) {
-    data[0] = convert_effect_to_qmk_id(crate::backlight::BACKLIGHT_CONFIG_STATE.get().await.effect)
+#[cfg(feature = "rgb-backlight-matrix")]
+pub async fn rgb_backlight_matrix_set_enabled(data: &[u8]) {
+    let command = if data[0] == 1 {
+        crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::TurnOn
+    } else {
+        crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::TurnOff
+    };
+
+    crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
+        .send(command)
+        .await;
 }
 
-#[cfg(any(
-    feature = "simple-backlight",
-    feature = "simple-backlight-matrix",
-    feature = "rgb-backlight-matrix"
-))]
-pub async fn backlight_set_effect(
+#[cfg(feature = "simple-backlight")]
+pub async fn simple_backlight_get_brightness(data: &mut [u8]) {
+    data[0] = crate::backlight::simple_backlight::BACKLIGHT_CONFIG_STATE
+        .get()
+        .await
+        .val
+}
+
+#[cfg(feature = "simple-backlight-matrix")]
+pub async fn simple_backlight_matrix_get_brightness(data: &mut [u8]) {
+    data[0] = crate::backlight::simple_backlight_matrix::BACKLIGHT_CONFIG_STATE
+        .get()
+        .await
+        .val
+}
+
+#[cfg(feature = "rgb-backlight-matrix")]
+pub async fn rgb_backlight_matrix_get_brightness(data: &mut [u8]) {
+    data[0] = crate::backlight::rgb_backlight_matrix::BACKLIGHT_CONFIG_STATE
+        .get()
+        .await
+        .val
+}
+
+#[cfg(feature = "simple-backlight")]
+pub async fn simple_backlight_set_brightness(data: &[u8]) {
+    crate::backlight::simple_backlight::BACKLIGHT_COMMAND_CHANNEL
+        .send(crate::backlight::simple_backlight::animations::BacklightCommand::SetValue(data[0]))
+        .await;
+}
+
+#[cfg(feature = "simple-backlight-matrix")]
+pub async fn simple_backlight_matrix_set_brightness(data: &[u8]) {
+    crate::backlight::simple_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
+        .send(
+            crate::backlight::simple_backlight_matrix::animations::BacklightCommand::SetValue(
+                data[0],
+            ),
+        )
+        .await;
+}
+
+#[cfg(feature = "rgb-backlight-matrix")]
+pub async fn rgb_backlight_matrix_set_brightness(data: &[u8]) {
+    crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
+        .send(
+            crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::SetValue(data[0]),
+        )
+        .await;
+}
+
+#[cfg(feature = "simple-backlight")]
+pub async fn simple_backlight_get_effect(
+    data: &mut [u8],
+    convert_effect_to_qmk_id: impl Fn(
+        crate::backlight::simple_backlight::animations::BacklightEffect,
+    ) -> u8,
+) {
+    data[0] = convert_effect_to_qmk_id(
+        crate::backlight::simple_backlight::BACKLIGHT_CONFIG_STATE
+            .get()
+            .await
+            .effect,
+    )
+}
+
+#[cfg(feature = "simple-backlight-matrix")]
+pub async fn simple_backlight_matrix_get_effect(
+    data: &mut [u8],
+    convert_effect_to_qmk_id: impl Fn(
+        crate::backlight::simple_backlight_matrix::animations::BacklightEffect,
+    ) -> u8,
+) {
+    data[0] = convert_effect_to_qmk_id(
+        crate::backlight::simple_backlight_matrix::BACKLIGHT_CONFIG_STATE
+            .get()
+            .await
+            .effect,
+    )
+}
+
+#[cfg(feature = "rgb-backlight-matrix")]
+pub async fn rgb_backlight_matrix_get_effect(
+    data: &mut [u8],
+    convert_effect_to_qmk_id: impl Fn(
+        crate::backlight::rgb_backlight_matrix::animations::BacklightEffect,
+    ) -> u8,
+) {
+    data[0] = convert_effect_to_qmk_id(
+        crate::backlight::rgb_backlight_matrix::BACKLIGHT_CONFIG_STATE
+            .get()
+            .await
+            .effect,
+    )
+}
+
+#[cfg(feature = "simple-backlight")]
+pub async fn simple_backlight_set_effect(
     data: &[u8],
-    convert_qmk_id_to_effect: impl Fn(u8) -> Option<crate::backlight::animations::BacklightEffect>,
+    convert_qmk_id_to_effect: impl Fn(
+        u8,
+    ) -> Option<
+        crate::backlight::simple_backlight::animations::BacklightEffect,
+    >,
 ) {
     if let Some(effect) = convert_qmk_id_to_effect(data[0]) {
-        crate::backlight::BACKLIGHT_COMMAND_CHANNEL
-            .send(crate::backlight::animations::BacklightCommand::SetEffect(
-                effect,
-            ))
+        crate::backlight::simple_backlight::BACKLIGHT_COMMAND_CHANNEL
+            .send(
+                crate::backlight::simple_backlight::animations::BacklightCommand::SetEffect(effect),
+            )
             .await;
     } else {
         warn!(
@@ -428,60 +533,150 @@ pub async fn backlight_set_effect(
     }
 }
 
-#[cfg(any(
-    feature = "simple-backlight",
-    feature = "simple-backlight-matrix",
-    feature = "rgb-backlight-matrix"
-))]
-pub async fn backlight_get_speed(data: &mut [u8]) {
-    data[0] = crate::backlight::BACKLIGHT_CONFIG_STATE.get().await.speed
+#[cfg(feature = "simple-backlight-matrix")]
+pub async fn simple_backlight_matrix_set_effect(
+    data: &[u8],
+    convert_qmk_id_to_effect: impl Fn(
+        u8,
+    ) -> Option<
+        crate::backlight::simple_backlight_matrix::animations::BacklightEffect,
+    >,
+) {
+    if let Some(effect) = convert_qmk_id_to_effect(data[0]) {
+        crate::backlight::simple_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
+            .send(
+                crate::backlight::simple_backlight_matrix::animations::BacklightCommand::SetEffect(
+                    effect,
+                ),
+            )
+            .await;
+    } else {
+        warn!(
+            "[VIA] Tried to set an unknown backlight effect: {:?}",
+            data[0]
+        )
+    }
 }
 
-#[cfg(any(
-    feature = "simple-backlight",
-    feature = "simple-backlight-matrix",
-    feature = "rgb-backlight-matrix"
-))]
-pub async fn backlight_set_speed(data: &[u8]) {
-    crate::backlight::BACKLIGHT_COMMAND_CHANNEL
-        .send(crate::backlight::animations::BacklightCommand::SetSpeed(
-            data[0],
-        ))
+#[cfg(feature = "rgb-backlight-matrix")]
+pub async fn rgb_backlight_matrix_set_effect(
+    data: &[u8],
+    convert_qmk_id_to_effect: impl Fn(
+        u8,
+    ) -> Option<
+        crate::backlight::rgb_backlight_matrix::animations::BacklightEffect,
+    >,
+) {
+    if let Some(effect) = convert_qmk_id_to_effect(data[0]) {
+        crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
+            .send(
+                crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::SetEffect(
+                    effect,
+                ),
+            )
+            .await;
+    } else {
+        warn!(
+            "[VIA] Tried to set an unknown backlight effect: {:?}",
+            data[0]
+        )
+    }
+}
+
+#[cfg(feature = "simple-backlight")]
+pub async fn simple_backlight_get_speed(data: &mut [u8]) {
+    data[0] = crate::backlight::simple_backlight::BACKLIGHT_CONFIG_STATE
+        .get()
+        .await
+        .speed
+}
+
+#[cfg(feature = "simple-backlight-matrix")]
+pub async fn simple_backlight_matrix_get_speed(data: &mut [u8]) {
+    data[0] = crate::backlight::simple_backlight_matrix::BACKLIGHT_CONFIG_STATE
+        .get()
+        .await
+        .speed
+}
+
+#[cfg(feature = "rgb-backlight-matrix")]
+pub async fn rgb_backlight_matrix_get_speed(data: &mut [u8]) {
+    data[0] = crate::backlight::rgb_backlight_matrix::BACKLIGHT_CONFIG_STATE
+        .get()
+        .await
+        .speed
+}
+
+#[cfg(feature = "simple-backlight")]
+pub async fn simple_backlight_set_speed(data: &[u8]) {
+    crate::backlight::simple_backlight::BACKLIGHT_COMMAND_CHANNEL
+        .send(crate::backlight::simple_backlight::animations::BacklightCommand::SetSpeed(data[0]))
+        .await;
+}
+
+#[cfg(feature = "simple-backlight-matrix")]
+pub async fn simple_backlight_matrix_set_speed(data: &[u8]) {
+    crate::backlight::simple_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
+        .send(
+            crate::backlight::simple_backlight_matrix::animations::BacklightCommand::SetSpeed(
+                data[0],
+            ),
+        )
         .await;
 }
 
 #[cfg(feature = "rgb-backlight-matrix")]
-pub async fn backlight_get_color(data: &mut [u8]) {
+pub async fn rgb_backlight_matrix_set_speed(data: &[u8]) {
+    crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
+        .send(
+            crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::SetSpeed(data[0]),
+        )
+        .await;
+}
+
+#[cfg(feature = "rgb-backlight-matrix")]
+pub async fn rgb_backlight_matrix_get_color(data: &mut [u8]) {
     // Color only available on RGB matrices
-    let config = crate::backlight::BACKLIGHT_CONFIG_STATE.get().await;
+    let config = crate::backlight::rgb_backlight_matrix::BACKLIGHT_CONFIG_STATE
+        .get()
+        .await;
     data[0] = config.hue;
     data[1] = config.sat;
 }
 
 #[cfg(feature = "rgb-backlight-matrix")]
-pub async fn backlight_set_color(data: &[u8]) {
+pub async fn rgb_backlight_matrix_set_color(data: &[u8]) {
     // Color only available on RGB matrices
-    crate::backlight::BACKLIGHT_COMMAND_CHANNEL
-        .send(crate::backlight::animations::BacklightCommand::SetHue(
-            data[0],
-        ))
+    crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
+        .send(crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::SetHue(data[0]))
         .await;
-    crate::backlight::BACKLIGHT_COMMAND_CHANNEL
-        .send(crate::backlight::animations::BacklightCommand::SetSaturation(data[1]))
+    crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
+        .send(
+            crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::SetSaturation(
+                data[1],
+            ),
+        )
         .await;
 }
 
-pub async fn backlight_save() {
-    #[cfg(all(
-        feature = "storage",
-        any(
-            feature = "simple-backlight",
-            feature = "simple-backlight-matrix",
-            feature = "rgb-backlight-matrix"
-        )
-    ))]
-    crate::backlight::BACKLIGHT_COMMAND_CHANNEL
-        .send(crate::backlight::animations::BacklightCommand::SaveConfig)
+pub async fn simple_backlight_save() {
+    #[cfg(all(feature = "storage", feature = "simple-backlight"))]
+    crate::backlight::simple_backlight::BACKLIGHT_COMMAND_CHANNEL
+        .send(crate::backlight::simple_backlight::animations::BacklightCommand::SaveConfig)
+        .await;
+}
+
+pub async fn simple_backlight_matrix_save() {
+    #[cfg(all(feature = "storage", feature = "simple-backlight-matrix"))]
+    crate::backlight::simple_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
+        .send(crate::backlight::simple_backlight_matrix::animations::BacklightCommand::SaveConfig)
+        .await;
+}
+
+pub async fn rgb_backlight_matrix_save() {
+    #[cfg(all(feature = "storage", feature = "rgb-backlight-matrix"))]
+    crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
+        .send(crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::SaveConfig)
         .await;
 }
 

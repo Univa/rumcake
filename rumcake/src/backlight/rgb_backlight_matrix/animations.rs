@@ -1,5 +1,7 @@
-use super::drivers::RGBBacklightMatrixDriver;
-use super::{get_led_layout_bounds, BacklightDevice, BacklightMatrixDevice, LayoutBounds};
+use crate::backlight::drivers::RGBBacklightMatrixDriver;
+use crate::backlight::{
+    get_led_layout_bounds, BacklightDevice, BacklightMatrixDevice, LayoutBounds,
+};
 use crate::{Cycle, LEDEffect};
 use postcard::experimental::max_size::MaxSize;
 use rumcake_macros::{generate_items_from_enum_variants, Cycle, LEDEffect};
@@ -68,7 +70,9 @@ pub enum BacklightCommand {
     ResetTime, // normally used internally for syncing LEDs for split keyboards
 }
 
-#[generate_items_from_enum_variants("const {variant_shouty_snake_case}_ENABLED: bool = true")]
+#[generate_items_from_enum_variants(
+    "const RGB_BACKLIGHT_MATRIX_{variant_shouty_snake_case}_ENABLED: bool = true"
+)]
 #[derive(
     FromPrimitive,
     Serialize,
@@ -228,51 +232,80 @@ pub enum BacklightEffect {
 impl BacklightEffect {
     pub(crate) fn is_enabled<D: BacklightDevice>(&self) -> bool {
         match self {
-            BacklightEffect::Solid => D::SOLID_ENABLED,
-            BacklightEffect::AlphasMods => D::ALPHAS_MODS_ENABLED,
-            BacklightEffect::GradientUpDown => D::GRADIENT_UP_DOWN_ENABLED,
-            BacklightEffect::GradientLeftRight => D::GRADIENT_LEFT_RIGHT_ENABLED,
-            BacklightEffect::Breathing => D::BREATHING_ENABLED,
-            BacklightEffect::ColorbandSat => D::COLORBAND_SAT_ENABLED,
-            BacklightEffect::ColorbandVal => D::COLORBAND_VAL_ENABLED,
-            BacklightEffect::ColorbandPinWheelSat => D::COLORBAND_PIN_WHEEL_SAT_ENABLED,
-            BacklightEffect::ColorbandPinWheelVal => D::COLORBAND_PIN_WHEEL_VAL_ENABLED,
-            BacklightEffect::ColorbandSpiralSat => D::COLORBAND_SPIRAL_SAT_ENABLED,
-            BacklightEffect::ColorbandSpiralVal => D::COLORBAND_SPIRAL_VAL_ENABLED,
-            BacklightEffect::CycleAll => D::CYCLE_ALL_ENABLED,
-            BacklightEffect::CycleLeftRight => D::CYCLE_LEFT_RIGHT_ENABLED,
-            BacklightEffect::CycleUpDown => D::CYCLE_UP_DOWN_ENABLED,
-            BacklightEffect::RainbowMovingChevron => D::RAINBOW_MOVING_CHEVRON_ENABLED,
-            BacklightEffect::CycleOutIn => D::CYCLE_OUT_IN_ENABLED,
-            BacklightEffect::CycleOutInDual => D::CYCLE_OUT_IN_DUAL_ENABLED,
-            BacklightEffect::CyclePinWheel => D::CYCLE_PIN_WHEEL_ENABLED,
-            BacklightEffect::CycleSpiral => D::CYCLE_SPIRAL_ENABLED,
-            BacklightEffect::DualBeacon => D::DUAL_BEACON_ENABLED,
-            BacklightEffect::RainbowBeacon => D::RAINBOW_BEACON_ENABLED,
-            BacklightEffect::RainbowPinWheels => D::RAINBOW_PIN_WHEELS_ENABLED,
-            BacklightEffect::Raindrops => D::RAINDROPS_ENABLED,
-            BacklightEffect::JellybeanRaindrops => D::JELLYBEAN_RAINDROPS_ENABLED,
-            BacklightEffect::HueBreathing => D::HUE_BREATHING_ENABLED,
-            BacklightEffect::HuePendulum => D::HUE_PENDULUM_ENABLED,
-            BacklightEffect::HueWave => D::HUE_WAVE_ENABLED,
-            BacklightEffect::PixelRain => D::PIXEL_RAIN_ENABLED,
-            BacklightEffect::PixelFlow => D::PIXEL_FLOW_ENABLED,
-            BacklightEffect::PixelFractal => D::PIXEL_FRACTAL_ENABLED,
-            BacklightEffect::TypingHeatmap => D::TYPING_HEATMAP_ENABLED,
-            BacklightEffect::DigitalRain => D::DIGITAL_RAIN_ENABLED,
-            BacklightEffect::SolidReactiveSimple => D::SOLID_REACTIVE_SIMPLE_ENABLED,
-            BacklightEffect::SolidReactive => D::SOLID_REACTIVE_ENABLED,
-            BacklightEffect::SolidReactiveWide => D::SOLID_REACTIVE_WIDE_ENABLED,
-            BacklightEffect::SolidReactiveMultiWide => D::SOLID_REACTIVE_MULTI_WIDE_ENABLED,
-            BacklightEffect::SolidReactiveCross => D::SOLID_REACTIVE_CROSS_ENABLED,
-            BacklightEffect::SolidReactiveMultiCross => D::SOLID_REACTIVE_MULTI_CROSS_ENABLED,
-            BacklightEffect::SolidReactiveNexus => D::SOLID_REACTIVE_NEXUS_ENABLED,
-            BacklightEffect::SolidReactiveMultiNexus => D::SOLID_REACTIVE_MULTI_NEXUS_ENABLED,
-            BacklightEffect::Splash => D::SPLASH_ENABLED,
-            BacklightEffect::MultiSplash => D::MULTI_SPLASH_ENABLED,
-            BacklightEffect::SolidSplash => D::SOLID_SPLASH_ENABLED,
-            BacklightEffect::SolidMultiSplash => D::SOLID_MULTI_SPLASH_ENABLED,
-            BacklightEffect::DirectSet => D::DIRECT_SET_ENABLED,
+            BacklightEffect::Solid => D::RGB_BACKLIGHT_MATRIX_SOLID_ENABLED,
+            BacklightEffect::AlphasMods => D::RGB_BACKLIGHT_MATRIX_ALPHAS_MODS_ENABLED,
+            BacklightEffect::GradientUpDown => D::RGB_BACKLIGHT_MATRIX_GRADIENT_UP_DOWN_ENABLED,
+            BacklightEffect::GradientLeftRight => {
+                D::RGB_BACKLIGHT_MATRIX_GRADIENT_LEFT_RIGHT_ENABLED
+            }
+            BacklightEffect::Breathing => D::RGB_BACKLIGHT_MATRIX_BREATHING_ENABLED,
+            BacklightEffect::ColorbandSat => D::RGB_BACKLIGHT_MATRIX_COLORBAND_SAT_ENABLED,
+            BacklightEffect::ColorbandVal => D::RGB_BACKLIGHT_MATRIX_COLORBAND_VAL_ENABLED,
+            BacklightEffect::ColorbandPinWheelSat => {
+                D::RGB_BACKLIGHT_MATRIX_COLORBAND_PIN_WHEEL_SAT_ENABLED
+            }
+            BacklightEffect::ColorbandPinWheelVal => {
+                D::RGB_BACKLIGHT_MATRIX_COLORBAND_PIN_WHEEL_VAL_ENABLED
+            }
+            BacklightEffect::ColorbandSpiralSat => {
+                D::RGB_BACKLIGHT_MATRIX_COLORBAND_SPIRAL_SAT_ENABLED
+            }
+            BacklightEffect::ColorbandSpiralVal => {
+                D::RGB_BACKLIGHT_MATRIX_COLORBAND_SPIRAL_VAL_ENABLED
+            }
+            BacklightEffect::CycleAll => D::RGB_BACKLIGHT_MATRIX_CYCLE_ALL_ENABLED,
+            BacklightEffect::CycleLeftRight => D::RGB_BACKLIGHT_MATRIX_CYCLE_LEFT_RIGHT_ENABLED,
+            BacklightEffect::CycleUpDown => D::RGB_BACKLIGHT_MATRIX_CYCLE_UP_DOWN_ENABLED,
+            BacklightEffect::RainbowMovingChevron => {
+                D::RGB_BACKLIGHT_MATRIX_RAINBOW_MOVING_CHEVRON_ENABLED
+            }
+            BacklightEffect::CycleOutIn => D::RGB_BACKLIGHT_MATRIX_CYCLE_OUT_IN_ENABLED,
+            BacklightEffect::CycleOutInDual => D::RGB_BACKLIGHT_MATRIX_CYCLE_OUT_IN_DUAL_ENABLED,
+            BacklightEffect::CyclePinWheel => D::RGB_BACKLIGHT_MATRIX_CYCLE_PIN_WHEEL_ENABLED,
+            BacklightEffect::CycleSpiral => D::RGB_BACKLIGHT_MATRIX_CYCLE_SPIRAL_ENABLED,
+            BacklightEffect::DualBeacon => D::RGB_BACKLIGHT_MATRIX_DUAL_BEACON_ENABLED,
+            BacklightEffect::RainbowBeacon => D::RGB_BACKLIGHT_MATRIX_RAINBOW_BEACON_ENABLED,
+            BacklightEffect::RainbowPinWheels => D::RGB_BACKLIGHT_MATRIX_RAINBOW_PIN_WHEELS_ENABLED,
+            BacklightEffect::Raindrops => D::RGB_BACKLIGHT_MATRIX_RAINDROPS_ENABLED,
+            BacklightEffect::JellybeanRaindrops => {
+                D::RGB_BACKLIGHT_MATRIX_JELLYBEAN_RAINDROPS_ENABLED
+            }
+            BacklightEffect::HueBreathing => D::RGB_BACKLIGHT_MATRIX_HUE_BREATHING_ENABLED,
+            BacklightEffect::HuePendulum => D::RGB_BACKLIGHT_MATRIX_HUE_PENDULUM_ENABLED,
+            BacklightEffect::HueWave => D::RGB_BACKLIGHT_MATRIX_HUE_WAVE_ENABLED,
+            BacklightEffect::PixelRain => D::RGB_BACKLIGHT_MATRIX_PIXEL_RAIN_ENABLED,
+            BacklightEffect::PixelFlow => D::RGB_BACKLIGHT_MATRIX_PIXEL_FLOW_ENABLED,
+            BacklightEffect::PixelFractal => D::RGB_BACKLIGHT_MATRIX_PIXEL_FRACTAL_ENABLED,
+            BacklightEffect::TypingHeatmap => D::RGB_BACKLIGHT_MATRIX_TYPING_HEATMAP_ENABLED,
+            BacklightEffect::DigitalRain => D::RGB_BACKLIGHT_MATRIX_DIGITAL_RAIN_ENABLED,
+            BacklightEffect::SolidReactiveSimple => {
+                D::RGB_BACKLIGHT_MATRIX_SOLID_REACTIVE_SIMPLE_ENABLED
+            }
+            BacklightEffect::SolidReactive => D::RGB_BACKLIGHT_MATRIX_SOLID_REACTIVE_ENABLED,
+            BacklightEffect::SolidReactiveWide => {
+                D::RGB_BACKLIGHT_MATRIX_SOLID_REACTIVE_WIDE_ENABLED
+            }
+            BacklightEffect::SolidReactiveMultiWide => {
+                D::RGB_BACKLIGHT_MATRIX_SOLID_REACTIVE_MULTI_WIDE_ENABLED
+            }
+            BacklightEffect::SolidReactiveCross => {
+                D::RGB_BACKLIGHT_MATRIX_SOLID_REACTIVE_CROSS_ENABLED
+            }
+            BacklightEffect::SolidReactiveMultiCross => {
+                D::RGB_BACKLIGHT_MATRIX_SOLID_REACTIVE_MULTI_CROSS_ENABLED
+            }
+            BacklightEffect::SolidReactiveNexus => {
+                D::RGB_BACKLIGHT_MATRIX_SOLID_REACTIVE_NEXUS_ENABLED
+            }
+            BacklightEffect::SolidReactiveMultiNexus => {
+                D::RGB_BACKLIGHT_MATRIX_SOLID_REACTIVE_MULTI_NEXUS_ENABLED
+            }
+            BacklightEffect::Splash => D::RGB_BACKLIGHT_MATRIX_SPLASH_ENABLED,
+            BacklightEffect::MultiSplash => D::RGB_BACKLIGHT_MATRIX_MULTI_SPLASH_ENABLED,
+            BacklightEffect::SolidSplash => D::RGB_BACKLIGHT_MATRIX_SOLID_SPLASH_ENABLED,
+            BacklightEffect::SolidMultiSplash => D::RGB_BACKLIGHT_MATRIX_SOLID_MULTI_SPLASH_ENABLED,
+            #[cfg(feature = "vial")]
+            BacklightEffect::DirectSet => D::RGB_BACKLIGHT_MATRIX_DIRECT_SET_ENABLED,
         }
     }
 }

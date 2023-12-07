@@ -33,4 +33,3 @@ pub fn sin(theta: u8) -> u8 {
 pub fn cos(r: u8) -> u8 {
     sin(r.wrapping_add(64))
 }
-

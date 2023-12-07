@@ -153,21 +153,20 @@ pub mod drivers;
 pub mod tasks {
     pub use crate::keyboard::{__layout_collect_task, __matrix_poll_task};
 
-    #[cfg(any(
-        feature = "simple-backlight",
-        feature = "simple-backlight-matrix",
-        feature = "rgb-backlight-matrix"
-    ))]
-    pub use crate::backlight::__backlight_task_task;
-    #[cfg(all(
-        any(
-            feature = "simple-backlight",
-            feature = "simple-backlight-matrix",
-            feature = "rgb-backlight-matrix"
-        ),
-        feature = "storage"
-    ))]
-    pub use crate::backlight::storage::__backlight_storage_task_task;
+    #[cfg(feature = "simple-backlight")]
+    pub use crate::backlight::simple_backlight::__simple_backlight_task_task;
+    #[cfg(all(feature = "storage", feature = "simple-backlight"))]
+    pub use crate::backlight::simple_backlight::storage::__simple_backlight_storage_task_task;
+
+    #[cfg(feature = "simple-backlight-matrix")]
+    pub use crate::backlight::simple_backlight_matrix::__simple_backlight_matrix_task_task;
+    #[cfg(all(feature = "storage", feature = "simple-backlight-matrix"))]
+    pub use crate::backlight::simple_backlight_matrix::storage::__simple_backlight_matrix_storage_task_task;
+
+    #[cfg(feature = "rgb-backlight-matrix")]
+    pub use crate::backlight::rgb_backlight_matrix::__rgb_backlight_matrix_task_task;
+    #[cfg(all(feature = "storage", feature = "rgb-backlight-matrix"))]
+    pub use crate::backlight::rgb_backlight_matrix::storage::__rgb_backlight_matrix_storage_task_task;
 
     #[cfg(feature = "underglow")]
     pub use crate::underglow::__underglow_task_task;

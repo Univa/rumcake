@@ -9,6 +9,8 @@ edition = "2021"
 features = [
   "drivers",
   "storage",
+  "simple-backlight",
+  "simple-backlight-matrix",
   "rgb-backlight-matrix",
   "underglow",
   "usb",

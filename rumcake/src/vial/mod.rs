@@ -87,7 +87,7 @@ macro_rules! enable_vial_rgb {
 }
 
 /// Channel used to update the frame buffer for the
-/// [`crate::backlight::animations::BacklightEffect::DirectSet`] effect.
+/// [`crate::backlight::rgb_backlight_matrix::animations::BacklightEffect::DirectSet`] effect.
 pub(crate) static VIAL_DIRECT_SET_CHANNEL: Channel<ThreadModeRawMutex, (u8, RGB8), 4> =
     Channel::new();
 

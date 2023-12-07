@@ -158,9 +158,9 @@ enum QMKBacklightEffects {
 
 #[cfg(feature = "simple-backlight")]
 pub(crate) fn convert_backlight_effect_to_qmk_id(
-    effect: crate::backlight::animations::BacklightEffect,
+    effect: crate::backlight::simple_backlight::animations::BacklightEffect,
 ) -> u8 {
-    use crate::backlight::animations::BacklightEffect;
+    use crate::backlight::simple_backlight::animations::BacklightEffect;
     match effect {
         BacklightEffect::Solid => QMKBacklightEffects::Solid as u8,
         BacklightEffect::Breathing => QMKBacklightEffects::Breathing as u8,
@@ -171,8 +171,8 @@ pub(crate) fn convert_backlight_effect_to_qmk_id(
 #[cfg(feature = "simple-backlight")]
 pub(crate) fn convert_qmk_id_to_backlight_effect(
     id: u8,
-) -> Option<crate::backlight::animations::BacklightEffect> {
-    use crate::backlight::animations::BacklightEffect;
+) -> Option<crate::backlight::simple_backlight::animations::BacklightEffect> {
+    use crate::backlight::simple_backlight::animations::BacklightEffect;
     match num::FromPrimitive::from_u8(id) as Option<QMKBacklightEffects> {
         Some(effect) => match effect {
             QMKBacklightEffects::Solid => Some(BacklightEffect::Solid),

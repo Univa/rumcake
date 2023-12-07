@@ -28,30 +28,34 @@ fn get_hashed_key(key: &[u8]) -> u64 {
     hasher.finish()
 }
 
-/// Keys for data to be stored in the database. The order of existing keys should not change.
+/// Keys for data to be stored in the database.
 #[derive(Debug, FromPrimitive, Copy, Clone)]
 #[repr(u8)]
 pub enum StorageKey {
-    /// Key to store [`crate::backlight::animations::BacklightConfig`].
-    BacklightConfig,
+    /// Key to store [`crate::backlight::simple_backlight::animations::BacklightConfig`].
+    SimpleBacklightConfig = 0x00,
+    /// Key to store [`crate::backlight::simple_backlight_matrix::animations::BacklightConfig`].
+    SimpleBacklightMatrixConfig = 0x01,
+    /// Key to store [`crate::backlight::rgb_backlight_matrix::animations::BacklightConfig`].
+    RGBBacklightMatrixConfig = 0x02,
     /// Key to store [`crate::underglow::animations::UnderglowConfig`].
-    UnderglowConfig,
+    UnderglowConfig = 0x10,
     /// Key to store bluetooth profiles, used by the `nrf-ble` implementation of bluetooth host communication.
-    BluetoothProfiles,
+    BluetoothProfiles = 0x20,
     /// Key to store the currently set Via layout option.
-    LayoutOptions,
+    LayoutOptions = 0x30,
     /// Key to store the current state of the Via dynamic keyboard layout.
-    DynamicKeymap,
+    DynamicKeymap = 0x31,
     /// Key to store the current state of the encoders in the Via dynamic keyboard layout.
-    DynamicKeymapEncoder,
+    DynamicKeymapEncoder = 0x32,
     /// Key to store the current state of the macros in the Via dynamic keyboard layout.
-    DynamicKeymapMacro,
+    DynamicKeymapMacro = 0x33,
     /// Key to store the current state of the tap dance keys in the Vial dynamic keyboard layout.
-    DynamicKeymapTapDance,
+    DynamicKeymapTapDance = 0x40,
     /// Key to store the current state of the combo keys in the Vial dynamic keyboard layout.
-    DynamicKeymapCombo,
+    DynamicKeymapCombo = 0x41,
     /// Key to store the current state of the key overrides in the Vial dynamic keyboard layout.
-    DynamicKeymapKeyOverride,
+    DynamicKeymapKeyOverride = 0x42,
 }
 
 #[repr(u8)]

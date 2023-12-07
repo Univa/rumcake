@@ -6,10 +6,13 @@
 //! [`drivers::SimpleBacklightDriver`], [`drivers::SimpleBacklightMatrixDriver`] or
 //! [`drivers::RGBBacklightMatrixDriver`], depending on the desired type of backlighting.
 
-#[cfg(any(
-    all(feature = "simple-backlight", feature = "simple-backlight-matrix"),
-    all(feature = "simple-backlight", feature = "rgb-backlight-matrix"),
-    all(feature = "simple-backlight-matrix", feature = "rgb-backlight-matrix")
+#[cfg(all(
+    any(
+        all(feature = "simple-backlight", feature = "simple-backlight-matrix"),
+        all(feature = "simple-backlight", feature = "rgb-backlight-matrix"),
+        all(feature = "simple-backlight-matrix", feature = "rgb-backlight-matrix")
+    ),
+    not(doc)
 ))]
 compile_error!("Exactly one of `simple-backlight`, `simple-backlight-matrix`, `rgb-backlight-matrix` must be enabled at a time. Please choose the one that you want to use.");
 
@@ -24,30 +27,6 @@ use crate::{LEDEffect, State};
 
 pub mod drivers;
 
-#[cfg(feature = "simple-backlight")]
-pub mod simple_animations;
-#[cfg(feature = "simple-backlight")]
-pub use simple_animations as animations;
-
-#[cfg(feature = "simple-backlight-matrix")]
-pub mod simple_matrix_animations;
-#[cfg(feature = "simple-backlight-matrix")]
-pub use simple_matrix_animations as animations;
-
-#[cfg(feature = "rgb-backlight-matrix")]
-pub mod rgb_matrix_animations;
-#[cfg(feature = "rgb-backlight-matrix")]
-pub use rgb_matrix_animations as animations;
-
-#[cfg(any(
-    feature = "simple-backlight",
-    feature = "simple-backlight-matrix",
-    feature = "rgb-backlight-matrix"
-))]
-use self::animations::{
-    backlight_effect_items, BacklightAnimator, BacklightCommand, BacklightConfig,
-};
-
 /// A trait that keyboards must implement to use backlight features.
 pub trait BacklightDevice {
     /// How fast the LEDs refresh to display a new animation frame.
@@ -58,12 +37,14 @@ pub trait BacklightDevice {
     /// **This does not have any effect if the selected animation is static.**
     const FPS: usize = 20;
 
-    #[cfg(any(
-        feature = "simple-backlight",
-        feature = "simple-backlight-matrix",
-        feature = "rgb-backlight-matrix"
-    ))]
-    backlight_effect_items!();
+    #[cfg(feature = "simple-backlight")]
+    simple_backlight::animations::backlight_effect_items!();
+
+    #[cfg(feature = "simple-backlight-matrix")]
+    simple_backlight_matrix::animations::backlight_effect_items!();
+
+    #[cfg(feature = "rgb-backlight-matrix")]
+    rgb_backlight_matrix::animations::backlight_effect_items!();
 }
 
 /// Struct that contains information about a lighting matrix of a given size. Includes information
@@ -232,37 +213,10 @@ bitflags! {
     }
 }
 
-#[cfg(any(
-    feature = "simple-backlight",
-    feature = "simple-backlight-matrix",
-    feature = "rgb-backlight-matrix"
-))]
-/// Channel for sending backlight commands.
-///
-/// Channel messages should be consumed by the [`backlight_task`], so user-level
-/// level code should **not** attempt to receive messages from the channel, otherwise
-/// commands may not be processed appropriately. You should only send to this channel.
-pub static BACKLIGHT_COMMAND_CHANNEL: Channel<ThreadModeRawMutex, BacklightCommand, 2> =
-    Channel::new();
-
-#[cfg(any(
-    feature = "simple-backlight",
-    feature = "simple-backlight-matrix",
-    feature = "rgb-backlight-matrix"
-))]
-/// State that contains the current configuration for the backlight animator.
-pub static BACKLIGHT_CONFIG_STATE: State<BacklightConfig> = State::new(
-    BacklightConfig::default(),
-    &[
-        #[cfg(feature = "storage")]
-        &storage::BACKLIGHT_CONFIG_STATE_LISTENER,
-    ],
-);
-
 macro_rules! backlight_task_fn {
-    ($gen:ident: $backlight_trait:tt $(+ $other_bounds:tt)*, $driver_type:ty $(, where $($wc:tt)+)?) => {
+    ($name:tt, $gen:ident: $backlight_trait:tt $(+ $other_bounds:tt)*, $driver_type:ty $(, where $($wc:tt)+)?) => {
         #[rumcake_macros::task]
-        pub async fn backlight_task<$gen: $backlight_trait $(+ $other_bounds)*>(
+        pub async fn $name<$gen: $backlight_trait $(+ $other_bounds)*>(
             _k: $gen,
             driver: $driver_type,
         ) $(where $($wc)+)?
@@ -284,44 +238,14 @@ macro_rules! backlight_task_fn {
                     // We want to wait for a command if the animator is not rendering any animated effects. This allows the task to sleep when the LEDs are static.
                     Some(BACKLIGHT_COMMAND_CHANNEL.receive().await)
                 } else {
-                    #[cfg(not(all(feature = "vial", feature = "rgb-backlight-matrix")))]
-                    match select::select(ticker.next(), BACKLIGHT_COMMAND_CHANNEL.receive()).await {
-                        select::Either::First(()) => {
-                            while let Some(event) = subscriber.try_next_message_pure() {
-                                if animator.config.enabled && animator.config.effect.is_reactive() {
-                                    animator.register_event(event);
-                                }
-                            }
-
-                            None
-                        }
-                        select::Either::Second(command) => Some(command),
+                    #[cfg(feature = "vial")]
+                    {
+                        backlight_task_fn!(true, $name, $gen, animator, subscriber, ticker)
                     }
 
-                    #[cfg(all(feature = "vial", feature = "rgb-backlight-matrix"))]
-                    match select::select3(
-                        ticker.next(),
-                        BACKLIGHT_COMMAND_CHANNEL.receive(),
-                        crate::vial::VIAL_DIRECT_SET_CHANNEL.receive(),
-                    )
-                    .await
+                    #[cfg(not(feature = "vial"))]
                     {
-                        select::Either3::First(()) => {
-                            while let Some(event) = subscriber.try_next_message_pure() {
-                                if animator.config.enabled && animator.config.effect.is_reactive() {
-                                    animator.register_event(event);
-                                }
-                            }
-
-                            None
-                        }
-                        select::Either3::Second(command) => Some(command),
-                        select::Either3::Third((led, color)) => {
-                            let col = led as usize % $gen::LIGHTING_COLS;
-                            let row = led as usize / $gen::LIGHTING_COLS % $gen::LIGHTING_ROWS;
-                            animator.buf[row][col] = color;
-                            continue;
-                        }
+                        backlight_task_fn!(false, $name, $gen, animator, subscriber, ticker)
                     }
                 };
 
@@ -353,39 +277,7 @@ macro_rules! backlight_task_fn {
                     // Send commands to be consumed by the split peripherals
                     #[cfg(feature = "split-central")]
                     {
-                        crate::split::central::MESSAGE_TO_PERIPHERALS
-                            .send(crate::split::MessageToPeripheral::Backlight(
-                                BacklightCommand::ResetTime,
-                            ))
-                            .await;
-                        crate::split::central::MESSAGE_TO_PERIPHERALS
-                            .send(crate::split::MessageToPeripheral::Backlight(
-                                BacklightCommand::SetEffect(animator.config.effect),
-                            ))
-                            .await;
-                        crate::split::central::MESSAGE_TO_PERIPHERALS
-                            .send(crate::split::MessageToPeripheral::Backlight(
-                                BacklightCommand::SetValue(animator.config.val),
-                            ))
-                            .await;
-                        crate::split::central::MESSAGE_TO_PERIPHERALS
-                            .send(crate::split::MessageToPeripheral::Backlight(
-                                BacklightCommand::SetSpeed(animator.config.speed),
-                            ))
-                            .await;
-
-                        #[cfg(feature = "rgb-backlight-matrix")]
-                        crate::split::central::MESSAGE_TO_PERIPHERALS
-                            .send(crate::split::MessageToPeripheral::Backlight(
-                                BacklightCommand::SetHue(animator.config.hue),
-                            ))
-                            .await;
-                        #[cfg(feature = "rgb-backlight-matrix")]
-                        crate::split::central::MESSAGE_TO_PERIPHERALS
-                            .send(crate::split::MessageToPeripheral::Backlight(
-                                BacklightCommand::SetSaturation(animator.config.sat),
-                            ))
-                            .await;
+                        sync_to_peripherals(&animator).await;
                     }
 
                     // Ignore any unprocessed matrix events
@@ -399,144 +291,358 @@ macro_rules! backlight_task_fn {
             }
         }
     };
+    (true, rgb_backlight_matrix_task, $gen:ident, $animator:ident, $subscriber:ident, $ticker:ident) => {
+        match select::select3(
+            $ticker.next(),
+            BACKLIGHT_COMMAND_CHANNEL.receive(),
+            crate::vial::VIAL_DIRECT_SET_CHANNEL.receive(),
+        )
+        .await
+        {
+            select::Either3::First(()) => {
+                while let Some(event) = $subscriber.try_next_message_pure() {
+                    if $animator.config.enabled && $animator.config.effect.is_reactive() {
+                        $animator.register_event(event);
+                    }
+                }
+
+                None
+            }
+            select::Either3::Second(command) => Some(command),
+            select::Either3::Third((led, color)) => {
+                let col = led as usize % $gen::LIGHTING_COLS;
+                let row = led as usize / $gen::LIGHTING_COLS % $gen::LIGHTING_ROWS;
+                $animator.buf[row][col] = color;
+                continue;
+            }
+        }
+    };
+    ($vial_enabled:literal, $name:tt, $gen:ident, $animator:ident, $subscriber:ident, $ticker:ident) => {
+        match select::select($ticker.next(), BACKLIGHT_COMMAND_CHANNEL.receive()).await {
+            select::Either::First(()) => {
+                while let Some(event) = $subscriber.try_next_message_pure() {
+                    if $animator.config.enabled && $animator.config.effect.is_reactive() {
+                        $animator.register_event(event);
+                    }
+                }
+
+                None
+            }
+            select::Either::Second(command) => Some(command),
+        }
+    };
+}
+
+macro_rules! backlight_module {
+    () => {
+        use crate::keyboard::MATRIX_EVENTS;
+        use crate::{LEDEffect, State};
+        use embassy_futures::select;
+        use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+        use embassy_sync::channel::Channel;
+        use embassy_time::{Duration, Ticker};
+
+        pub mod animations;
+
+        use animations::{
+            backlight_effect_items, BacklightAnimator, BacklightCommand, BacklightConfig,
+        };
+
+        /// Channel for sending backlight commands.
+        ///
+        /// Channel messages should be consumed by the [`backlight_task`], so user-level
+        /// level code should **not** attempt to receive messages from the channel, otherwise
+        /// commands may not be processed appropriately. You should only send to this channel.
+        pub static BACKLIGHT_COMMAND_CHANNEL: Channel<ThreadModeRawMutex, BacklightCommand, 2> =
+            Channel::new();
+
+        /// State that contains the current configuration for the backlight animator.
+        pub static BACKLIGHT_CONFIG_STATE: State<BacklightConfig> = State::new(
+            BacklightConfig::default(),
+            &[
+                #[cfg(feature = "storage")]
+                &storage::BACKLIGHT_CONFIG_STATE_LISTENER,
+            ],
+        );
+    };
+}
+
+macro_rules! storage_module {
+    () => {
+        use core::any::TypeId;
+
+        use defmt::{info, warn, Debug2Format};
+        use embassy_futures::select;
+        use embassy_futures::select::Either;
+        use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+        use embassy_sync::signal::Signal;
+        use embassy_time::Duration;
+        use embassy_time::Timer;
+        use embedded_storage_async::nor_flash::NorFlash;
+        use postcard::experimental::max_size::MaxSize;
+
+        use super::BacklightConfig;
+        use super::BACKLIGHT_CONFIG_STATE;
+
+        pub(super) static BACKLIGHT_CONFIG_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> =
+            Signal::new();
+
+        static mut BACKLIGHT_STORAGE_STATE: crate::storage::StorageServiceState<
+            { core::mem::size_of::<TypeId>() },
+            { BacklightConfig::POSTCARD_MAX_SIZE },
+        > = crate::storage::StorageServiceState::new();
+
+        pub(super) static BACKLIGHT_SAVE_SIGNAL: Signal<ThreadModeRawMutex, ()> = Signal::new();
+    };
+}
+
+macro_rules! storage_task_fn {
+    ($name:tt, $key:ident) => {
+        #[rumcake_macros::task]
+        pub async fn $name<F: NorFlash>(
+            database: &'static crate::storage::Database<'static, F>,
+        ) where
+            [(); F::ERASE_SIZE]:,
+        {
+            {
+                let mut database = database.lock().await;
+
+                // Check stored backlight config metadata (type id) to see if it has changed
+                let metadata: [u8; core::mem::size_of::<TypeId>()] =
+                    unsafe { core::mem::transmute(TypeId::of::<BacklightConfig>()) };
+                let _ = database
+                    .initialize(
+                        unsafe { &mut BACKLIGHT_STORAGE_STATE },
+                        crate::storage::StorageKey::$key,
+                        &metadata,
+                    )
+                    .await;
+
+                // Get backlight config from storage
+                if let Ok(config) = database
+                    .read(
+                        unsafe { &mut BACKLIGHT_STORAGE_STATE },
+                        crate::storage::StorageKey::$key,
+                    )
+                    .await
+                {
+                    info!(
+                        "[BACKLIGHT] Obtained backlight config from storage: {}",
+                        Debug2Format(&config)
+                    );
+                    // Quietly update the config state so that we don't save the config to storage again
+                    BACKLIGHT_CONFIG_STATE.quiet_set(config).await;
+                } else {
+                    warn!("[BACKLIGHT] Could not get backlight config from storage, using default config.",);
+                };
+            }
+
+            let save = || async {
+                let _ = database
+                    .lock()
+                    .await
+                    .write(
+                        unsafe { &mut BACKLIGHT_STORAGE_STATE },
+                        crate::storage::StorageKey::$key,
+                        BACKLIGHT_CONFIG_STATE.get().await,
+                    )
+                    .await;
+            };
+
+            // Save the backlight config if it hasn't been changed in 5 seconds, or if a save was signalled
+            loop {
+                match select::select(
+                    BACKLIGHT_SAVE_SIGNAL.wait(),
+                    BACKLIGHT_CONFIG_STATE_LISTENER.wait(),
+                )
+                .await
+                {
+                    Either::First(_) => {
+                        save().await;
+                    }
+                    Either::Second(_) => {
+                        match select::select(
+                            select::select(
+                                Timer::after(Duration::from_secs(5)),
+                                BACKLIGHT_SAVE_SIGNAL.wait(),
+                            ),
+                            BACKLIGHT_CONFIG_STATE_LISTENER.wait(),
+                        )
+                        .await
+                        {
+                            Either::First(_) => {
+                                save().await;
+                            }
+                            Either::Second(_) => {
+                                // Re-signal, so that we skip the `wait()` call at the beginning of this loop
+                                BACKLIGHT_CONFIG_STATE_LISTENER.signal(());
+                            }
+                        }
+                    }
+                };
+            }
+        }
+    }
 }
 
 #[cfg(feature = "simple-backlight")]
-backlight_task_fn!(
-    D: BacklightDevice + 'static,
-    impl drivers::SimpleBacklightDriver<D> + 'static
-);
+pub mod simple_backlight {
+    use super::drivers::SimpleBacklightDriver;
+    use super::BacklightDevice;
+
+    #[cfg(feature = "split-central")]
+    async fn sync_to_peripherals<K: BacklightDevice>(
+        animator: &animations::BacklightAnimator<K, impl SimpleBacklightDriver<K>>,
+    ) {
+        crate::split::central::MESSAGE_TO_PERIPHERALS
+            .send(crate::split::MessageToPeripheral::SimpleBacklight(
+                BacklightCommand::ResetTime,
+            ))
+            .await;
+        crate::split::central::MESSAGE_TO_PERIPHERALS
+            .send(crate::split::MessageToPeripheral::SimpleBacklight(
+                BacklightCommand::SetEffect(animator.config.effect),
+            ))
+            .await;
+        crate::split::central::MESSAGE_TO_PERIPHERALS
+            .send(crate::split::MessageToPeripheral::SimpleBacklight(
+                BacklightCommand::SetValue(animator.config.val),
+            ))
+            .await;
+        crate::split::central::MESSAGE_TO_PERIPHERALS
+            .send(crate::split::MessageToPeripheral::SimpleBacklight(
+                BacklightCommand::SetSpeed(animator.config.speed),
+            ))
+            .await;
+    }
+
+    backlight_module!();
+
+    backlight_task_fn!(
+        simple_backlight_task,
+        D: BacklightDevice + 'static,
+        impl SimpleBacklightDriver<D> + 'static
+    );
+
+    #[cfg(feature = "storage")]
+    pub mod storage {
+        storage_module!();
+
+        storage_task_fn!(simple_backlight_storage_task, SimpleBacklightConfig);
+    }
+}
 
 #[cfg(feature = "simple-backlight-matrix")]
-backlight_task_fn!(
-    D: BacklightMatrixDevice + 'static,
-    impl drivers::SimpleBacklightMatrixDriver<D> + 'static,
-    where [(); D::LIGHTING_COLS]:, [(); D::LIGHTING_ROWS]:,
-);
+pub mod simple_backlight_matrix {
+    use super::drivers::SimpleBacklightMatrixDriver;
+    use super::BacklightMatrixDevice;
+
+    #[cfg(feature = "split-central")]
+    async fn sync_to_peripherals<K: BacklightMatrixDevice>(
+        animator: &animations::BacklightAnimator<K, impl SimpleBacklightMatrixDriver<K>>,
+    ) where
+        [(); K::LIGHTING_COLS]:,
+        [(); K::LIGHTING_ROWS]:,
+    {
+        crate::split::central::MESSAGE_TO_PERIPHERALS
+            .send(crate::split::MessageToPeripheral::SimpleBacklightMatrix(
+                BacklightCommand::ResetTime,
+            ))
+            .await;
+        crate::split::central::MESSAGE_TO_PERIPHERALS
+            .send(crate::split::MessageToPeripheral::SimpleBacklightMatrix(
+                BacklightCommand::SetEffect(animator.config.effect),
+            ))
+            .await;
+        crate::split::central::MESSAGE_TO_PERIPHERALS
+            .send(crate::split::MessageToPeripheral::SimpleBacklightMatrix(
+                BacklightCommand::SetValue(animator.config.val),
+            ))
+            .await;
+        crate::split::central::MESSAGE_TO_PERIPHERALS
+            .send(crate::split::MessageToPeripheral::SimpleBacklightMatrix(
+                BacklightCommand::SetSpeed(animator.config.speed),
+            ))
+            .await;
+    }
+
+    backlight_module!();
+
+    backlight_task_fn!(
+        simple_backlight_matrix_task,
+        D: BacklightMatrixDevice + 'static,
+        impl SimpleBacklightMatrixDriver<D> + 'static,
+        where [(); D::LIGHTING_COLS]:, [(); D::LIGHTING_ROWS]:,
+    );
+
+    #[cfg(feature = "storage")]
+    pub mod storage {
+        storage_module!();
+
+        storage_task_fn!(
+            simple_backlight_matrix_storage_task,
+            SimpleBacklightMatrixConfig
+        );
+    }
+}
 
 #[cfg(feature = "rgb-backlight-matrix")]
-backlight_task_fn!(
-    D: BacklightMatrixDevice + 'static,
-    impl drivers::RGBBacklightMatrixDriver<D> + 'static,
-    where [(); D::LIGHTING_COLS]:, [(); D::LIGHTING_ROWS]:,
-);
+pub mod rgb_backlight_matrix {
+    use super::drivers::RGBBacklightMatrixDriver;
+    use super::BacklightMatrixDevice;
 
-#[cfg(all(
-    feature = "storage",
-    any(
-        feature = "simple-backlight",
-        feature = "simple-backlight-matrix",
-        feature = "rgb-backlight-matrix"
-    )
-))]
-pub mod storage {
-    use core::any::TypeId;
-
-    use defmt::{info, warn, Debug2Format};
-    use embassy_futures::select;
-    use embassy_futures::select::Either;
-    use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-    use embassy_sync::signal::Signal;
-    use embassy_time::Duration;
-    use embassy_time::Timer;
-    use embedded_storage_async::nor_flash::NorFlash;
-    use postcard::experimental::max_size::MaxSize;
-
-    use super::BacklightConfig;
-    use super::BACKLIGHT_CONFIG_STATE;
-
-    pub(super) static BACKLIGHT_CONFIG_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> =
-        Signal::new();
-
-    static mut BACKLIGHT_STORAGE_STATE: crate::storage::StorageServiceState<
-        { core::mem::size_of::<TypeId>() },
-        { BacklightConfig::POSTCARD_MAX_SIZE },
-    > = crate::storage::StorageServiceState::new();
-
-    pub(super) static BACKLIGHT_SAVE_SIGNAL: Signal<ThreadModeRawMutex, ()> = Signal::new();
-
-    #[rumcake_macros::task]
-    pub async fn backlight_storage_task<F: NorFlash>(
-        database: &'static crate::storage::Database<'static, F>,
+    #[cfg(feature = "split-central")]
+    async fn sync_to_peripherals<K: BacklightMatrixDevice>(
+        animator: &animations::BacklightAnimator<K, impl RGBBacklightMatrixDriver<K>>,
     ) where
-        [(); F::ERASE_SIZE]:,
+        [(); K::LIGHTING_COLS]:,
+        [(); K::LIGHTING_ROWS]:,
     {
-        {
-            let mut database = database.lock().await;
+        crate::split::central::MESSAGE_TO_PERIPHERALS
+            .send(crate::split::MessageToPeripheral::RGBBacklightMatrix(
+                BacklightCommand::ResetTime,
+            ))
+            .await;
+        crate::split::central::MESSAGE_TO_PERIPHERALS
+            .send(crate::split::MessageToPeripheral::RGBBacklightMatrix(
+                BacklightCommand::SetEffect(animator.config.effect),
+            ))
+            .await;
+        crate::split::central::MESSAGE_TO_PERIPHERALS
+            .send(crate::split::MessageToPeripheral::RGBBacklightMatrix(
+                BacklightCommand::SetValue(animator.config.val),
+            ))
+            .await;
+        crate::split::central::MESSAGE_TO_PERIPHERALS
+            .send(crate::split::MessageToPeripheral::RGBBacklightMatrix(
+                BacklightCommand::SetSpeed(animator.config.speed),
+            ))
+            .await;
+        crate::split::central::MESSAGE_TO_PERIPHERALS
+            .send(crate::split::MessageToPeripheral::RGBBacklightMatrix(
+                BacklightCommand::SetHue(animator.config.hue),
+            ))
+            .await;
+        crate::split::central::MESSAGE_TO_PERIPHERALS
+            .send(crate::split::MessageToPeripheral::RGBBacklightMatrix(
+                BacklightCommand::SetSaturation(animator.config.sat),
+            ))
+            .await;
+    }
 
-            // Check stored backlight config metadata (type id) to see if it has changed
-            let metadata: [u8; core::mem::size_of::<TypeId>()] =
-                unsafe { core::mem::transmute(TypeId::of::<BacklightConfig>()) };
-            let _ = database
-                .initialize(
-                    unsafe { &mut BACKLIGHT_STORAGE_STATE },
-                    crate::storage::StorageKey::BacklightConfig,
-                    &metadata,
-                )
-                .await;
+    backlight_module!();
 
-            // Get backlight config from storage
-            if let Ok(config) = database
-                .read(
-                    unsafe { &mut BACKLIGHT_STORAGE_STATE },
-                    crate::storage::StorageKey::BacklightConfig,
-                )
-                .await
-            {
-                info!(
-                    "[BACKLIGHT] Obtained backlight config from storage: {}",
-                    Debug2Format(&config)
-                );
-                // Quietly update the config state so that we don't save the config to storage again
-                BACKLIGHT_CONFIG_STATE.quiet_set(config).await;
-            } else {
-                warn!("[BACKLIGHT] Could not get backlight config from storage, using default config.",);
-            };
-        }
+    backlight_task_fn!(
+        rgb_backlight_matrix_task,
+        D: BacklightMatrixDevice + 'static,
+        impl RGBBacklightMatrixDriver<D> + 'static,
+        where [(); D::LIGHTING_COLS]:, [(); D::LIGHTING_ROWS]:,
+    );
 
-        let save = || async {
-            let _ = database
-                .lock()
-                .await
-                .write(
-                    unsafe { &mut BACKLIGHT_STORAGE_STATE },
-                    crate::storage::StorageKey::BacklightConfig,
-                    BACKLIGHT_CONFIG_STATE.get().await,
-                )
-                .await;
-        };
+    #[cfg(feature = "storage")]
+    pub mod storage {
+        storage_module!();
 
-        // Save the backlight config if it hasn't been changed in 5 seconds, or if a save was signalled
-        loop {
-            match select::select(
-                BACKLIGHT_SAVE_SIGNAL.wait(),
-                BACKLIGHT_CONFIG_STATE_LISTENER.wait(),
-            )
-            .await
-            {
-                Either::First(_) => {
-                    save().await;
-                }
-                Either::Second(_) => {
-                    match select::select(
-                        select::select(
-                            Timer::after(Duration::from_secs(5)),
-                            BACKLIGHT_SAVE_SIGNAL.wait(),
-                        ),
-                        BACKLIGHT_CONFIG_STATE_LISTENER.wait(),
-                    )
-                    .await
-                    {
-                        Either::First(_) => {
-                            save().await;
-                        }
-                        Either::Second(_) => {
-                            // Re-signal, so that we skip the `wait()` call at the beginning of this loop
-                            BACKLIGHT_CONFIG_STATE_LISTENER.signal(());
-                        }
-                    }
-                }
-            };
-        }
+        storage_task_fn!(rgb_backlight_matrix_storage_task, RGBBacklightMatrixConfig);
     }
 }

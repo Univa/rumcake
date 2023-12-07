@@ -27,13 +27,21 @@ pub async fn peripheral_task<K: KeyboardMatrix>(_k: K, mut driver: impl Peripher
         {
             Either::First(message) => match message {
                 Ok(message) => match message {
-                    #[cfg(any(
-                        feature = "simple-backlight",
-                        feature = "simple-backlight-matrix",
-                        feature = "rgb-backlight-matrix"
-                    ))]
-                    MessageToPeripheral::Backlight(command) => {
-                        crate::backlight::BACKLIGHT_COMMAND_CHANNEL
+                    #[cfg(feature = "simple-backlight")]
+                    MessageToPeripheral::SimpleBacklight(command) => {
+                        crate::backlight::simple_backlight::BACKLIGHT_COMMAND_CHANNEL
+                            .send(command)
+                            .await
+                    }
+                    #[cfg(feature = "simple-backlight-matrix")]
+                    MessageToPeripheral::SimpleBacklightMatrix(command) => {
+                        crate::backlight::simple_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
+                            .send(command)
+                            .await
+                    }
+                    #[cfg(feature = "rgb-backlight-matrix")]
+                    MessageToPeripheral::RGBBacklightMatrix(command) => {
+                        crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
                             .send(command)
                             .await
                     }

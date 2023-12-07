@@ -1,5 +1,5 @@
-use super::drivers::SimpleBacklightMatrixDriver;
-use super::{
+use crate::backlight::drivers::SimpleBacklightMatrixDriver;
+use crate::backlight::{
     get_led_layout_bounds, BacklightDevice, BacklightMatrixDevice, LEDFlags, LayoutBounds,
 };
 use crate::math::{atan2f, cos, scale, sin, sqrtf};
@@ -61,7 +61,9 @@ pub enum BacklightCommand {
     ResetTime, // normally used internally for syncing LEDs for split keyboards
 }
 
-#[generate_items_from_enum_variants("const {variant_shouty_snake_case}_ENABLED: bool = true")]
+#[generate_items_from_enum_variants(
+    "const SIMPLE_BACKLIGHT_MATRIX_{variant_shouty_snake_case}_ENABLED: bool = true"
+)]
 #[derive(
     FromPrimitive,
     Serialize,
@@ -138,31 +140,33 @@ pub enum BacklightEffect {
 impl BacklightEffect {
     pub(crate) fn is_enabled<D: BacklightDevice>(&self) -> bool {
         match self {
-            BacklightEffect::Solid => D::SOLID_ENABLED,
-            BacklightEffect::AlphasMods => D::ALPHAS_MODS_ENABLED,
-            BacklightEffect::GradientUpDown => D::GRADIENT_UP_DOWN_ENABLED,
-            BacklightEffect::GradientLeftRight => D::GRADIENT_LEFT_RIGHT_ENABLED,
-            BacklightEffect::Breathing => D::BREATHING_ENABLED,
-            BacklightEffect::Band => D::BAND_ENABLED,
-            BacklightEffect::BandPinWheel => D::BAND_PIN_WHEEL_ENABLED,
-            BacklightEffect::BandSpiral => D::BAND_SPIRAL_ENABLED,
-            BacklightEffect::CycleLeftRight => D::CYCLE_LEFT_RIGHT_ENABLED,
-            BacklightEffect::CycleUpDown => D::CYCLE_UP_DOWN_ENABLED,
-            BacklightEffect::CycleOutIn => D::CYCLE_OUT_IN_ENABLED,
-            BacklightEffect::Raindrops => D::RAINDROPS_ENABLED,
-            BacklightEffect::DualBeacon => D::DUAL_BEACON_ENABLED,
-            BacklightEffect::WaveLeftRight => D::WAVE_LEFT_RIGHT_ENABLED,
-            BacklightEffect::WaveUpDown => D::WAVE_UP_DOWN_ENABLED,
-            BacklightEffect::Reactive => D::REACTIVE_ENABLED,
-            BacklightEffect::ReactiveWide => D::REACTIVE_WIDE_ENABLED,
-            BacklightEffect::ReactiveCross => D::REACTIVE_CROSS_ENABLED,
-            BacklightEffect::ReactiveNexus => D::REACTIVE_NEXUS_ENABLED,
-            BacklightEffect::ReactiveSplash => D::REACTIVE_SPLASH_ENABLED,
+            BacklightEffect::Solid => D::SIMPLE_BACKLIGHT_MATRIX_SOLID_ENABLED,
+            BacklightEffect::AlphasMods => D::SIMPLE_BACKLIGHT_MATRIX_ALPHAS_MODS_ENABLED,
+            BacklightEffect::GradientUpDown => D::SIMPLE_BACKLIGHT_MATRIX_GRADIENT_UP_DOWN_ENABLED,
+            BacklightEffect::GradientLeftRight => {
+                D::SIMPLE_BACKLIGHT_MATRIX_GRADIENT_LEFT_RIGHT_ENABLED
+            }
+            BacklightEffect::Breathing => D::SIMPLE_BACKLIGHT_MATRIX_BREATHING_ENABLED,
+            BacklightEffect::Band => D::SIMPLE_BACKLIGHT_MATRIX_BAND_ENABLED,
+            BacklightEffect::BandPinWheel => D::SIMPLE_BACKLIGHT_MATRIX_BAND_PIN_WHEEL_ENABLED,
+            BacklightEffect::BandSpiral => D::SIMPLE_BACKLIGHT_MATRIX_BAND_SPIRAL_ENABLED,
+            BacklightEffect::CycleLeftRight => D::SIMPLE_BACKLIGHT_MATRIX_CYCLE_LEFT_RIGHT_ENABLED,
+            BacklightEffect::CycleUpDown => D::SIMPLE_BACKLIGHT_MATRIX_CYCLE_UP_DOWN_ENABLED,
+            BacklightEffect::CycleOutIn => D::SIMPLE_BACKLIGHT_MATRIX_CYCLE_OUT_IN_ENABLED,
+            BacklightEffect::Raindrops => D::SIMPLE_BACKLIGHT_MATRIX_RAINDROPS_ENABLED,
+            BacklightEffect::DualBeacon => D::SIMPLE_BACKLIGHT_MATRIX_DUAL_BEACON_ENABLED,
+            BacklightEffect::WaveLeftRight => D::SIMPLE_BACKLIGHT_MATRIX_WAVE_LEFT_RIGHT_ENABLED,
+            BacklightEffect::WaveUpDown => D::SIMPLE_BACKLIGHT_MATRIX_WAVE_UP_DOWN_ENABLED,
+            BacklightEffect::Reactive => D::SIMPLE_BACKLIGHT_MATRIX_REACTIVE_ENABLED,
+            BacklightEffect::ReactiveWide => D::SIMPLE_BACKLIGHT_MATRIX_REACTIVE_WIDE_ENABLED,
+            BacklightEffect::ReactiveCross => D::SIMPLE_BACKLIGHT_MATRIX_REACTIVE_CROSS_ENABLED,
+            BacklightEffect::ReactiveNexus => D::SIMPLE_BACKLIGHT_MATRIX_REACTIVE_NEXUS_ENABLED,
+            BacklightEffect::ReactiveSplash => D::SIMPLE_BACKLIGHT_MATRIX_REACTIVE_SPLASH_ENABLED,
         }
     }
 }
 
-pub(super) struct BacklightAnimator<'a, K: BacklightMatrixDevice, D: SimpleBacklightMatrixDriver<K>>
+pub(super) struct BacklightAnimator<K: BacklightMatrixDevice, D: SimpleBacklightMatrixDriver<K>>
 where
     [(); K::LIGHTING_COLS]:,
     [(); K::LIGHTING_ROWS]:,
@@ -176,8 +180,7 @@ where
     pub(super) rng: SmallRng,
 }
 
-impl<K: BacklightMatrixDevice + 'static, D: SimpleBacklightMatrixDriver<K>>
-    BacklightAnimator<'_, K, D>
+impl<K: BacklightMatrixDevice + 'static, D: SimpleBacklightMatrixDriver<K>> BacklightAnimator<K, D>
 where
     [(); K::LIGHTING_COLS]:,
     [(); K::LIGHTING_ROWS]:,
@@ -321,12 +324,12 @@ where
 
         match self.config.effect {
             BacklightEffect::Solid => {
-                if K::SOLID_ENABLED {
+                if K::SIMPLE_BACKLIGHT_MATRIX_SOLID_ENABLED {
                     self.set_brightness_for_each_led(|_animator, _time, _coord, _pos| u8::MAX)
                 }
             }
             BacklightEffect::AlphasMods => {
-                if K::ALPHAS_MODS_ENABLED {
+                if K::SIMPLE_BACKLIGHT_MATRIX_ALPHAS_MODS_ENABLED {
                     self.set_brightness_for_each_led(|animator, _time, (row, col), _pos| {
                         if K::get_backlight_matrix().flags[row as usize][col as usize]
                             .contains(LEDFlags::ALPHA)
@@ -339,7 +342,7 @@ where
                 }
             }
             BacklightEffect::GradientUpDown => {
-                if K::GRADIENT_UP_DOWN_ENABLED {
+                if K::SIMPLE_BACKLIGHT_MATRIX_GRADIENT_UP_DOWN_ENABLED {
                     let size = self.bounds.max.1 - self.bounds.min.1;
                     self.set_brightness_for_each_led(|animator, _time, _coord, (_x, y)| {
                         // Calculate the brightness for each LED based on it's Y position
@@ -353,7 +356,7 @@ where
                 }
             }
             BacklightEffect::GradientLeftRight => {
-                if K::GRADIENT_LEFT_RIGHT_ENABLED {
+                if K::SIMPLE_BACKLIGHT_MATRIX_GRADIENT_LEFT_RIGHT_ENABLED {
                     let size = self.bounds.max.0 - self.bounds.min.0;
                     self.set_brightness_for_each_led(|animator, _time, _coord, (x, _y)| {
                         // Calculate the brightness for each LED based on it's X position
@@ -367,14 +370,14 @@ where
                 }
             }
             BacklightEffect::Breathing => {
-                if K::BREATHING_ENABLED {
+                if K::SIMPLE_BACKLIGHT_MATRIX_BREATHING_ENABLED {
                     self.set_brightness_for_each_led(|_animator, time, _coord, _pos| {
                         sin((time >> 2) as u8) // 4 seconds for one full cycle
                     })
                 }
             }
             BacklightEffect::Band => {
-                if K::BAND_ENABLED {
+                if K::SIMPLE_BACKLIGHT_MATRIX_BAND_ENABLED {
                     let size = self.bounds.max.0 - self.bounds.min.0;
                     self.set_brightness_for_each_led(|animator, time, _coord, (x, _y)| {
                         let pos = scale(time as u8, size);
@@ -383,7 +386,7 @@ where
                 }
             }
             BacklightEffect::BandPinWheel => {
-                if K::BAND_PIN_WHEEL_ENABLED {
+                if K::SIMPLE_BACKLIGHT_MATRIX_BAND_PIN_WHEEL_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, _coord, (x, y)| {
                         // Base speed: 1 half-cycle every second
                         let pos = time as u8;
@@ -394,7 +397,7 @@ where
                 }
             }
             BacklightEffect::BandSpiral => {
-                if K::BAND_SPIRAL_ENABLED {
+                if K::SIMPLE_BACKLIGHT_MATRIX_BAND_SPIRAL_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, _coord, (x, y)| {
                         // Base speed: 1 half-cycle every second
                         let pos = time as u8;
@@ -408,7 +411,7 @@ where
                 }
             }
             BacklightEffect::CycleLeftRight => {
-                if K::CYCLE_LEFT_RIGHT_ENABLED {
+                if K::SIMPLE_BACKLIGHT_MATRIX_CYCLE_LEFT_RIGHT_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, _coord, (x, _y)| {
                         // Base speed: 1 cycle every second
                         (x - animator.bounds.min.0).wrapping_sub(time as u8)
@@ -416,7 +419,7 @@ where
                 }
             }
             BacklightEffect::CycleUpDown => {
-                if K::CYCLE_UP_DOWN_ENABLED {
+                if K::SIMPLE_BACKLIGHT_MATRIX_CYCLE_UP_DOWN_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, _coord, (_x, y)| {
                         // Base speed: 1 cycle every second
                         (y - animator.bounds.min.1).wrapping_sub(time as u8)
@@ -424,7 +427,7 @@ where
                 }
             }
             BacklightEffect::CycleOutIn => {
-                if K::CYCLE_OUT_IN_ENABLED {
+                if K::SIMPLE_BACKLIGHT_MATRIX_CYCLE_OUT_IN_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, _coord, (x, y)| {
                         // Base speed: 1 cycle every second
                         let d = sqrtf(
@@ -438,7 +441,7 @@ where
                 }
             }
             BacklightEffect::Raindrops => {
-                if K::RAINDROPS_ENABLED {
+                if K::SIMPLE_BACKLIGHT_MATRIX_RAINDROPS_ENABLED {
                     let adjusted_fps = (((K::FPS as u32) << 8)
                         / (self.config.speed as u32 + 128 + (self.config.speed as u32 >> 1)))
                         as u8;
@@ -459,7 +462,7 @@ where
                 }
             }
             BacklightEffect::DualBeacon => {
-                if K::DUAL_BEACON_ENABLED {
+                if K::SIMPLE_BACKLIGHT_MATRIX_DUAL_BEACON_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, _coord, (x, y)| {
                         // Base speed: 1 cycle every second
                         let pos = time as u8;
@@ -472,7 +475,7 @@ where
                 }
             }
             BacklightEffect::WaveLeftRight => {
-                if K::WAVE_LEFT_RIGHT_ENABLED {
+                if K::SIMPLE_BACKLIGHT_MATRIX_WAVE_LEFT_RIGHT_ENABLED {
                     let size = self.bounds.max.0 - self.bounds.min.0;
                     self.set_brightness_for_each_led(|animator, time, _coord, (x, _y)| {
                         // Base speed: 1 cycle every second
@@ -484,7 +487,7 @@ where
                 }
             }
             BacklightEffect::WaveUpDown => {
-                if K::WAVE_UP_DOWN_ENABLED {
+                if K::SIMPLE_BACKLIGHT_MATRIX_WAVE_UP_DOWN_ENABLED {
                     let size = self.bounds.max.1 - self.bounds.min.1;
                     self.set_brightness_for_each_led(|animator, time, _coord, (_x, y)| {
                         // Base speed: 1 cycle every second
@@ -496,7 +499,7 @@ where
                 }
             }
             BacklightEffect::Reactive => {
-                if K::REACTIVE_ENABLED {
+                if K::SIMPLE_BACKLIGHT_MATRIX_REACTIVE_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, (row, col), _pos| {
                         // Base speed: LED fades after one second
                         let time_of_last_press = animator.last_presses.iter().find(
@@ -514,7 +517,7 @@ where
                 }
             }
             BacklightEffect::ReactiveWide => {
-                if K::REACTIVE_WIDE_ENABLED {
+                if K::SIMPLE_BACKLIGHT_MATRIX_REACTIVE_WIDE_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, _coord, (led_x, led_y)| {
                         animator.last_presses.iter().fold(
                             0,
@@ -543,7 +546,7 @@ where
                 }
             }
             BacklightEffect::ReactiveCross => {
-                if K::REACTIVE_CROSS_ENABLED {
+                if K::SIMPLE_BACKLIGHT_MATRIX_REACTIVE_CROSS_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, _coord, (led_x, led_y)| {
                         animator.last_presses.iter().fold(
                             0,
@@ -572,7 +575,7 @@ where
                 }
             }
             BacklightEffect::ReactiveNexus => {
-                if K::REACTIVE_NEXUS_ENABLED {
+                if K::SIMPLE_BACKLIGHT_MATRIX_REACTIVE_NEXUS_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, _coord, (led_x, led_y)| {
                         animator.last_presses.iter().fold(
                             0,
@@ -607,7 +610,7 @@ where
                 }
             }
             BacklightEffect::ReactiveSplash => {
-                if K::REACTIVE_SPLASH_ENABLED {
+                if K::SIMPLE_BACKLIGHT_MATRIX_REACTIVE_SPLASH_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, _coord, (led_x, led_y)| {
                         animator.last_presses.iter().fold(
                             0,

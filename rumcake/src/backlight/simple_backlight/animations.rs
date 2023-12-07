@@ -1,5 +1,5 @@
-use super::drivers::SimpleBacklightDriver;
-use super::BacklightDevice;
+use crate::backlight::drivers::SimpleBacklightDriver;
+use crate::backlight::BacklightDevice;
 use crate::math::{scale, sin};
 use crate::{Cycle, LEDEffect};
 use postcard::experimental::max_size::MaxSize;
@@ -58,7 +58,9 @@ pub enum BacklightCommand {
     ResetTime, // normally used internally for syncing LEDs for split keyboards
 }
 
-#[generate_items_from_enum_variants("const {variant_shouty_snake_case}_ENABLED: bool = true")]
+#[generate_items_from_enum_variants(
+    "const SIMPLE_BACKLIGHT_{variant_shouty_snake_case}_ENABLED: bool = true"
+)]
 #[derive(
     FromPrimitive,
     Serialize,
@@ -86,9 +88,9 @@ pub enum BacklightEffect {
 impl BacklightEffect {
     pub(crate) fn is_enabled<D: BacklightDevice>(&self) -> bool {
         match self {
-            BacklightEffect::Solid => D::SOLID_ENABLED,
-            BacklightEffect::Breathing => D::BREATHING_ENABLED,
-            BacklightEffect::Reactive => D::REACTIVE_ENABLED,
+            BacklightEffect::Solid => D::SIMPLE_BACKLIGHT_SOLID_ENABLED,
+            BacklightEffect::Breathing => D::SIMPLE_BACKLIGHT_BREATHING_ENABLED,
+            BacklightEffect::Reactive => D::SIMPLE_BACKLIGHT_REACTIVE_ENABLED,
         }
     }
 }
@@ -208,17 +210,17 @@ impl<K: BacklightDevice, D: SimpleBacklightDriver<K>> BacklightAnimator<K, D> {
 
         match self.config.effect {
             BacklightEffect::Solid => {
-                if K::SOLID_ENABLED {
+                if K::SIMPLE_BACKLIGHT_SOLID_ENABLED {
                     self.set_brightness(|_animator, _time| u8::MAX)
                 }
             }
             BacklightEffect::Breathing => {
-                if K::BREATHING_ENABLED {
+                if K::SIMPLE_BACKLIGHT_BREATHING_ENABLED {
                     self.set_brightness(|_animator, time| sin((time >> 2) as u8))
                 }
             }
             BacklightEffect::Reactive => {
-                if K::REACTIVE_ENABLED {
+                if K::SIMPLE_BACKLIGHT_REACTIVE_ENABLED {
                     self.set_brightness(|animator, time| {
                         // LED fades after one second
                         (u8::MAX as u32).saturating_sub(time - animator.time_of_last_press) as u8

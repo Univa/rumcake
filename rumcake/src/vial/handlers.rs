@@ -111,7 +111,9 @@ where
     [(); K::BacklightMatrixDevice::LIGHTING_ROWS]:,
 {
     if K::VIALRGB_ENABLE && K::get_backlight_matrix().is_some() {
-        let config = crate::backlight::BACKLIGHT_CONFIG_STATE.get().await;
+        let config = crate::backlight::rgb_backlight_matrix::BACKLIGHT_CONFIG_STATE
+            .get()
+            .await;
         if !config.enabled {
             data[0..=1].copy_from_slice(&[0; 2])
         } else {
@@ -191,17 +193,17 @@ where
         // set mode
         let vialrgb_id = u16::from_le_bytes(data[0..=1].try_into().unwrap());
         if vialrgb_id == 0 {
-            crate::backlight::BACKLIGHT_COMMAND_CHANNEL
-                .send(crate::backlight::animations::BacklightCommand::TurnOff)
+            crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
+                .send(crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::TurnOff)
                 .await;
         } else {
-            crate::backlight::BACKLIGHT_COMMAND_CHANNEL
-                .send(crate::backlight::animations::BacklightCommand::TurnOn)
+            crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
+                .send(crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::TurnOn)
                 .await;
             if let Some(effect) = super::protocol::vialrgb::convert_vialrgb_id_to_effect(vialrgb_id)
             {
-                crate::backlight::BACKLIGHT_COMMAND_CHANNEL
-                    .send(crate::backlight::animations::BacklightCommand::SetEffect(
+                crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
+                    .send(crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::SetEffect(
                         effect,
                     ))
                     .await;
@@ -214,25 +216,35 @@ where
         }
 
         // set speed
-        crate::backlight::BACKLIGHT_COMMAND_CHANNEL
-            .send(crate::backlight::animations::BacklightCommand::SetSpeed(
-                data[2],
-            ))
+        crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
+            .send(
+                crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::SetSpeed(
+                    data[2],
+                ),
+            )
             .await;
 
         // set hsv
-        crate::backlight::BACKLIGHT_COMMAND_CHANNEL
-            .send(crate::backlight::animations::BacklightCommand::SetHue(
-                data[3],
-            ))
+        crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
+            .send(
+                crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::SetHue(
+                    data[3],
+                ),
+            )
             .await;
-        crate::backlight::BACKLIGHT_COMMAND_CHANNEL
-            .send(crate::backlight::animations::BacklightCommand::SetSaturation(data[4]))
+        crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
+            .send(
+                crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::SetSaturation(
+                    data[4],
+                ),
+            )
             .await;
-        crate::backlight::BACKLIGHT_COMMAND_CHANNEL
-            .send(crate::backlight::animations::BacklightCommand::SetValue(
-                data[5],
-            ))
+        crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
+            .send(
+                crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::SetValue(
+                    data[5],
+                ),
+            )
             .await;
     }
 }

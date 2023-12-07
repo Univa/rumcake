@@ -63,6 +63,8 @@ enum ViaChannelId {
 
 #[derive(FromPrimitive, Debug)]
 enum ViaLightingValue {
+    // Note: there is no support for LED matrix (simple-backlight-matrix) in this version of the
+    // Via/Vial protocol
     // Backlight
     BacklightBrightness = 0x09,
     BacklightEffect,
@@ -267,7 +269,7 @@ pub(crate) async fn process_via_command<K: VialKeyboard + 'static>(
                     row,
                     col,
                     &mut data[4..=5],
-                    keycodes::convert_action_to_keycode,
+                    keycodes::convert_action_to_keycode::<K>,
                 )
                 .await
             }
@@ -280,7 +282,7 @@ pub(crate) async fn process_via_command<K: VialKeyboard + 'static>(
                     row,
                     col,
                     &mut data[4..=5],
-                    keycodes::convert_keycode_to_action,
+                    keycodes::convert_keycode_to_action::<K>,
                 )
                 .await
             }
@@ -291,7 +293,7 @@ pub(crate) async fn process_via_command<K: VialKeyboard + 'static>(
                     offset,
                     size,
                     &mut data[4..],
-                    keycodes::convert_action_to_keycode,
+                    keycodes::convert_action_to_keycode::<K>,
                 )
                 .await
             }
@@ -303,7 +305,7 @@ pub(crate) async fn process_via_command<K: VialKeyboard + 'static>(
                     offset,
                     size,
                     &mut data[4..],
-                    keycodes::convert_keycode_to_action,
+                    keycodes::convert_keycode_to_action::<K>,
                 )
                 .await
             }
@@ -312,11 +314,11 @@ pub(crate) async fn process_via_command<K: VialKeyboard + 'static>(
                 match num::FromPrimitive::from_u8(data[1]) as Option<ViaLightingValue> {
                     #[cfg(feature = "simple-backlight")]
                     Some(ViaLightingValue::BacklightBrightness) => {
-                        backlight_set_brightness(&mut data[2..=2]).await
+                        simple_backlight_set_brightness(&mut data[2..=2]).await
                     }
                     #[cfg(feature = "simple-backlight")]
                     Some(ViaLightingValue::BacklightEffect) => {
-                        backlight_set_effect(&mut data[2..=2], |id| {
+                        simple_backlight_set_effect(&mut data[2..=2], |id| {
                             lighting::convert_qmk_id_to_backlight_effect(id)
                         })
                         .await;
@@ -370,11 +372,11 @@ pub(crate) async fn process_via_command<K: VialKeyboard + 'static>(
                 match num::FromPrimitive::from_u8(data[1]) as Option<ViaLightingValue> {
                     #[cfg(feature = "simple-backlight")]
                     Some(ViaLightingValue::BacklightBrightness) => {
-                        backlight_get_brightness(&mut data[2..=2]).await
+                        simple_backlight_get_brightness(&mut data[2..=2]).await
                     }
                     #[cfg(feature = "simple-backlight")]
                     Some(ViaLightingValue::BacklightEffect) => {
-                        backlight_get_effect(&mut data[2..=2], |effect| {
+                        simple_backlight_get_effect(&mut data[2..=2], |effect| {
                             lighting::convert_backlight_effect_to_qmk_id(effect)
                         })
                         .await
@@ -430,7 +432,8 @@ pub(crate) async fn process_via_command<K: VialKeyboard + 'static>(
                 };
             }
             ViaCommandId::CustomSave => {
-                backlight_save().await; // This also handles vialrgb_save
+                simple_backlight_save().await;
+                rgb_backlight_matrix_save().await;
                 underglow_save().await;
             }
             _ => {

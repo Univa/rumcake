@@ -29,7 +29,7 @@ Some drivers may not be able to support all backlight types.
 
 ## Required code
 
-To set up backlighting, you must add `backlight(driver = "<driver>")` to your `#[keyboard]` macro invocation,
+To set up backlighting, you must add `<backlight_type>(driver = "<driver>")` to your `#[keyboard]` macro invocation,
 and your keyboard must implement the `BacklightDevice` trait.
 
 ```rust ins={5-7,11-16}
@@ -37,7 +37,7 @@ use rumcake::keyboard;
 
 #[keyboard(
     // somewhere in your keyboard macro invocation ...
-    backlight(
+    simple_backlight_matrix( // TODO: Change this to `rgb_backlight_matrix` or `simple_backlight` if that's what you want.
         driver = "is31fl3731", // TODO: change this to your desired backlight driver, and implement the appropriate trait (info below)
     )
 )]
@@ -62,7 +62,7 @@ use rumcake::keyboard;
 
 #[keyboard(
     // somewhere in your keyboard macro invocation ...
-    backlight(
+    simple_backlight_matrix( // TODO: Change this to `rgb_backlight_matrix` or `simple_backlight` if that's what you want.
         driver = "is31fl3731", // TODO: change this to your desired backlight driver, and implement the appropriate trait (info below)
         use_storage // Optional, if you want to save backlight configuration
     ),
@@ -82,7 +82,7 @@ use rumcake::keyboard;
 
 #[keyboard(
     // somewhere in your keyboard macro invocation ...
-    backlight(
+    simple_backlight_matrix( // TODO: Change this to `rgb_backlight_matrix` or `simple_backlight` if that's what you want.
         driver = "is31fl3731", // TODO: change this to your desired backlight driver, and implement the appropriate trait (info below)
     )
 )]
@@ -126,20 +126,21 @@ a key at switch matrix position row 0, column 0, will correspond to the LED at r
 
 Lastly, you must also implement the appropriate trait that corresponds to your chosen driver in the `#[keyboard]` macro. For example, with `is31fl3731`, you must implement `IS31FL3731BacklightDriver`:
 
-```rust ins={3-23}
+```rust ins={3-24}
 // later in your file...
 
 use rumcake::{setup_i2c, is31fl3731_get_led_from_matrix_coordinates};
 use rumcake::drivers::is31fl3731::backlight::IS31FL3731BacklightDriver;
 impl IS31FL3731BacklightDriver for MyKeyboard {
     const LED_DRIVER_ADDR: u32 = 0b1110100; // see https://github.com/qmk/qmk_firmware/blob/d9fa80c0b0044bb951694aead215d72e4a51807c/docs/feature_rgb_matrix.md#is31fl3731-idis31fl3731
-    setup_i2c! {
-        I2C1_EV,
-        I2C1,
-        PB6,
-        PB7,
-        DMA1_CH7,
-        DMA1_CH6
+    setup_i2c! { // Note: The arguments of setup_i2c may change depending on platform. This assumes STM32.
+        I2C1_EV, // Event interrupt
+        I2C1_ER, // Error interrupt
+        I2C1, // I2C peripheral
+        PB6, // SCL
+        PB7, // SDA
+        DMA1_CH7, // RX DMA Channel
+        DMA1_CH6 // TX DMA Channel
     }
 
     // This must have the same number of rows and columns as specified in your `BacklightMatrixDevice` implementation.
@@ -160,7 +161,12 @@ an RGB matrix, there is a separate `is31fl3731_get_led_from_rgb_matrix_coordinat
 
 # Keycodes
 
-In your keyberon layout, you can use any of the enum members defined in `BacklightCommand`:
+Depending on the backlight type you chose, you can use certain version of the `BacklightCommand`
+enum in your `keyberon` layout:
+
+- [Simple Backlight Commands](/rumcake/api/nrf52840/rumcake/backlight/simple_backlight/animations/enum.BacklightCommand.html)
+- [Simple Backlight Matrix Commands](/rumcake/api/nrf52840/rumcake/backlight/simple_backlight_matrix/animations/enum.BacklightCommand.html)
+- [RGB Backlight Matrix Commands](/rumcake/api/nrf52840/rumcake/backlight/rgb_backlight_matrix/animations/enum.BacklightCommand.html)
 
 ```rust
 Toggle,
@@ -185,6 +191,10 @@ SaveConfig, // normally called internally when the backlight config changes, onl
 ResetTime, // normally used internally for syncing LEDs for split keyboards
 ```
 
+In your `keyberon` layout, you can use `{Custom(SimpleBacklight(<command>))}`,
+`{Custom(SimpleBacklightMatrix(<command>))}`, `{Custom(RGBBacklightMatrix(<command>))}`,
+depending on what type of backlight system you are using.
+
 Example of usage:
 
 ```rust
@@ -196,7 +206,7 @@ use rumcake::keyboard::{Keyboard, Keycode::*};
 
     build_layout! {
         {
-            [ Escape {Custom(Backlight(Toggle))} A B C]
+            [ Escape {Custom(SimpleBacklightMatrix(Toggle))} A B C]
         }
     }
 ```
@@ -204,3 +214,4 @@ use rumcake::keyboard::{Keyboard, Keycode::*};
 # To-do List
 
 - [ ] RGB Backlight animations
+- [ ] Allow different backlighting systems to be used at the same time

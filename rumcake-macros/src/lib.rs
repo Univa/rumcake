@@ -202,7 +202,9 @@ struct KeyboardSettings {
     bluetooth: bool,
     usb: bool,
     storage: Option<String>,
-    backlight: Option<LightingSettings>,
+    simple_backlight: Option<LightingSettings>,
+    simple_backlight_matrix: Option<LightingSettings>,
+    rgb_backlight_matrix: Option<LightingSettings>,
     underglow: Option<LightingSettings>,
     display: Option<DisplaySettings>,
     split_peripheral: Option<SplitPeripheralSettings>,
@@ -286,7 +288,17 @@ fn setup_underglow_driver(kb_name: &Ident, driver: &str) -> Option<TokenStream> 
     }
 }
 
-fn setup_backlight_driver(kb_name: &Ident, driver: &str) -> Option<TokenStream> {
+enum BacklightType {
+    SimpleBacklight,
+    SimpleBacklightMatrix,
+    RGBBacklightMatrix,
+}
+
+fn setup_backlight_driver(
+    kb_name: &Ident,
+    backlight_type: BacklightType,
+    driver: &str,
+) -> Option<TokenStream> {
     match driver {
         "is31fl3731" => Some(quote! {
             let backlight_driver = rumcake::drivers::is31fl3731::backlight::setup_backlight_driver::<#kb_name>().await;
@@ -607,33 +619,111 @@ pub fn main(
     }
 
     // Backlight setup
-    if let Some(args) = keyboard.backlight {
+    if let Some(args) = keyboard.simple_backlight {
         if args.driver.is_empty() {
             initialization.extend(quote_spanned! {
-                args.driver.span() => compile_error!("You must specify a backlight driver.");
+                args.driver.span() => compile_error!("You must specify a simple backlight driver.");
             })
         } else if args.use_storage && keyboard.storage.is_none() {
             initialization.extend(quote_spanned! {
-                args.driver.span() => compile_error!("Backlighting uses storage but no `storage` driver was specified. Either specify a `storage` driver, or remove `use_storage` from your backlight settings.");
+                args.driver.span() => compile_error!("Simple backlighting uses storage but no `storage` driver was specified. Either specify a `storage` driver, or remove `use_storage` from your simple backlight settings.");
             });
         } else {
-            match setup_backlight_driver(&kb_name, args.driver.as_str()) {
+            match setup_backlight_driver(
+                &kb_name,
+                BacklightType::SimpleBacklight,
+                args.driver.as_str(),
+            ) {
                 Some(driver_setup) => {
                     initialization.extend(driver_setup);
 
                     if args.use_storage {
                         spawning.extend(quote! {
-                            spawner.spawn(rumcake::backlight_storage_task!(&DATABASE)).unwrap();
+                            spawner.spawn(rumcake::simple_backlight_storage_task!(&DATABASE)).unwrap();
                         });
                     }
 
                     spawning.extend(quote! {
-                        spawner.spawn(rumcake::backlight_task!(#kb_name, backlight_driver)).unwrap();
+                        spawner.spawn(rumcake::simple_backlight_task!(#kb_name, backlight_driver)).unwrap();
                     });
                 }
                 None => {
                     initialization.extend(quote_spanned! {
-                        args.driver.span() => compile_error!("Unknown backlight driver.");
+                        args.driver.span() => compile_error!("Unknown simple backlight driver.");
+                    });
+                }
+            }
+        }
+    }
+
+    if let Some(args) = keyboard.simple_backlight_matrix {
+        if args.driver.is_empty() {
+            initialization.extend(quote_spanned! {
+                args.driver.span() => compile_error!("You must specify a simple backlight matrix driver.");
+            })
+        } else if args.use_storage && keyboard.storage.is_none() {
+            initialization.extend(quote_spanned! {
+                args.driver.span() => compile_error!("Simple backlight matrix uses storage but no `storage` driver was specified. Either specify a `storage` driver, or remove `use_storage` from your simple backlight matrix settings.");
+            });
+        } else {
+            match setup_backlight_driver(
+                &kb_name,
+                BacklightType::SimpleBacklightMatrix,
+                args.driver.as_str(),
+            ) {
+                Some(driver_setup) => {
+                    initialization.extend(driver_setup);
+
+                    if args.use_storage {
+                        spawning.extend(quote! {
+                            spawner.spawn(rumcake::simple_backlight_matrix_storage_task!(&DATABASE)).unwrap();
+                        });
+                    }
+
+                    spawning.extend(quote! {
+                        spawner.spawn(rumcake::simple_backlight_matrix_task!(#kb_name, backlight_driver)).unwrap();
+                    });
+                }
+                None => {
+                    initialization.extend(quote_spanned! {
+                        args.driver.span() => compile_error!("Unknown simple backlight matrix driver.");
+                    });
+                }
+            }
+        }
+    }
+
+    if let Some(args) = keyboard.rgb_backlight_matrix {
+        if args.driver.is_empty() {
+            initialization.extend(quote_spanned! {
+                args.driver.span() => compile_error!("You must specify an RGB backlight matrix driver.");
+            })
+        } else if args.use_storage && keyboard.storage.is_none() {
+            initialization.extend(quote_spanned! {
+                args.driver.span() => compile_error!("RGB backlight matrix uses storage but no `storage` driver was specified. Either specify a `storage` driver, or remove `use_storage` from your RGB backlight matrix settings.");
+            });
+        } else {
+            match setup_backlight_driver(
+                &kb_name,
+                BacklightType::RGBBacklightMatrix,
+                args.driver.as_str(),
+            ) {
+                Some(driver_setup) => {
+                    initialization.extend(driver_setup);
+
+                    if args.use_storage {
+                        spawning.extend(quote! {
+                            spawner.spawn(rumcake::rgb_backlight_matrix_storage_task!(&DATABASE)).unwrap();
+                        });
+                    }
+
+                    spawning.extend(quote! {
+                        spawner.spawn(rumcake::rgb_backlight_matrix_task!(#kb_name, backlight_driver)).unwrap();
+                    });
+                }
+                None => {
+                    initialization.extend(quote_spanned! {
+                        args.driver.span() => compile_error!("Unknown RGB backlight matrix driver.");
                     });
                 }
             }

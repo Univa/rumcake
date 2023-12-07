@@ -23,6 +23,12 @@ pub(crate) mod protocol_12;
 
 pub(crate) use protocol_12 as protocol;
 
+enum BacklightType {
+    SimpleBacklight,
+    SimpleBacklightMatrix,
+    RGBBacklightMatrix,
+}
+
 /// A trait that keyboards must implement to use the Via protocol.
 pub trait ViaKeyboard: Keyboard + KeyboardLayout {
     const VIA_ENABLED: bool = true;
@@ -50,6 +56,10 @@ pub trait ViaKeyboard: Keyboard + KeyboardLayout {
     // const DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE: usize = (Self::DYNAMIC_KEYMAP_EEPROM_MAX_ADDR
     //     - Self::DYNAMIC_KEYMAP_MACRO_EEPROM_ADDR
     //     + 1) as usize; // This is the default if not defined in QMK.
+
+    /// Determines how QK_BACKLIGHT keycodes should be converted to a [`crate::keyboard::Keycode`]
+    /// and vice versa. If this is `None`, then backlighting keycodes will not be converted.
+    const BACKLIGHT_TYPE: Option<BacklightType> = None;
 
     #[cfg(feature = "storage")]
     fn get_layout_options_storage_state(
@@ -401,7 +411,7 @@ pub mod storage {
                 // Load layout from flash
                 let mut layout = K::get_layout().lock().await;
                 for byte in (0..stored_len).step_by(2) {
-                    if let Some(action) = super::protocol::keycodes::convert_keycode_to_action(
+                    if let Some(action) = super::protocol::keycodes::convert_keycode_to_action::<K>(
                         u16::from_be_bytes(stored_data[byte..byte + 2].try_into().unwrap()),
                     ) {
                         let layer = byte / (K::LAYOUT_ROWS * K::LAYOUT_COLS * 2);
@@ -424,7 +434,7 @@ pub mod storage {
                     let col = (byte / 2) % K::LAYOUT_COLS;
 
                     buf[(byte)..(byte + 2)].copy_from_slice(
-                        &super::protocol::keycodes::convert_action_to_keycode(
+                        &super::protocol::keycodes::convert_action_to_keycode::<K>(
                             layout.get_action((row as u8, col as u8), layer).unwrap(),
                         )
                         .to_be_bytes(),

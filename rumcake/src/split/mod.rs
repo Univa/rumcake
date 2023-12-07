@@ -43,13 +43,23 @@ impl TryFrom<MessageToCentral> for Event {
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 /// Possible messages that can be sent to a peripheral device.
 pub enum MessageToPeripheral {
-    #[cfg(any(
-        feature = "simple-backlight",
-        feature = "simple-backlight-matrix",
-        feature = "rgb-backlight-matrix"
-    ))]
-    /// A [`BacklightCommand`](crate::backlight::animations::BacklightCommand) to be processed by the peripheral's backlight animator.
-    Backlight(crate::backlight::animations::BacklightCommand),
+    #[cfg(feature = "simple-backlight")]
+    /// A [`BacklightCommand`](crate::backlight::simple_backlight::animations::BacklightCommand) to
+    /// be processed by the peripheral's simple backlight animator.
+    SimpleBacklight(crate::backlight::simple_backlight::animations::BacklightCommand),
+
+    #[cfg(feature = "simple-backlight-matrix")]
+    /// A
+    /// [`BacklightCommand`](crate::backlight::simple_backlight_matrix::animations::BacklightCommand)
+    /// to be processed by the peripheral's simple backlight matrix animator.
+    SimpleBacklightMatrix(crate::backlight::simple_backlight_matrix::animations::BacklightCommand),
+
+    #[cfg(feature = "rgb-backlight-matrix")]
+    /// A
+    /// [`BacklightCommand`](crate::backlight::rgb_backlight_matrix::animations::BacklightCommand)
+    /// to be processed by the peripheral's RGB backlight matrix animator.
+    RGBBacklightMatrix(crate::backlight::rgb_backlight_matrix::animations::BacklightCommand),
+
     #[cfg(feature = "underglow")]
     /// An [`UnderglowCommand`](crate::underglow::animations::UnderglowCommand) to be processed by the peripheral's backlight animator.
     Underglow(crate::underglow::animations::UnderglowCommand),

@@ -1,6 +1,6 @@
 //! Functions for handling VialRGB effect ID conversions.
 
-use crate::backlight::animations::BacklightEffect;
+use crate::backlight::rgb_backlight_matrix::animations::BacklightEffect;
 use crate::backlight::BacklightDevice;
 use num_derive::FromPrimitive;
 

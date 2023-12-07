@@ -3,6 +3,7 @@ use keyberon::key_code::KeyCode;
 use num_derive::FromPrimitive;
 
 use crate::keyboard::Keycode;
+use crate::via::{BacklightType, ViaKeyboard};
 
 #[repr(u16)]
 #[allow(non_camel_case_types)]
@@ -899,7 +900,7 @@ const UNKNOWN_KEYCODE: u16 = 0xFFFF;
 /// For QK_USER, there exists 32 QMKKeycodes enum values that fall in that range. Even though the
 /// QK_USER range spans more than 32 possible values (0x7E40 to 0x7FFF), we will only use the codes
 /// that are defined as enum values in QMKKeycodes (QK_USER_0 to QK_USER_31), and no more.
-pub(crate) fn convert_action_to_keycode(action: Action<Keycode>) -> u16 {
+pub(crate) fn convert_action_to_keycode<K: ViaKeyboard>(action: Action<Keycode>) -> u16 {
     match action {
         Action::NoOp => QMKKeycodes::KC_NO as u16,
         Action::Trans => QMKKeycodes::KC_TRANSPARENT as u16,
@@ -1097,33 +1098,93 @@ pub(crate) fn convert_action_to_keycode(action: Action<Keycode>) -> u16 {
                 }
                 _ => UNKNOWN_KEYCODE,
             },
-            #[cfg(any(
-                feature = "simple-backlight",
-                feature = "simple-backlight-matrix",
-                feature = "rgb-backlight-matrix"
-            ))]
-            Keycode::Backlight(command) => match command {
-                crate::backlight::animations::BacklightCommand::TurnOn => {
-                    QMKKeycodes::QK_BACKLIGHT_ON as u16
+            #[cfg(feature = "simple-backlight")]
+            Keycode::SimpleBacklight(command) => {
+                if let Some(BacklightType::SimpleBacklight) = K::BacklightType {
+                    return match command {
+                        crate::backlight::simple_backlight::animations::BacklightCommand::TurnOn => {
+                            QMKKeycodes::QK_BACKLIGHT_ON as u16
+                        }
+                        crate::backlight::simple_backlight::animations::BacklightCommand::TurnOff => {
+                            QMKKeycodes::QK_BACKLIGHT_OFF as u16
+                        }
+                        crate::backlight::simple_backlight::animations::BacklightCommand::Toggle => {
+                            QMKKeycodes::QK_BACKLIGHT_TOGGLE as u16
+                        }
+                        crate::backlight::simple_backlight::animations::BacklightCommand::NextEffect => {
+                            QMKKeycodes::QK_BACKLIGHT_STEP as u16
+                        }
+                        crate::backlight::simple_backlight::animations::BacklightCommand::IncreaseValue(_) => {
+                            QMKKeycodes::QK_BACKLIGHT_UP as u16
+                        }
+                        crate::backlight::simple_backlight::animations::BacklightCommand::DecreaseSpeed(_) => {
+                            QMKKeycodes::QK_BACKLIGHT_DOWN as u16
+                        }
+                        // Note: Increase/DecreaseHue and Increase/DecreaseSaturation is not handled for RGB matrices. See the note on line 679
+                        _ => UNKNOWN_KEYCODE,
+                    };
                 }
-                crate::backlight::animations::BacklightCommand::TurnOff => {
-                    QMKKeycodes::QK_BACKLIGHT_OFF as u16
+
+                UNKNOWN_KEYCODE
+            }
+            #[cfg(feature = "simple-backlight-matrix")]
+            Keycode::SimpleBacklightMatrix(command) => {
+                if let Some(BacklightType::SimpleBacklightMatrix) = K::BACKLIGHT_TYPE {
+                    return match command {
+                        crate::backlight::simple_backlight_matrix::animations::BacklightCommand::TurnOn => {
+                            QMKKeycodes::QK_BACKLIGHT_ON as u16
+                        }
+                        crate::backlight::simple_backlight_matrix::animations::BacklightCommand::TurnOff => {
+                            QMKKeycodes::QK_BACKLIGHT_OFF as u16
+                        }
+                        crate::backlight::simple_backlight_matrix::animations::BacklightCommand::Toggle => {
+                            QMKKeycodes::QK_BACKLIGHT_TOGGLE as u16
+                        }
+                        crate::backlight::simple_backlight_matrix::animations::BacklightCommand::NextEffect => {
+                            QMKKeycodes::QK_BACKLIGHT_STEP as u16
+                        }
+                        crate::backlight::simple_backlight_matrix::animations::BacklightCommand::IncreaseValue(_) => {
+                            QMKKeycodes::QK_BACKLIGHT_UP as u16
+                        }
+                        crate::backlight::simple_backlight_matrix::animations::BacklightCommand::DecreaseSpeed(_) => {
+                            QMKKeycodes::QK_BACKLIGHT_DOWN as u16
+                        }
+                        // Note: Increase/DecreaseHue and Increase/DecreaseSaturation is not handled for RGB matrices. See the note on line 679
+                        _ => UNKNOWN_KEYCODE,
+                    };
                 }
-                crate::backlight::animations::BacklightCommand::Toggle => {
-                    QMKKeycodes::QK_BACKLIGHT_TOGGLE as u16
+
+                UNKNOWN_KEYCODE
+            }
+            #[cfg(feature = "rgb-backlight-matrix")]
+            Keycode::RGBBacklightMatrix(command) => {
+                if let Some(BacklightType::RGBBacklightMatrix) = K::BacklightType {
+                    return match command {
+                        crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::TurnOn => {
+                            QMKKeycodes::QK_BACKLIGHT_ON as u16
+                        }
+                        crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::TurnOff => {
+                            QMKKeycodes::QK_BACKLIGHT_OFF as u16
+                        }
+                        crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::Toggle => {
+                            QMKKeycodes::QK_BACKLIGHT_TOGGLE as u16
+                        }
+                        crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::NextEffect => {
+                            QMKKeycodes::QK_BACKLIGHT_STEP as u16
+                        }
+                        crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::IncreaseValue(_) => {
+                            QMKKeycodes::QK_BACKLIGHT_UP as u16
+                        }
+                        crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::DecreaseSpeed(_) => {
+                            QMKKeycodes::QK_BACKLIGHT_DOWN as u16
+                        }
+                        // Note: Increase/DecreaseHue and Increase/DecreaseSaturation is not handled for RGB matrices. See the note on line 679
+                        _ => UNKNOWN_KEYCODE,
+                    };
                 }
-                crate::backlight::animations::BacklightCommand::NextEffect => {
-                    QMKKeycodes::QK_BACKLIGHT_STEP as u16
-                }
-                crate::backlight::animations::BacklightCommand::IncreaseValue(_) => {
-                    QMKKeycodes::QK_BACKLIGHT_UP as u16
-                }
-                crate::backlight::animations::BacklightCommand::DecreaseSpeed(_) => {
-                    QMKKeycodes::QK_BACKLIGHT_DOWN as u16
-                }
-                // Note: Increase/DecreaseHue and Increase/DecreaseSaturation is not handled for RGB matrices. See the note on line 679
-                _ => UNKNOWN_KEYCODE,
-            },
+
+                UNKNOWN_KEYCODE
+            }
             #[cfg(feature = "bluetooth")]
             Keycode::Bluetooth(command) => match command {
                 #[cfg(feature = "usb")]
@@ -1159,7 +1220,7 @@ static ONE_SHOT_LAYER_ACTIONS: [OneShotAction<Keycode, KeyCode>; 16] = {
     pool
 };
 
-pub(crate) fn convert_keycode_to_action(keycode: u16) -> Option<Action<Keycode>> {
+pub(crate) fn convert_keycode_to_action<K: ViaKeyboard>(keycode: u16) -> Option<Action<Keycode>> {
     if keycode == QMKKeycodes::KC_NO as u16 {
         return Some(Action::NoOp);
     }
@@ -1350,46 +1411,113 @@ pub(crate) fn convert_keycode_to_action(keycode: u16) -> Option<Action<Keycode>>
     if QMKKeycodeRanges::QK_LIGHTING as u16 <= keycode
         && keycode <= QMKKeycodeRanges::QK_LIGHTING_MAX as u16
     {
-        #[cfg(any(
-            feature = "simple-backlight",
-            feature = "simple-backlight-matrix",
-            feature = "rgb-backlight-matrix"
-        ))]
         {
             if keycode == QMKKeycodes::QK_BACKLIGHT_ON as u16 {
-                return Some(Action::Custom(Keycode::Backlight(
-                    crate::backlight::animations::BacklightCommand::TurnOff,
-                )));
+                return match K::BACKLIGHT_TYPE {
+                    #[cfg(feature = "simple-backlight")]
+                    Some(BacklightType::SimpleBacklight) => Some(Action::Custom(
+                        Keycode::SimpleBacklight(crate::backlight::simple_backlight::animations::BacklightCommand::TurnOff),
+                    )),
+                    #[cfg(feature = "simple-backlight-matrix")]
+                    Some(BacklightType::SimpleBacklightMatrix) => Some(Action::Custom(
+                        Keycode::SimpleBacklightMatrix(crate::backlight::simple_backlight_matrix::animations::BacklightCommand::TurnOff),
+                    )),
+                    #[cfg(feature = "rgb-backlight-matrix")]
+                    Some(BacklightType::RGBBacklightMatrix) => Some(Action::Custom(
+                        Keycode::RGBBacklightMatrix(crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::TurnOff),
+                    )),
+                    _ => None,
+                };
             }
 
             if keycode == QMKKeycodes::QK_BACKLIGHT_OFF as u16 {
-                return Some(Action::Custom(Keycode::Backlight(
-                    crate::backlight::animations::BacklightCommand::TurnOff,
-                )));
+                return match K::BACKLIGHT_TYPE {
+                    #[cfg(feature = "simple-backlight")]
+                    Some(BacklightType::SimpleBacklight) => Some(Action::Custom(
+                        Keycode::SimpleBacklight(crate::backlight::simple_backlight::animations::BacklightCommand::TurnOn),
+                    )),
+                    #[cfg(feature = "simple-backlight-matrix")]
+                    Some(BacklightType::SimpleBacklightMatrix) => Some(Action::Custom(
+                        Keycode::SimpleBacklightMatrix(crate::backlight::simple_backlight_matrix::animations::BacklightCommand::TurnOn),
+                    )),
+                    #[cfg(feature = "rgb-backlight-matrix")]
+                    Some(BacklightType::RGBBacklightMatrix) => Some(Action::Custom(
+                        Keycode::RGBBacklightMatrix(crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::TurnOn),
+                    )),
+                    _ => None,
+                };
             }
 
             if keycode == QMKKeycodes::QK_BACKLIGHT_TOGGLE as u16 {
-                return Some(Action::Custom(Keycode::Backlight(
-                    crate::backlight::animations::BacklightCommand::Toggle,
-                )));
+                return match K::BACKLIGHT_TYPE {
+                    #[cfg(feature = "simple-backlight")]
+                    Some(BacklightType::SimpleBacklight) => Some(Action::Custom(
+                        Keycode::SimpleBacklight(crate::backlight::simple_backlight::animations::BacklightCommand::Toggle),
+                    )),
+                    #[cfg(feature = "simple-backlight-matrix")]
+                    Some(BacklightType::SimpleBacklightMatrix) => Some(Action::Custom(
+                        Keycode::SimpleBacklightMatrix(crate::backlight::simple_backlight_matrix::animations::BacklightCommand::Toggle),
+                    )),
+                    #[cfg(feature = "rgb-backlight-matrix")]
+                    Some(BacklightType::RGBBacklightMatrix) => Some(Action::Custom(
+                        Keycode::RGBBacklightMatrix(crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::Toggle),
+                    )),
+                    _ => None,
+                };
             }
 
             if keycode == QMKKeycodes::QK_BACKLIGHT_DOWN as u16 {
-                return Some(Action::Custom(Keycode::Backlight(
-                    crate::backlight::animations::BacklightCommand::IncreaseValue(17),
-                )));
+                return match K::BACKLIGHT_TYPE {
+                    #[cfg(feature = "simple-backlight")]
+                    Some(BacklightType::SimpleBacklight) => Some(Action::Custom(
+                        Keycode::SimpleBacklight(crate::backlight::simple_backlight::animations::BacklightCommand::DecreaseValue(17)),
+                    )),
+                    #[cfg(feature = "simple-backlight-matrix")]
+                    Some(BacklightType::SimpleBacklightMatrix) => Some(Action::Custom(
+                        Keycode::SimpleBacklightMatrix(crate::backlight::simple_backlight_matrix::animations::BacklightCommand::DecreaseValue(17)),
+                    )),
+                    #[cfg(feature = "rgb-backlight-matrix")]
+                    Some(BacklightType::RGBBacklightMatrix) => Some(Action::Custom(
+                        Keycode::RGBBacklightMatrix(crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::DecreaseValue(17)),
+                    )),
+                    _ => None,
+                };
             }
 
             if keycode == QMKKeycodes::QK_BACKLIGHT_UP as u16 {
-                return Some(Action::Custom(Keycode::Backlight(
-                    crate::backlight::animations::BacklightCommand::DecreaseValue(17),
-                )));
+                return match K::BACKLIGHT_TYPE {
+                    #[cfg(feature = "simple-backlight")]
+                    Some(BacklightType::SimpleBacklight) => Some(Action::Custom(
+                        Keycode::SimpleBacklight(crate::backlight::simple_backlight::animations::BacklightCommand::IncreaseValue(17)),
+                    )),
+                    #[cfg(feature = "simple-backlight-matrix")]
+                    Some(BacklightType::SimpleBacklightMatrix) => Some(Action::Custom(
+                        Keycode::SimpleBacklightMatrix(crate::backlight::simple_backlight_matrix::animations::BacklightCommand::IncreaseValue(17)),
+                    )),
+                    #[cfg(feature = "rgb-backlight-matrix")]
+                    Some(BacklightType::RGBBacklightMatrix) => Some(Action::Custom(
+                        Keycode::RGBBacklightMatrix(crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::IncreaseValue(17)),
+                    )),
+                    _ => None,
+                };
             }
 
             if keycode == QMKKeycodes::QK_BACKLIGHT_STEP as u16 {
-                return Some(Action::Custom(Keycode::Backlight(
-                    crate::backlight::animations::BacklightCommand::NextEffect,
-                )));
+                return match K::BACKLIGHT_TYPE {
+                    #[cfg(feature = "simple-backlight")]
+                    Some(BacklightType::SimpleBacklight) => Some(Action::Custom(
+                        Keycode::SimpleBacklight(crate::backlight::simple_backlight::animations::BacklightCommand::NextEffect),
+                    )),
+                    #[cfg(feature = "simple-backlight-matrix")]
+                    Some(BacklightType::SimpleBacklightMatrix) => Some(Action::Custom(
+                        Keycode::SimpleBacklightMatrix(crate::backlight::simple_backlight_matrix::animations::BacklightCommand::NextEffect),
+                    )),
+                    #[cfg(feature = "rgb-backlight-matrix")]
+                    Some(BacklightType::RGBBacklightMatrix) => Some(Action::Custom(
+                        Keycode::RGBBacklightMatrix(crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::NextEffect),
+                    )),
+                    _ => None,
+                };
             }
         }
 

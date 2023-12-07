@@ -250,19 +250,30 @@ pub enum Keycode {
     /// Custom keycode, which can be used to run custom code. You can use
     /// [`KeyboardLayout::on_custom_keycode`] to handle it.
     Custom(u8),
+
     #[cfg(feature = "media-keycodes")]
     /// Media keycode, which can be any variant in [`usbd_human_interface_device::page::Consumer`]
     Media(usbd_human_interface_device::page::Consumer),
+
     #[cfg(feature = "underglow")]
     /// Underglow keycode, which can be any variant in [`crate::underglow::animations::UnderglowCommand`]
     Underglow(crate::underglow::animations::UnderglowCommand),
-    #[cfg(any(
-        feature = "simple-backlight",
-        feature = "simple-backlight-matrix",
-        feature = "rgb-backlight-matrix"
-    ))]
-    /// Backlight keycode, which can be any variant in [`crate::backlight::animations::BacklightCommand`]
-    Backlight(crate::backlight::animations::BacklightCommand),
+
+    #[cfg(feature = "simple-backlight")]
+    /// Keycode used to control a simple backlight system, which can be any variant in
+    /// [`crate::backlight::simple_backlight::animations::BacklightCommand`]
+    SimpleBacklight(crate::backlight::simple_backlight::animations::BacklightCommand),
+
+    #[cfg(feature = "simple-backlight-matrix")]
+    /// Keycode used to control a simple backlight matrix system, which can be any variant in
+    /// [`crate::backlight::simple_backlight_matrix::animations::BacklightCommand`]
+    SimpleBacklightMatrix(crate::backlight::simple_backlight_matrix::animations::BacklightCommand),
+
+    #[cfg(feature = "rgb-backlight-matrix")]
+    /// Keycode used to control an RGB backlight matrix system, which can be any variant in
+    /// [`crate::backlight::rgb_backlight_matrix::animations::BacklightCommand`]
+    RGBBacklightMatrix(crate::backlight::rgb_backlight_matrix::animations::BacklightCommand),
+
     #[cfg(feature = "bluetooth")]
     /// Bluetooth keycode, which can be any variant in [`crate::bluetooth::BluetoothCommand`]
     Bluetooth(crate::bluetooth::BluetoothCommand),
@@ -398,18 +409,34 @@ where
                             .send(crate::underglow::animations::UnderglowCommand::SaveConfig)
                             .await;
                     }
-                    #[cfg(any(
-                        feature = "simple-backlight",
-                        feature = "simple-backlight-matrix",
-                        feature = "rgb-backlight-matrix"
-                    ))]
-                    Keycode::Backlight(command) => {
-                        crate::backlight::BACKLIGHT_COMMAND_CHANNEL
+                    #[cfg(feature = "simple-backlight")]
+                    Keycode::SimpleBacklight(command) => {
+                        crate::backlight::simple_backlight::BACKLIGHT_COMMAND_CHANNEL
                             .send(command)
                             .await;
                         #[cfg(feature = "storage")]
-                        crate::backlight::BACKLIGHT_COMMAND_CHANNEL
-                            .send(crate::backlight::animations::BacklightCommand::SaveConfig)
+                        crate::backlight::simple_backlight::BACKLIGHT_COMMAND_CHANNEL
+                            .send(crate::backlight::simple_backlight::animations::BacklightCommand::SaveConfig)
+                            .await;
+                    }
+                    #[cfg(feature = "simple-backlight-matrix")]
+                    Keycode::SimpleBacklightMatrix(command) => {
+                        crate::backlight::simple_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
+                            .send(command)
+                            .await;
+                        #[cfg(feature = "storage")]
+                        crate::backlight::simple_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
+                            .send(crate::backlight::simple_backlight_matrix::animations::BacklightCommand::SaveConfig)
+                            .await;
+                    }
+                    #[cfg(feature = "rgb-backlight-matrix")]
+                    Keycode::RGBBacklightMatrix(command) => {
+                        crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
+                            .send(command)
+                            .await;
+                        #[cfg(feature = "storage")]
+                        crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
+                            .send(crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::SaveConfig)
                             .await;
                     }
                     #[cfg(feature = "bluetooth")]
