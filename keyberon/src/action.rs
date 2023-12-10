@@ -201,6 +201,36 @@ where
     pub end_config: OneShotEndConfig,
 }
 
+/// Determines the behaviour for a [`TapDanceAction`]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum TapDanceConfig {
+    /// Eager will activate every action in the sequence as the key is pressed.
+    Eager,
+    /// Lazy will activate a single action, based on the number of taps, once the tap dance is over
+    /// (timeout has been exceeded, or if a different key is pressed). Note that the last action of
+    /// the tap dance will still be eagerly activated, and will not require waiting for the
+    /// timeout.
+    Lazy,
+}
+
+/// Settings a [`TapDanceAction`], where an action is executed depending on the number of times the
+/// key is pressed.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct TapDanceAction<T, K>
+where
+    T: 'static,
+    K: 'static,
+{
+    /// List of actions that activate based on number of taps. Tapping the tap-dance key once will
+    /// activate the action in index 0, three times will activate the action in index 2.
+    pub actions: &'static [Action<T, K>],
+    /// Timeout after which a tap dance will expire. A new tap for the same tap-dance key will
+    /// reset this timeout.
+    pub timeout: u16,
+    /// Determine behaviour of tap dance.
+    pub config: TapDanceConfig,
+}
+
 /// The different actions that can be done.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -246,6 +276,13 @@ where
     /// key will hold space until either another key is pressed or the timeout occurs, which will
     /// probably send many undesired space characters to your active application.
     OneShot(&'static OneShotAction<T, K>),
+    /// Tap-dance key. When tapping the key N times in quick succession, activates the N'th action
+    /// in `actions`. The action will activate in the following conditions:
+    ///
+    /// - a different key is pressed
+    /// - `timeout` ticks elapse since the last tap of the same tap-dance key
+    /// - the number of taps is equal to the length of `actions`.
+    TapDance(&'static TapDanceAction<T, K>),
     /// Custom action.
     ///
     /// Define a user defined action. This enum can be anything you

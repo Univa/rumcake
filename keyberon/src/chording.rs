@@ -29,11 +29,11 @@
 /// // A count of 30 (ms) is a good default
 /// const DEBOUNCE_COUNT: u16 = 30;
 ///
-/// pub static LAYERS: keyberon::layout::Layers<3, 1, 1> = keyberon::layout::layout! {
+/// pub static mut LAYERS: keyberon::layout::Layers<3, 1, 1> = keyberon::layout::layout! {
 ///     { [ A B C ] }
 /// };
 ///
-/// let mut layout = Layout::new(LAYERS);
+/// let mut layout = Layout::new(unsafe { &mut LAYERS });
 /// // Debouncer period determines chording timeout
 /// let mut debouncer: Debouncer<[[bool; 3]; 1]> =
 ///     Debouncer::new([[false; 3]; 1], [[false; 3]; 1], DEBOUNCE_COUNT);
