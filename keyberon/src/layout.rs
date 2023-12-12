@@ -476,6 +476,12 @@ impl TapHoldTracker {
     }
 }
 
+/// Errors that can occur when attempting to change an action
+pub enum ChangeActionError {
+    /// The provided coordinates (layer, row and column) do not exist in the layout.
+    OutOfBounds,
+}
+
 #[derive(Default)]
 struct ActionContext {
     inside_oneshot: bool,
@@ -714,13 +720,13 @@ impl<const C: usize, const R: usize, const L: usize, T: 'static + Copy, K: 'stat
         coord: (u8, u8),
         layer: usize,
         action: Action<T, K>,
-    ) -> Result<(), ()> {
+    ) -> Result<(), ChangeActionError> {
         self.layers
             .get_mut(layer)
             .and_then(|l| l.get_mut(coord.0 as usize))
             .and_then(|l| l.get_mut(coord.1 as usize))
             .map(|a| *a = action)
-            .ok_or(())
+            .ok_or(ChangeActionError::OutOfBounds)
     }
     /// Get a copy of the action for a given key
     pub fn get_action(&mut self, coord: (u8, u8), layer: usize) -> Option<Action<T, K>> {
