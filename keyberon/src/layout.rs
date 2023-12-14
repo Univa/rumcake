@@ -47,8 +47,8 @@
 pub use keyberon_macros::*;
 
 use crate::action::{
-    Action, HoldTapAction, HoldTapConfig, OneShotAction, OneShotEndConfig, TapDanceAction,
-    TapDanceConfig,
+    Action, HoldTapAction, HoldTapConfig, OneShotAction, OneShotEndConfig, SequenceEvent,
+    TapDanceAction, TapDanceConfig,
 };
 use crate::key_code::KeyCode;
 use arraydeque::ArrayDeque;
@@ -94,6 +94,7 @@ pub struct Layout<
     waiting: Option<WaitingState<T, K>>,
     oneshot: Option<OneShotState>,
     tapdance: Option<TapDanceState<T, K>>,
+    active_sequences: ArrayDeque<[SequenceState<K>; 4], arraydeque::behavior::Wrapping>,
     stacked: Stack,
     tap_hold_tracker: TapHoldTracker,
 }
@@ -185,6 +186,7 @@ impl<T: Copy> CustomEvent<T> {
 #[derive(Debug, Eq, PartialEq)]
 enum State<T: 'static + Copy, K: 'static + Copy> {
     NormalKey { keycode: K, coord: (u8, u8) },
+    FakeKey { keycode: K },
     MomentaryLayerModifier { value: usize, coord: (u8, u8) },
     ToggleLayerModifier { value: usize },
     Custom { value: T, coord: (u8, u8) },
@@ -196,10 +198,11 @@ impl<T: 'static + Copy, K: 'static + Copy> Clone for State<T, K> {
     }
 }
 
-impl<T: 'static + Copy, K: 'static + Copy> State<T, K> {
+impl<T: 'static + Copy, K: 'static + Copy + PartialEq> State<T, K> {
     fn keycode(&self) -> Option<K> {
         match self {
             NormalKey { keycode, .. } => Some(*keycode),
+            FakeKey { keycode } => Some(*keycode),
             _ => None,
         }
     }
@@ -213,6 +216,12 @@ impl<T: 'static + Copy, K: 'static + Copy> State<T, K> {
                 custom.update(CustomEvent::Release(value));
                 None
             }
+            _ => Some(*self),
+        }
+    }
+    fn sequence_release(&self, key: K) -> Option<Self> {
+        match *self {
+            FakeKey { keycode } if keycode == key => None,
             _ => Some(*self),
         }
     }
@@ -291,6 +300,16 @@ impl<T, K> WaitingState<T, K> {
     fn is_corresponding_release(&self, event: &Event) -> bool {
         matches!(event, Event::Release(i, j) if (*i, *j) == self.coord)
     }
+}
+
+struct SequenceState<K>
+where
+    K: 'static + Copy,
+{
+    events: &'static [SequenceEvent<K>],
+    current_event: u8,
+    delay: u16,
+    tap_in_progress: bool,
 }
 
 struct TapDanceState<T, K>
@@ -488,8 +507,13 @@ struct ActionContext {
     inside_tapdance: bool,
 }
 
-impl<const C: usize, const R: usize, const L: usize, T: 'static + Copy, K: 'static + Copy>
-    Layout<C, R, L, T, K>
+impl<
+        const C: usize,
+        const R: usize,
+        const L: usize,
+        T: 'static + Copy,
+        K: 'static + Copy + PartialEq,
+    > Layout<C, R, L, T, K>
 {
     /// Creates a new `Layout` object.
     pub fn new(layers: &'static mut [[[Action<T, K>; C]; R]; L]) -> Self {
@@ -500,6 +524,7 @@ impl<const C: usize, const R: usize, const L: usize, T: 'static + Copy, K: 'stat
             waiting: None,
             oneshot: None,
             tapdance: None,
+            active_sequences: ArrayDeque::new(),
             stacked: ArrayDeque::new(),
             tap_hold_tracker: Default::default(),
         }
@@ -583,6 +608,65 @@ impl<const C: usize, const R: usize, const L: usize, T: 'static + Copy, K: 'stat
 
         CustomEvent::NoEvent
     }
+    fn process_sequences(&mut self) {
+        for _ in 0..self.active_sequences.len() {
+            if let Some(mut sequence) = self.active_sequences.pop_front() {
+                if sequence.delay > 0 {
+                    sequence.delay -= 1;
+                    self.active_sequences.push_back(sequence);
+                    continue;
+                }
+
+                let event = sequence.events.get(sequence.current_event as usize);
+
+                match event {
+                    Some(&SequenceEvent::NoOp) => {
+                        sequence.current_event += 1;
+                    }
+                    Some(&SequenceEvent::Press(keycode)) => {
+                        let _ = self.states.push(FakeKey { keycode });
+                        sequence.current_event += 1;
+                    }
+                    Some(&SequenceEvent::Release(keycode)) => {
+                        self.states
+                            .retain(|s| s.sequence_release(keycode).is_some());
+                        sequence.current_event += 1;
+                    }
+                    Some(&SequenceEvent::Tap(keycode)) if !sequence.tap_in_progress => {
+                        sequence.tap_in_progress = true;
+                        let _ = self.states.push(FakeKey { keycode });
+                    }
+                    Some(&SequenceEvent::Tap(keycode)) => {
+                        sequence.tap_in_progress = false;
+                        self.states
+                            .retain(|s| s.sequence_release(keycode).is_some());
+                        sequence.current_event += 1;
+                    }
+                    Some(&SequenceEvent::Delay(delay)) => {
+                        sequence.delay = delay.saturating_sub(1);
+                        sequence.current_event += 1;
+                    }
+                    Some(&SequenceEvent::Complete) => {
+                        for state in self.states.clone().iter() {
+                            if let FakeKey { keycode } = state {
+                                self.states
+                                    .retain(|s| s.sequence_release(*keycode).is_some());
+                            }
+                        }
+                        // skip to the end of the sequence
+                        sequence.current_event = sequence.events.len() as u8;
+                    }
+                    None => {}
+                }
+
+                // if the sequence is not done (an event was processed, and there are still events
+                // to process), add it back to the list of active sequences
+                if event.is_some() && sequence.current_event < sequence.events.len() as u8 {
+                    self.active_sequences.push_back(sequence);
+                }
+            }
+        }
+    }
     /// A time event.
     ///
     /// This method must be called regularly, typically every millisecond.
@@ -596,6 +680,9 @@ impl<const C: usize, const R: usize, const L: usize, T: 'static + Copy, K: 'stat
 
         let mut custom = CustomEvent::NoEvent;
         let mut should_unstack = true;
+
+        // process sequences
+        self.process_sequences();
 
         // process oneshot
         if let Some(oneshot) = &mut self.oneshot {
@@ -845,6 +932,14 @@ impl<const C: usize, const R: usize, const L: usize, T: 'static + Copy, K: 'stat
                 });
 
                 return custom;
+            }
+            Sequence(events) => {
+                self.active_sequences.push_back(SequenceState {
+                    events,
+                    current_event: 0,
+                    delay: 0,
+                    tap_in_progress: false,
+                });
             }
             KeyCode(keycode) => {
                 self.tap_hold_tracker.coord = coord;
@@ -2665,6 +2760,295 @@ mod test {
         assert_keys(&[Kb3], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[], layout.keycodes());
+    }
+
+    #[test]
+    fn sequences() {
+        static mut LAYERS: Layers<6, 1, 1> = [[[
+            Sequence(
+                // Simple Ctrl-C sequence/macro
+                &[
+                    SequenceEvent::Press(LCtrl),
+                    SequenceEvent::Press(C),
+                    SequenceEvent::Release(C),
+                    SequenceEvent::Release(LCtrl),
+                ]
+                .as_slice(),
+            ),
+            Sequence(
+                // So we can test that Complete works
+                &[
+                    SequenceEvent::Press(LCtrl),
+                    SequenceEvent::Press(C),
+                    SequenceEvent::Complete,
+                ]
+                .as_slice(),
+            ),
+            Sequence(
+                // YO with a delay in the middle
+                &[
+                    SequenceEvent::Press(Y),
+                    SequenceEvent::Release(Y),
+                    // "How many licks does it take to get to the center?"
+                    SequenceEvent::Delay(3), // Let's find out
+                    SequenceEvent::Press(O),
+                    SequenceEvent::Release(O),
+                ]
+                .as_slice(),
+            ),
+            Sequence(
+                // A long sequence to test the chunking capability
+                &[
+                    SequenceEvent::Press(LShift), // Important: Shift must remain held
+                    SequenceEvent::Press(U),      // ...or the message just isn't the same!
+                    SequenceEvent::Release(U),
+                    SequenceEvent::Press(N),
+                    SequenceEvent::Release(N),
+                    SequenceEvent::Press(L),
+                    SequenceEvent::Release(L),
+                    SequenceEvent::Press(I),
+                    SequenceEvent::Release(I),
+                    SequenceEvent::Press(M),
+                    SequenceEvent::Release(M),
+                    SequenceEvent::Press(I),
+                    SequenceEvent::Release(I),
+                    SequenceEvent::Press(T),
+                    SequenceEvent::Release(T),
+                    SequenceEvent::Press(E),
+                    SequenceEvent::Release(E),
+                    SequenceEvent::Press(D),
+                    SequenceEvent::Release(D),
+                    SequenceEvent::Press(Space),
+                    SequenceEvent::Release(Space),
+                    SequenceEvent::Press(P),
+                    SequenceEvent::Release(P),
+                    SequenceEvent::Press(O),
+                    SequenceEvent::Release(O),
+                    SequenceEvent::Press(W),
+                    SequenceEvent::Release(W),
+                    SequenceEvent::Press(E),
+                    SequenceEvent::Release(E),
+                    SequenceEvent::Press(R),
+                    SequenceEvent::Release(R),
+                    SequenceEvent::Press(Kb1),
+                    SequenceEvent::Release(Kb1),
+                    SequenceEvent::Press(Kb1),
+                    SequenceEvent::Release(Kb1),
+                    SequenceEvent::Press(Kb1),
+                    SequenceEvent::Release(Kb1),
+                    SequenceEvent::Press(Kb1),
+                    SequenceEvent::Release(Kb1),
+                    SequenceEvent::Release(LShift),
+                ]
+                .as_slice(),
+            ),
+            Sequence(
+                &[
+                    SequenceEvent::Tap(Q),
+                    SequenceEvent::Tap(W),
+                    SequenceEvent::Tap(E),
+                ]
+                .as_slice(),
+            ),
+            Sequence(
+                &[
+                    SequenceEvent::Tap(X),
+                    SequenceEvent::Tap(Y),
+                    SequenceEvent::Tap(Z),
+                ]
+                .as_slice(),
+            ),
+        ]]];
+        let mut layout = Layout::new(unsafe { &mut LAYERS });
+        // Test a basic sequence
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[], layout.keycodes());
+        layout.event(Press(0, 0));
+        // Sequences take an extra tick to kickoff since the first tick starts the sequence:
+        assert_eq!(CustomEvent::NoEvent, layout.tick()); // Sequence detected & added
+        assert_eq!(CustomEvent::NoEvent, layout.tick()); // Sequence starts
+        assert_keys(&[LCtrl], layout.keycodes()); // First item in the SequenceEvent
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LCtrl, C], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LCtrl], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[], layout.keycodes());
+        layout.event(Release(0, 0));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[], layout.keycodes());
+
+        // Test the use of Complete()
+        assert_keys(&[], layout.keycodes());
+        layout.event(Press(0, 1));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LCtrl], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LCtrl, C], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[], layout.keycodes());
+        layout.event(Release(0, 1));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[], layout.keycodes());
+
+        // Test a sequence with a Delay() (aka The Mr Owl test; duration == 3)
+        layout.event(Press(0, 2));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[Y], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick()); // First decrement (2)
+        assert_keys(&[], layout.keycodes()); // "Eh Ooone!"
+        assert_eq!(CustomEvent::NoEvent, layout.tick()); // Second decrement (1)
+        assert_keys(&[], layout.keycodes()); // "Eh two!"
+        assert_eq!(CustomEvent::NoEvent, layout.tick()); // Final decrement (0)
+        assert_keys(&[], layout.keycodes()); // "Eh three."
+        assert_eq!(CustomEvent::NoEvent, layout.tick()); // Press() added for the next tick()
+        assert_eq!(CustomEvent::NoEvent, layout.tick()); // FakeKey Press()
+        assert_keys(&[O], layout.keycodes()); // CHOMP!
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[], layout.keycodes());
+        layout.event(Release(0, 2));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[], layout.keycodes());
+
+        // // Test really long sequences (aka macros)...
+        layout.event(Press(0, 3));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift, U], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift, N], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift, L], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift, I], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift, M], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift, I], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift, T], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift, E], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift, D], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift, Space], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift, P], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift, O], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift, W], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift, E], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift, R], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift, Kb1], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift, Kb1], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift, Kb1], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift, Kb1], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        layout.event(Release(0, 3));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[], layout.keycodes());
+
+        // Test a sequence with Tap Events
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[], layout.keycodes());
+        layout.event(Press(0, 4));
+        assert_eq!(CustomEvent::NoEvent, layout.tick()); // Sequence detected & added
+        assert_keys(&[], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick()); // To Process Tap(Q)
+        assert_keys(&[Q], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick()); // Release(Q)
+        assert_keys(&[], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick()); // To Process Tap(W)
+        assert_keys(&[W], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick()); // Release(W)
+        assert_keys(&[], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick()); // To Process Tap(E)
+        assert_keys(&[E], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick()); // Release(E)
+        assert_keys(&[], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick()); // Sequence is
+                                                         // finished
+        assert_keys(&[], layout.keycodes());
+        layout.event(Release(0, 4));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[], layout.keycodes());
+
+        // Test two sequences
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[], layout.keycodes());
+        layout.event(Press(0, 5));
+        assert_eq!(CustomEvent::NoEvent, layout.tick()); // Sequence detected & added
+        assert_keys(&[], layout.keycodes());
+        layout.event(Press(0, 4));
+        assert_eq!(CustomEvent::NoEvent, layout.tick()); // Tap(X)
+        assert_keys(&[X], layout.keycodes());
+        layout.event(Release(0, 5));
+        assert_eq!(CustomEvent::NoEvent, layout.tick()); // Release(X), Tap(Q)
+        assert_keys(&[Q], layout.keycodes());
+        layout.event(Release(0, 4));
+        assert_eq!(CustomEvent::NoEvent, layout.tick()); // Tap(Y), Release(Q)
+        assert_keys(&[Y], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick()); // Release(Y), Press(W)
+        assert_keys(&[W], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick()); // Press(Z), Release(W)
+        assert_keys(&[Z], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick()); // Release(Z), Press(E)
+        assert_keys(&[E], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick()); // Release(E)
+        assert_keys(&[], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick()); // Sequence is
+                                                         // finished
         assert_keys(&[], layout.keycodes());
     }
 }
