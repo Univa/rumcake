@@ -496,6 +496,7 @@ impl TapHoldTracker {
 }
 
 /// Errors that can occur when attempting to change an action
+#[derive(Debug)]
 pub enum ChangeActionError {
     /// The provided coordinates (layer, row and column) do not exist in the layout.
     OutOfBounds,
