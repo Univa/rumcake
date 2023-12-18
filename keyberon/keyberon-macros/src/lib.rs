@@ -1,5 +1,5 @@
 extern crate proc_macro;
-use proc_macro2::{Delimiter, Group, Literal, Punct, Spacing, TokenStream, TokenTree};
+use proc_macro2::{Delimiter, Group, Ident, Literal, Punct, Spacing, TokenStream, TokenTree};
 use proc_macro_error::proc_macro_error;
 use proc_macro_error::{abort, emit_error};
 use quote::quote;
@@ -175,12 +175,157 @@ fn literal_to_keycode(l: &Literal, out: &mut TokenStream) {
         s if s.starts_with('\'') => emit_error!(l, "Literal could not be parsed as a keycode"; help = "Maybe try without quotes?"),
 
         s if s.starts_with('\"')  => {
-            if s.len() == 3 {
-                emit_error!(l, "Typing strings on key press is not yet supported"; help = "Did you mean to use apostrophes instead of quotes?");
-            } else {
-                emit_error!(l, "Typing strings on key press is not yet supported");
-            }
+            let mut bytes = Vec::new();
+            literal_to_macro_bytes(l, &mut bytes);
+            out.extend(quote! { keyberon::action::Action::Sequence(&[#(#bytes),*].as_slice()), })
         }
         _ => emit_error!(l, "Literal could not be parsed as a keycode")
+    }
+}
+
+#[proc_macro_error]
+#[proc_macro]
+pub fn sequence(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input_stream: TokenStream = input.into();
+    let mut input = input_stream.into_iter();
+
+    let mut bytes: Vec<TokenStream> = Vec::new();
+
+    while let Some(t) = input.next() {
+        match t {
+            TokenTree::Literal(literal) => {
+                literal_to_macro_bytes(&literal, &mut bytes);
+            }
+            TokenTree::Ident(ref i) => {
+                if let Some(TokenTree::Group(ref g)) = input.next() {
+                    variant_to_macro_bytes(i, g, &mut bytes)
+                } else {
+                    abort!(t, "Expected group.")
+                }
+            }
+            _ => {
+                abort!(t, "Invalid token, expected either a string, Delay(_), Tap(_), Press(_) or Release(_)")
+            }
+        };
+
+        if let Some(t) = input.next() {
+            if let TokenTree::Punct(ref p) = t {
+                if p.as_char() == ',' {
+                    continue;
+                }
+            }
+
+            abort!(t, "Expected comma.")
+        }
+    }
+
+    quote! { [#(#bytes),*] }.into()
+}
+
+fn literal_to_macro_bytes(l: &Literal, bytes: &mut Vec<TokenStream>) {
+    let s = l.to_string();
+
+    if s.starts_with('\"') && s.ends_with('\"') {
+        if let Ok(unescaped) = snailquote::unescape(s.as_str()) {
+            for character in unescaped.chars() {
+                if character.is_ascii() {
+                    let value = character as u8;
+                    bytes.push(quote! { #value });
+                } else {
+                    emit_error!(l, "Macro string contains a non-ASCII character.")
+                }
+            }
+        } else {
+            emit_error!(l, "Could not unescape string.")
+        };
+    } else {
+        emit_error!(
+            l,
+            "Unexpected literal value."; help = "Did you mean to wrap this with double quotation marks?"
+        )
+    }
+}
+
+fn variant_to_macro_bytes(i: &Ident, g: &Group, bytes: &mut Vec<TokenStream>) {
+    match i.to_string().as_str() {
+        "Tap" => {
+            let tokens = g.stream();
+            bytes.extend([
+                quote! {
+                    1
+                },
+                quote! {
+                    1
+                },
+                quote! {
+                    keyberon::key_code::KeyCode::#tokens as u8
+                },
+            ]);
+        }
+        "Press" => {
+            let tokens = g.stream();
+            bytes.extend([
+                quote! {
+                    1
+                },
+                quote! {
+                    2
+                },
+                quote! {
+                    keyberon::key_code::KeyCode::#tokens as u8
+                },
+            ]);
+        }
+        "Release" => {
+            let tokens = g.stream();
+            bytes.extend([
+                quote! {
+                    1
+                },
+                quote! {
+                    3
+                },
+                quote! {
+                    keyberon::key_code::KeyCode::#tokens as u8
+                },
+            ]);
+        }
+        "Delay" => {
+            let digits = g.stream().to_string();
+
+            bytes.extend([
+                quote! {
+                    1
+                },
+                quote! {
+                    4
+                },
+            ]);
+
+            if digits.starts_with('0') {
+                emit_error!(g, "Delays should not start with a 0 digit.");
+            }
+
+            for digit in digits.chars() {
+                if digit.is_ascii_digit() {
+                    let value = digit as u8;
+                    bytes.push(quote! {
+                        #value
+                    });
+                } else {
+                    emit_error!(g, "The provided delay is not a valid number.");
+                }
+            }
+
+            bytes.push(quote! {
+                b'|'
+            });
+        }
+        _ => {
+            emit_error!(
+                i,
+                "Unknown variant. Must be one of Tap(_), Press(_), Release(_), or Delay(_)."
+            )
+        }
     }
 }

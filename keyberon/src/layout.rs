@@ -45,10 +45,11 @@
 /// };
 /// ```
 pub use keyberon_macros::*;
+use num_traits::FromPrimitive;
 
 use crate::action::{
-    Action, HoldTapAction, HoldTapConfig, OneShotAction, OneShotEndConfig, SequenceEvent,
-    TapDanceAction, TapDanceConfig,
+    Action, HoldTapAction, HoldTapConfig, OneShotAction, OneShotEndConfig, TapDanceAction,
+    TapDanceConfig,
 };
 use crate::key_code::KeyCode;
 use arraydeque::ArrayDeque;
@@ -94,7 +95,7 @@ pub struct Layout<
     waiting: Option<WaitingState<T, K>>,
     oneshot: Option<OneShotState>,
     tapdance: Option<TapDanceState<T, K>>,
-    active_sequences: ArrayDeque<[SequenceState<K>; 4], arraydeque::behavior::Wrapping>,
+    active_sequences: ArrayDeque<[SequenceState; 4], arraydeque::behavior::Wrapping>,
     stacked: Stack,
     tap_hold_tracker: TapHoldTracker,
 }
@@ -302,14 +303,11 @@ impl<T, K> WaitingState<T, K> {
     }
 }
 
-struct SequenceState<K>
-where
-    K: 'static + Copy,
-{
-    events: &'static [SequenceEvent<K>],
-    current_event: u8,
-    delay: u16,
+struct SequenceState {
+    remaining_bytes: &'static [u8],
+    delay: u32,
     tap_in_progress: bool,
+    ascii_in_progress: bool,
 }
 
 struct TapDanceState<T, K>
@@ -508,12 +506,81 @@ struct ActionContext {
     inside_tapdance: bool,
 }
 
+/// Trait that defines how ASCII characters get converted to keycodes.
+pub trait FromAscii
+where
+    Self: Sized,
+{
+    /// Returns a tuple that determines the mods that need to be pressed for the given character.
+    /// The tuple shouild be returned in the order (shift, alt, space).
+    fn get_mods(char: u8) -> (Option<Self>, Option<Self>, Option<Self>);
+
+    /// Convert a character in the standard ASCII range to a keycode.
+    fn from_ascii(char: u8) -> Self;
+}
+
+impl FromAscii for KeyCode {
+    fn get_mods(char: u8) -> (Option<Self>, Option<Self>, Option<Self>) {
+        const ASCII_SHIFT_REQUIRED: [u8; 16] = [
+            0b00000000, 0b00000000, 0b00000000, 0b00000000, 0b01111110, 0b11110000, 0b00000000,
+            0b00101011, 0b11111111, 0b11111111, 0b11111111, 0b11100011, 0b00000000, 0b00000000,
+            0b00000000, 0b00011110,
+        ];
+
+        let shift = (((ASCII_SHIFT_REQUIRED[(char / 8) as usize]) >> (char % 8)) & 1) == 1;
+
+        (shift.then_some(KeyCode::LShift), None, None)
+    }
+
+    fn from_ascii(char: u8) -> Self {
+        use KeyCode::*;
+
+        #[rustfmt::skip]
+        const ASCII_TO_KEYCODE: [KeyCode; 128] = [
+            //NUL   SOH  STX     ETX       EOT     ENQ       ACK    BEL
+            No,     No,  No,     No,       No,     No,       No,    No,
+            //BS    TAB  LF      VT        FF      CR        SO     SI
+            BSpace, Tab, Enter,  No,       No,     No,       No,    No,
+            //DLE   DC1  DC2     DC3       DC4     NAK       SYN    ETB
+            No,     No,  No,     No,       No,     No,       No,    No,
+            //CAN   EM   SUB     ESC       FS      GS        RS     US
+            No,     No,  No,     Escape,   No,     No,       No,    No,
+            //      !    "       #         $       %         &      '
+            Space,  Kb1, Quote,  Kb3,      Kb4,    Kb5,      Kb7,   Quote,
+            //(     )    *       +         ,       -         .      /
+            Kb9,    Kb0, Kb8,    Equal,    Comma,  Minus,    Dot,   Slash,
+            //0     1    2       3         4       5         6      7
+            Kb0,    Kb1, Kb2,    Kb3,      Kb4,    Kb5,      Kb6,   Kb7,
+            //8     9    :       ;         <       =         >      ?
+            Kb8,    Kb9, SColon, SColon,   Comma,  Equal,    Dot,   Slash,
+            //@     A    B       C         D       E         F      G
+            Kb2,    A,   B,      C,        D,      E,        F,     G,
+            //H     I    J       K         L       M         N      O
+            H,      I,   J,      K,        L,      M,        N,     O,
+            //P     Q    R       S         T       U         V      W
+            P,      Q,   R,      S,        T,      U,        V,     W,
+            //X     Y    Z       [         \       ]         ^      _
+            X,      Y,   Z,      LBracket, Bslash, RBracket, Kb6,   Minus,
+            //`     a    b       c         d       e         f      g
+            Grave,  A,   B,      C,        D,      E,        F,     G,
+            //h     i    j       k         l       m         n      o
+            H,      I,   J,      K,        L,      M,        N,     O,
+            //p     q    r       s         t       u         v      w
+            P,      Q,   R,      S,        T,      U,        V,     W,
+            //x     y    z       {         |       }         ~      DEL
+            X,      Y,   Z,      LBracket, Bslash, RBracket, Grave, Delete,
+        ];
+
+        *ASCII_TO_KEYCODE.get(char as usize).unwrap_or(&No)
+    }
+}
+
 impl<
         const C: usize,
         const R: usize,
         const L: usize,
         T: 'static + Copy,
-        K: 'static + Copy + PartialEq,
+        K: 'static + Copy + PartialEq + FromAscii + FromPrimitive,
     > Layout<C, R, L, T, K>
 {
     /// Creates a new `Layout` object.
@@ -612,59 +679,120 @@ impl<
     fn process_sequences(&mut self) {
         for _ in 0..self.active_sequences.len() {
             if let Some(mut sequence) = self.active_sequences.pop_front() {
+                // if a delay is being processed, just decrement and move on to the next active sequence
                 if sequence.delay > 0 {
                     sequence.delay -= 1;
                     self.active_sequences.push_back(sequence);
                     continue;
                 }
 
-                let event = sequence.events.get(sequence.current_event as usize);
-
-                match event {
-                    Some(&SequenceEvent::NoOp) => {
-                        sequence.current_event += 1;
-                    }
-                    Some(&SequenceEvent::Press(keycode)) => {
-                        let _ = self.states.push(FakeKey { keycode });
-                        sequence.current_event += 1;
-                    }
-                    Some(&SequenceEvent::Release(keycode)) => {
-                        self.states
-                            .retain(|s| s.sequence_release(keycode).is_some());
-                        sequence.current_event += 1;
-                    }
-                    Some(&SequenceEvent::Tap(keycode)) if !sequence.tap_in_progress => {
-                        sequence.tap_in_progress = true;
-                        let _ = self.states.push(FakeKey { keycode });
-                    }
-                    Some(&SequenceEvent::Tap(keycode)) => {
-                        sequence.tap_in_progress = false;
-                        self.states
-                            .retain(|s| s.sequence_release(keycode).is_some());
-                        sequence.current_event += 1;
-                    }
-                    Some(&SequenceEvent::Delay(delay)) => {
-                        sequence.delay = delay.saturating_sub(1);
-                        sequence.current_event += 1;
-                    }
-                    Some(&SequenceEvent::Complete) => {
-                        for state in self.states.clone().iter() {
-                            if let FakeKey { keycode } = state {
-                                self.states
-                                    .retain(|s| s.sequence_release(*keycode).is_some());
-                            }
+                // end the sequence if there are no more bytes to process
+                if sequence.remaining_bytes.is_empty() {
+                    for state in self.states.clone().iter() {
+                        if let FakeKey { keycode } = state {
+                            self.states
+                                .retain(|s| s.sequence_release(*keycode).is_some());
                         }
-                        // skip to the end of the sequence
-                        sequence.current_event = sequence.events.len() as u8;
                     }
-                    None => {}
+                    continue;
                 }
 
-                // if the sequence is not done (an event was processed, and there are still events
-                // to process), add it back to the list of active sequences
-                if event.is_some() && sequence.current_event < sequence.events.len() as u8 {
-                    self.active_sequences.push_back(sequence);
-                }
+                match sequence.remaining_bytes {
+                    [1, 1, keycode, ..] if !sequence.tap_in_progress => {
+                        sequence.tap_in_progress = true;
+
+                        if let Some(keycode) = FromPrimitive::from_u8(*keycode) {
+                            let _ = self.states.push(FakeKey { keycode });
+                        }
+                    }
+                    [1, 1, keycode, tail @ ..] => {
+                        sequence.tap_in_progress = false;
+
+                        if let Some(keycode) = FromPrimitive::from_u8(*keycode) {
+                            self.states
+                                .retain(|s| s.sequence_release(keycode).is_some());
+                        }
+                        sequence.remaining_bytes = tail;
+                    }
+                    [1, 2, keycode, tail @ ..] => {
+                        if let Some(keycode) = FromPrimitive::from_u8(*keycode) {
+                            let _ = self.states.push(FakeKey { keycode });
+                        }
+
+                        sequence.remaining_bytes = tail;
+                    }
+                    [1, 3, keycode, tail @ ..] => {
+                        if let Some(keycode) = FromPrimitive::from_u8(*keycode) {
+                            self.states
+                                .retain(|s| s.sequence_release(keycode).is_some());
+                        }
+
+                        sequence.remaining_bytes = tail;
+                    }
+                    [1, 4, digits @ ..] => {
+                        sequence.remaining_bytes = if digits.starts_with(&[b'0']) {
+                            // end the sequence immediately, we dont want delays that start with a 0 digit
+                            &[]
+                        } else if let Some(end) = digits.iter().position(|d| *d == b'|') {
+                            if let Some(delay) =
+                                &digits[..end].iter().try_fold(0, |acc: u32, digit| {
+                                    if digit.is_ascii_digit() {
+                                        return Some(
+                                            acc.saturating_mul(10)
+                                                .saturating_add((digit - b'0') as u32),
+                                        );
+                                    }
+
+                                    // this is not a valid delay
+                                    None
+                                })
+                            {
+                                sequence.delay = delay.saturating_sub(1);
+                                &sequence.remaining_bytes[(3 + end)..] // prefix (1) + variant number (4 for delay) + '|'
+                            } else {
+                                // end the sequence immediately, the provided delay is not a valid number
+                                &[]
+                            }
+                        } else {
+                            // end the sequence immediately, the delay terminating character '|' could not be found.
+                            &[]
+                        };
+                    }
+                    [character, ..] if !sequence.ascii_in_progress => {
+                        sequence.ascii_in_progress = true;
+                        if character.is_ascii() {
+                            let keycode = K::from_ascii(*character);
+                            let (shift, ..) = K::get_mods(*character);
+
+                            if let Some(shift) = shift {
+                                let _ = self.states.push(FakeKey { keycode: shift });
+                            }
+
+                            let _ = self.states.push(FakeKey { keycode });
+                        };
+                    }
+                    [character, tail @ ..] => {
+                        sequence.ascii_in_progress = false;
+                        if character.is_ascii() {
+                            let keycode = K::from_ascii(*character);
+                            let (shift, ..) = K::get_mods(*character);
+
+                            self.states.retain(|s| {
+                                s.sequence_release(keycode).is_some()
+                                    && !shift.is_some_and(|m| s.sequence_release(m).is_none())
+                            });
+                        };
+
+                        sequence.remaining_bytes = tail;
+                    }
+                    _ => {
+                        // if we don't recognize the byte sequence, just end the sequence
+                        sequence.remaining_bytes = &[];
+                    }
+                };
+
+                // if the sequence is not done, add it back to the list of active sequences
+                self.active_sequences.push_back(sequence);
             }
         }
     }
@@ -934,12 +1062,12 @@ impl<
 
                 return custom;
             }
-            Sequence(events) => {
+            Sequence(remaining_bytes) => {
                 self.active_sequences.push_back(SequenceState {
-                    events,
-                    current_event: 0,
+                    remaining_bytes,
                     delay: 0,
                     tap_in_progress: false,
+                    ascii_in_progress: false,
                 });
             }
             KeyCode(keycode) => {
@@ -2766,99 +2894,298 @@ mod test {
 
     #[test]
     fn sequences() {
-        static mut LAYERS: Layers<6, 1, 1> = [[[
+        static mut LAYERS: Layers<7, 1, 1> = [[[
             Sequence(
-                // Simple Ctrl-C sequence/macro
+                // Simple Ctrl-C sequence/macro, equivalent to:
+                // &sequence! {
+                //     Press(LCtrl),
+                //     Press(C),
+                //     Release(C),
+                //     Release(LCtrl)
+                // }
+                // .as_slice(),
                 &[
-                    SequenceEvent::Press(LCtrl),
-                    SequenceEvent::Press(C),
-                    SequenceEvent::Release(C),
-                    SequenceEvent::Release(LCtrl),
+                    1,
+                    2,
+                    crate::key_code::KeyCode::LCtrl as u8,
+                    1,
+                    2,
+                    crate::key_code::KeyCode::C as u8,
+                    1,
+                    3,
+                    crate::key_code::KeyCode::C as u8,
+                    1,
+                    3,
+                    crate::key_code::KeyCode::LCtrl as u8,
                 ]
                 .as_slice(),
             ),
             Sequence(
-                // So we can test that Complete works
+                // Equivalent to:
+                // &sequence! {
+                //     Press(LCtrl),
+                //     Press(C),
+                // }
+                // .as_slice(),
                 &[
-                    SequenceEvent::Press(LCtrl),
-                    SequenceEvent::Press(C),
-                    SequenceEvent::Complete,
+                    1,
+                    2,
+                    crate::key_code::KeyCode::LCtrl as u8,
+                    1,
+                    2,
+                    crate::key_code::KeyCode::C as u8,
                 ]
                 .as_slice(),
             ),
             Sequence(
-                // YO with a delay in the middle
+                // YO with a delay in the middle, equivalent to:
+                // &sequence! {
+                //     Press(Y),
+                //     Release(Y),
+                //     // "How many licks does it take to get to the center?"
+                //     Delay(3), // Let's find out
+                //     Press(O),
+                //     Release(O),
+                // }
+                // .as_slice(),
                 &[
-                    SequenceEvent::Press(Y),
-                    SequenceEvent::Release(Y),
-                    // "How many licks does it take to get to the center?"
-                    SequenceEvent::Delay(3), // Let's find out
-                    SequenceEvent::Press(O),
-                    SequenceEvent::Release(O),
+                    1,
+                    2,
+                    crate::key_code::KeyCode::Y as u8,
+                    1,
+                    3,
+                    crate::key_code::KeyCode::Y as u8,
+                    1,
+                    4,
+                    51u8,
+                    b'|',
+                    1,
+                    2,
+                    crate::key_code::KeyCode::O as u8,
+                    1,
+                    3,
+                    crate::key_code::KeyCode::O as u8,
                 ]
                 .as_slice(),
             ),
             Sequence(
-                // A long sequence to test the chunking capability
+                // A long sequence to test the chunking capability, equivalent to:
+                // &sequence! {
+                //     Press(LShift), // Important: Shift must remain held
+                //     Press(U),      // ...or the message just isn't the same!
+                //     Release(U),
+                //     Press(N),
+                //     Release(N),
+                //     Press(L),
+                //     Release(L),
+                //     Press(I),
+                //     Release(I),
+                //     Press(M),
+                //     Release(M),
+                //     Press(I),
+                //     Release(I),
+                //     Press(T),
+                //     Release(T),
+                //     Press(E),
+                //     Release(E),
+                //     Press(D),
+                //     Release(D),
+                //     Press(Space),
+                //     Release(Space),
+                //     Press(P),
+                //     Release(P),
+                //     Press(O),
+                //     Release(O),
+                //     Press(W),
+                //     Release(W),
+                //     Press(E),
+                //     Release(E),
+                //     Press(R),
+                //     Release(R),
+                //     Press(Kb1),
+                //     Release(Kb1),
+                //     Press(Kb1),
+                //     Release(Kb1),
+                //     Press(Kb1),
+                //     Release(Kb1),
+                //     Press(Kb1),
+                //     Release(Kb1),
+                //     Release(LShift),
+                // }
+                // .as_slice(),
                 &[
-                    SequenceEvent::Press(LShift), // Important: Shift must remain held
-                    SequenceEvent::Press(U),      // ...or the message just isn't the same!
-                    SequenceEvent::Release(U),
-                    SequenceEvent::Press(N),
-                    SequenceEvent::Release(N),
-                    SequenceEvent::Press(L),
-                    SequenceEvent::Release(L),
-                    SequenceEvent::Press(I),
-                    SequenceEvent::Release(I),
-                    SequenceEvent::Press(M),
-                    SequenceEvent::Release(M),
-                    SequenceEvent::Press(I),
-                    SequenceEvent::Release(I),
-                    SequenceEvent::Press(T),
-                    SequenceEvent::Release(T),
-                    SequenceEvent::Press(E),
-                    SequenceEvent::Release(E),
-                    SequenceEvent::Press(D),
-                    SequenceEvent::Release(D),
-                    SequenceEvent::Press(Space),
-                    SequenceEvent::Release(Space),
-                    SequenceEvent::Press(P),
-                    SequenceEvent::Release(P),
-                    SequenceEvent::Press(O),
-                    SequenceEvent::Release(O),
-                    SequenceEvent::Press(W),
-                    SequenceEvent::Release(W),
-                    SequenceEvent::Press(E),
-                    SequenceEvent::Release(E),
-                    SequenceEvent::Press(R),
-                    SequenceEvent::Release(R),
-                    SequenceEvent::Press(Kb1),
-                    SequenceEvent::Release(Kb1),
-                    SequenceEvent::Press(Kb1),
-                    SequenceEvent::Release(Kb1),
-                    SequenceEvent::Press(Kb1),
-                    SequenceEvent::Release(Kb1),
-                    SequenceEvent::Press(Kb1),
-                    SequenceEvent::Release(Kb1),
-                    SequenceEvent::Release(LShift),
+                    1,
+                    2,
+                    crate::key_code::KeyCode::LShift as u8,
+                    1,
+                    2,
+                    crate::key_code::KeyCode::U as u8,
+                    1,
+                    3,
+                    crate::key_code::KeyCode::U as u8,
+                    1,
+                    2,
+                    crate::key_code::KeyCode::N as u8,
+                    1,
+                    3,
+                    crate::key_code::KeyCode::N as u8,
+                    1,
+                    2,
+                    crate::key_code::KeyCode::L as u8,
+                    1,
+                    3,
+                    crate::key_code::KeyCode::L as u8,
+                    1,
+                    2,
+                    crate::key_code::KeyCode::I as u8,
+                    1,
+                    3,
+                    crate::key_code::KeyCode::I as u8,
+                    1,
+                    2,
+                    crate::key_code::KeyCode::M as u8,
+                    1,
+                    3,
+                    crate::key_code::KeyCode::M as u8,
+                    1,
+                    2,
+                    crate::key_code::KeyCode::I as u8,
+                    1,
+                    3,
+                    crate::key_code::KeyCode::I as u8,
+                    1,
+                    2,
+                    crate::key_code::KeyCode::T as u8,
+                    1,
+                    3,
+                    crate::key_code::KeyCode::T as u8,
+                    1,
+                    2,
+                    crate::key_code::KeyCode::E as u8,
+                    1,
+                    3,
+                    crate::key_code::KeyCode::E as u8,
+                    1,
+                    2,
+                    crate::key_code::KeyCode::D as u8,
+                    1,
+                    3,
+                    crate::key_code::KeyCode::D as u8,
+                    1,
+                    2,
+                    crate::key_code::KeyCode::Space as u8,
+                    1,
+                    3,
+                    crate::key_code::KeyCode::Space as u8,
+                    1,
+                    2,
+                    crate::key_code::KeyCode::P as u8,
+                    1,
+                    3,
+                    crate::key_code::KeyCode::P as u8,
+                    1,
+                    2,
+                    crate::key_code::KeyCode::O as u8,
+                    1,
+                    3,
+                    crate::key_code::KeyCode::O as u8,
+                    1,
+                    2,
+                    crate::key_code::KeyCode::W as u8,
+                    1,
+                    3,
+                    crate::key_code::KeyCode::W as u8,
+                    1,
+                    2,
+                    crate::key_code::KeyCode::E as u8,
+                    1,
+                    3,
+                    crate::key_code::KeyCode::E as u8,
+                    1,
+                    2,
+                    crate::key_code::KeyCode::R as u8,
+                    1,
+                    3,
+                    crate::key_code::KeyCode::R as u8,
+                    1,
+                    2,
+                    crate::key_code::KeyCode::Kb1 as u8,
+                    1,
+                    3,
+                    crate::key_code::KeyCode::Kb1 as u8,
+                    1,
+                    2,
+                    crate::key_code::KeyCode::Kb1 as u8,
+                    1,
+                    3,
+                    crate::key_code::KeyCode::Kb1 as u8,
+                    1,
+                    2,
+                    crate::key_code::KeyCode::Kb1 as u8,
+                    1,
+                    3,
+                    crate::key_code::KeyCode::Kb1 as u8,
+                    1,
+                    2,
+                    crate::key_code::KeyCode::Kb1 as u8,
+                    1,
+                    3,
+                    crate::key_code::KeyCode::Kb1 as u8,
+                    1,
+                    3,
+                    crate::key_code::KeyCode::LShift as u8,
                 ]
                 .as_slice(),
             ),
             Sequence(
+                // Equivalent to:
+                // &sequence! {
+                //     Tap(Q),
+                //     Tap(W),
+                //     Tap(E),
+                // }
+                // .as_slice(),
                 &[
-                    SequenceEvent::Tap(Q),
-                    SequenceEvent::Tap(W),
-                    SequenceEvent::Tap(E),
+                    1,
+                    1,
+                    crate::key_code::KeyCode::Q as u8,
+                    1,
+                    1,
+                    crate::key_code::KeyCode::W as u8,
+                    1,
+                    1,
+                    crate::key_code::KeyCode::E as u8,
                 ]
                 .as_slice(),
             ),
             Sequence(
+                // Equivalent to:
+                // &sequence! {
+                //     Tap(X),
+                //     Tap(Y),
+                //     Tap(Z),
+                // }
+                // .as_slice(),
                 &[
-                    SequenceEvent::Tap(X),
-                    SequenceEvent::Tap(Y),
-                    SequenceEvent::Tap(Z),
+                    1,
+                    1,
+                    crate::key_code::KeyCode::X as u8,
+                    1,
+                    1,
+                    crate::key_code::KeyCode::Y as u8,
+                    1,
+                    1,
+                    crate::key_code::KeyCode::Z as u8,
                 ]
                 .as_slice(),
+            ),
+            Sequence(
+                // ASCII bytes, equivalent to:
+                // &sequence! {
+                //     "tEst!"
+                // }
+                // .as_slice(),
+                &[116u8, 69u8, 115u8, 116u8, 33u8].as_slice(),
             ),
         ]]];
         let mut layout = Layout::new(unsafe { &mut LAYERS });
@@ -3051,5 +3378,34 @@ mod test {
         assert_eq!(CustomEvent::NoEvent, layout.tick()); // Sequence is
                                                          // finished
         assert_keys(&[], layout.keycodes());
+
+        // Test ASCII bytes
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[], layout.keycodes());
+        layout.event(Press(0, 6));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        layout.event(Release(0, 6));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[T], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift, E], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[S], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[T], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[LShift, Kb1], layout.keycodes());
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[], layout.keycodes()); // End of sequence
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert_keys(&[], layout.keycodes()); // Should still be empty
     }
 }

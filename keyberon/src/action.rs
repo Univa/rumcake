@@ -231,27 +231,6 @@ where
     pub config: TapDanceConfig,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-/// The different tyeps of actions we support for key sequences/macros
-pub enum SequenceEvent<K>
-where
-    K: 'static,
-{
-    /// No operation action: just do nothing (a placeholder).
-    NoOp,
-    /// A keypress/keydown
-    Press(K),
-    /// Key release/keyup
-    Release(K),
-    /// A shortcut for `Press(K), Release(K)`
-    Tap(K),
-    /// For sequences that need to wait a bit before continuing. The number represents how long (in
-    /// ticks) this Delay will last for.
-    Delay(u16),
-    /// Cancels the running sequence and can be used to mark the end of a sequence.
-    Complete,
-}
-
 /// The different actions that can be done.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -305,7 +284,7 @@ where
     /// - the number of taps is equal to the length of `actions`.
     TapDance(&'static TapDanceAction<T, K>),
     /// An array of SequenceEvents that will be triggered (in order)
-    Sequence(&'static &'static [SequenceEvent<K>]),
+    Sequence(&'static &'static [u8]),
     /// Custom action.
     ///
     /// Define a user defined action. This enum can be anything you
