@@ -424,6 +424,10 @@ pub fn main(
         });
     }
 
+    spawning.extend(quote! {
+        spawner.spawn(rumcake::output_switcher!()).unwrap();
+    });
+
     #[cfg(feature = "nrf")]
     if keyboard.bluetooth {
         initialization.extend(quote! {

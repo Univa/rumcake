@@ -26,15 +26,14 @@ use usbd_human_interface_device::device::keyboard::{
 };
 
 use crate::hw::mcu::BLUETOOTH_ADVERTISING_MUTEX;
-use crate::hw::BATTERY_LEVEL_STATE;
+use crate::hw::{
+    HIDOutput, OutputMode, BATTERY_LEVEL_STATE, CURRENT_OUTPUT_STATE, OUTPUT_MODE_STATE,
+};
 use crate::keyboard::{CONSUMER_REPORT_HID_SEND_CHANNEL, KEYBOARD_REPORT_HID_SEND_CHANNEL};
-
-#[cfg(feature = "usb")]
-use crate::usb::USB_STATE;
 
 use crate::bluetooth::{
     BluetoothCommand, BluetoothKeyboard, BATTERY_LEVEL_LISTENER, BLUETOOTH_COMMAND_CHANNEL,
-    USB_STATE_LISTENER,
+    BLUETOOTH_CONNECTED_STATE, CURRENT_OUTPUT_STATE_LISTENER,
 };
 
 #[derive(Clone, Copy)]
@@ -589,6 +588,7 @@ where
                 match advertise_pairable(sd, advertisement, &Default::default(), bonder).await {
                     Ok(connection) => {
                         info!("[BT_HID] Connection established with host device");
+                        BLUETOOTH_CONNECTED_STATE.set(true).await;
                         connection
                     }
                     Err(error) => {
@@ -646,74 +646,17 @@ where
                 while KEYBOARD_REPORT_HID_SEND_CHANNEL.try_receive().is_ok() {}
                 while CONSUMER_REPORT_HID_SEND_CHANNEL.try_receive().is_ok() {}
 
-                #[cfg(feature = "usb")]
-                {
-                    loop {
-                        if !USB_STATE.get().await {
-                            match select3(
-                                USB_STATE_LISTENER.wait(),
-                                KEYBOARD_REPORT_HID_SEND_CHANNEL.receive(),
-                                CONSUMER_REPORT_HID_SEND_CHANNEL.receive(),
-                            )
-                            .await
-                            {
-                                select::Either3::First(()) => {
-                                    info!(
-                                        "[BT_HID] Bluetooth HID reports enabled = {}",
-                                        !USB_STATE.get().await
-                                    );
-                                }
-                                select::Either3::Second(report) => {
-                                    info!(
-                                        "[BT_HID] Writing NKRO HID report to bluetooth: {:?}",
-                                        Debug2Format(&report)
-                                    );
-
-                                    if let Err(err) =
-                                        server.hids.keyboard_report_notify(&connection, report)
-                                    {
-                                        error!(
-                                            "[BT_HID] Couldn't write NKRO HID report: {:?}",
-                                            Debug2Format(&err)
-                                        );
-                                    };
-                                }
-                                select::Either3::Third(report) => {
-                                    info!(
-                                        "[BT_HID] Writing consumer HID report to bluetooth: {:?}",
-                                        Debug2Format(&report)
-                                    );
-
-                                    if let Err(err) =
-                                        server.hids.consumer_report_notify(&connection, report)
-                                    {
-                                        error!(
-                                            "[BT_HID] Couldn't write consumer HID report: {:?}",
-                                            Debug2Format(&err)
-                                        );
-                                    };
-                                }
-                            };
-                        } else {
-                            USB_STATE_LISTENER.wait().await;
-                            info!(
-                                "[BT_HID] Bluetooth HID reports enabled = {}",
-                                !USB_STATE.get().await
-                            );
-                        }
-                    }
-                }
-
-                #[cfg(not(feature = "usb"))]
-                {
-                    loop {
-                        match select(
+                loop {
+                    if matches!(CURRENT_OUTPUT_STATE.get().await, Some(HIDOutput::Bluetooth)) {
+                        match select3(
+                            CURRENT_OUTPUT_STATE_LISTENER.wait(),
                             KEYBOARD_REPORT_HID_SEND_CHANNEL.receive(),
                             CONSUMER_REPORT_HID_SEND_CHANNEL.receive(),
                         )
                         .await
                         {
-                            select::Either::First(report) => {
+                            select::Either3::First(()) => {}
+                            select::Either3::Second(report) => {
                                 info!(
                                     "[BT_HID] Writing NKRO HID report to bluetooth: {:?}",
                                     Debug2Format(&report)
@@ -728,7 +671,7 @@ where
                                     );
                                 };
                             }
-                            select::Either::Second(report) => {
+                            select::Either3::Third(report) => {
                                 info!(
                                     "[BT_HID] Writing consumer HID report to bluetooth: {:?}",
                                     Debug2Format(&report)
@@ -743,7 +686,9 @@ where
                                     );
                                 };
                             }
-                        }
+                        };
+                    } else {
+                        CURRENT_OUTPUT_STATE_LISTENER.wait().await;
                     }
                 }
             };
@@ -753,7 +698,8 @@ where
                     warn!(
                         "[BT_HID] Connection has been lost: {}",
                         Debug2Format(&error)
-                    )
+                    );
+                    BLUETOOTH_CONNECTED_STATE.set(false).await;
                 }
                 select::Either3::Second(_) => {
                     error!("[BT_HID] Battery task failed. This should not happen.");
@@ -771,15 +717,20 @@ where
             match command {
                 #[cfg(feature = "usb")]
                 BluetoothCommand::ToggleOutput => {
-                    USB_STATE.set(!USB_STATE.get().await).await;
+                    OUTPUT_MODE_STATE
+                        .set(match OUTPUT_MODE_STATE.get().await {
+                            OutputMode::Usb => OutputMode::Bluetooth,
+                            OutputMode::Bluetooth => OutputMode::Usb,
+                        })
+                        .await;
                 }
                 #[cfg(feature = "usb")]
                 BluetoothCommand::OutputUSB => {
-                    USB_STATE.set(true).await;
+                    OUTPUT_MODE_STATE.set(OutputMode::Usb).await;
                 }
                 #[cfg(feature = "usb")]
                 BluetoothCommand::OutputBluetooth => {
-                    USB_STATE.set(false).await;
+                    OUTPUT_MODE_STATE.set(OutputMode::Bluetooth).await;
                 }
             }
         }

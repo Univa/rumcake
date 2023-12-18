@@ -13,7 +13,7 @@ pub mod drivers;
 
 use self::drivers::DisplayDriver;
 
-pub(crate) static USB_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();
+pub(crate) static OUTPUT_MODE_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();
 pub(crate) static BATTERY_LEVEL_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();
 
 /// A trait that keyboards must implement to use a display.
@@ -50,8 +50,11 @@ pub async fn display_task<K: DisplayDevice>(_k: K, mut display: impl DisplayDriv
                 ticker.next().await;
                 ((), 0)
             } else {
-                let mut result =
-                    select_array([USB_STATE_LISTENER.wait(), BATTERY_LEVEL_LISTENER.wait()]).await;
+                let mut result = select_array([
+                    OUTPUT_MODE_STATE_LISTENER.wait(),
+                    BATTERY_LEVEL_LISTENER.wait(),
+                ])
+                .await;
                 result.1 += 1;
                 result
             }

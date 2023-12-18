@@ -151,6 +151,7 @@ pub mod hw;
 pub mod drivers;
 
 pub mod tasks {
+    pub use crate::hw::__output_switcher_task;
     pub use crate::keyboard::{__layout_collect_task, __matrix_poll_task};
 
     #[cfg(feature = "simple-backlight")]

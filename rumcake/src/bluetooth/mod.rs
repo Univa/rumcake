@@ -11,6 +11,7 @@ use embassy_sync::channel::Channel;
 use embassy_sync::signal::Signal;
 
 use crate::keyboard::{Keyboard, KeyboardLayout};
+use crate::State;
 
 /// A trait that keyboards must implement to communicate with host devices over Bluetooth (LE).
 pub trait BluetoothKeyboard: Keyboard + KeyboardLayout {
@@ -56,5 +57,8 @@ pub enum BluetoothCommand {
 pub static BLUETOOTH_COMMAND_CHANNEL: Channel<ThreadModeRawMutex, BluetoothCommand, 2> =
     Channel::new();
 
-pub(crate) static USB_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();
+pub(crate) static BLUETOOTH_CONNECTED_STATE: State<bool> =
+    State::new(false, &[&crate::hw::BLUETOOTH_CONNECTED_STATE_LISTENER]);
+
+pub(crate) static CURRENT_OUTPUT_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();
 pub(crate) static BATTERY_LEVEL_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();

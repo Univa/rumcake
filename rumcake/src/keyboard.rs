@@ -8,7 +8,7 @@ use defmt::{debug, info, warn, Debug2Format};
 use embassy_sync::mutex::{Mutex, MutexGuard};
 use embassy_sync::pubsub::{PubSubBehavior, PubSubChannel};
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel};
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Ticker, Timer};
 use embedded_hal::digital::v2::{InputPin, OutputPin};
 use heapless::Vec;
 use keyberon::debounce::Debouncer;
@@ -21,6 +21,8 @@ use usbd_human_interface_device::{
 
 #[cfg(feature = "media-keycodes")]
 pub use usbd_human_interface_device::page::Consumer;
+
+use crate::hw::CURRENT_OUTPUT_STATE;
 
 #[macro_export]
 macro_rules! remap_matrix {
@@ -372,12 +374,17 @@ where
     #[cfg(feature = "media-keycodes")]
     let mut codes = [Consumer::Unassigned; 4];
 
+    let mut ticker = Ticker::every(Duration::from_millis(1));
+
     loop {
         let keys = {
-            let event = POLLED_EVENTS_CHANNEL.receive().await;
             let mut layout = layout.lock().await;
-            layout.event(event);
-            MATRIX_EVENTS.publish_immediate(event); // Just immediately publish since we don't want to hold up any key events to be converted into keycodes.
+
+            if let Ok(event) = POLLED_EVENTS_CHANNEL.try_receive() {
+                layout.event(event);
+                MATRIX_EVENTS.publish_immediate(event); // Just immediately publish since we don't want to hold up any key events to be converted into keycodes.
+            };
+
             let tick = layout.tick();
 
             debug!("[KEYBOARD] Processing rumcake feature keycodes");
@@ -481,15 +488,19 @@ where
 
             debug!("[KEYBOARD] Preparing new report");
 
-            // It's possible for this channel to become filled (e.g. if USB is disabled and
-            // there is no Bluetooth connection So, we just try_send instead of using `send`,
-            // which waits for capacity. That way, we can still process rumcake keycodes.
-            if KEYBOARD_REPORT_HID_SEND_CHANNEL
-                .try_send(NKROBootKeyboardReport::new(keys))
-                .is_err()
-            {
+            // Use send instead of try_send to avoid dropped inputs, which can happen if keycodes
+            // update really quickly (this is usually the case for macros). If USB and Bluetooth
+            // are both not connected, this channel can become filled, so we discard the report in
+            // that case.
+            if CURRENT_OUTPUT_STATE.get().await.is_some() {
+                KEYBOARD_REPORT_HID_SEND_CHANNEL
+                    .send(NKROBootKeyboardReport::new(keys))
+                    .await;
+            } else {
                 warn!("[KEYBOARD] Discarding report");
-            };
+            }
         }
+
+        ticker.next().await;
     }
 }

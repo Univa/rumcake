@@ -18,24 +18,16 @@ use usbd_human_interface_device::device::keyboard::{
     NKROBootKeyboardReport, NKRO_BOOT_KEYBOARD_REPORT_DESCRIPTOR,
 };
 
+use crate::hw::{HIDOutput, OutputMode, CURRENT_OUTPUT_STATE};
 use crate::keyboard::{
     Keyboard, KeyboardLayout, CONSUMER_REPORT_HID_SEND_CHANNEL, KEYBOARD_REPORT_HID_SEND_CHANNEL,
 };
 use crate::{State, StaticArray};
 
-static USB_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();
-/// State that indicates whether HID reports are being sent out via USB. If this is `false`, it is
-/// assumed that HID reports are being sent out via Bluetooth instead.
-pub static USB_STATE: State<bool> = State::new(
-    cfg!(not(feature = "bluetooth")),
-    &[
-        &USB_STATE_LISTENER,
-        #[cfg(feature = "display")]
-        &crate::display::USB_STATE_LISTENER,
-        #[cfg(feature = "bluetooth")]
-        &crate::bluetooth::USB_STATE_LISTENER,
-    ],
-);
+pub(crate) static CURRENT_OUTPUT_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();
+
+pub(crate) static USB_RUNNING_STATE: State<bool> =
+    State::new(false, &[&crate::hw::USB_RUNNING_STATE_LISTENER]);
 
 /// A trait that keyboards must implement to communicate with host devices over USB.
 pub trait USBKeyboard: Keyboard + KeyboardLayout {
@@ -102,8 +94,10 @@ pub fn setup_usb_hid_consumer_writer(
 pub async fn start_usb(mut usb: UsbDevice<'static, impl Driver<'static>>) {
     loop {
         info!("[USB] USB started");
+        USB_RUNNING_STATE.set(true).await;
         usb.run_until_suspend().await;
         info!("[USB] USB suspended");
+        USB_RUNNING_STATE.set(false).await;
         usb.wait_resume().await;
     }
 }
@@ -117,19 +111,14 @@ pub async fn usb_hid_kb_write_task(
     >,
 ) {
     loop {
-        if USB_STATE.get().await {
+        if matches!(CURRENT_OUTPUT_STATE.get().await, Some(HIDOutput::Usb)) {
             match select(
-                USB_STATE_LISTENER.wait(),
+                CURRENT_OUTPUT_STATE_LISTENER.wait(),
                 KEYBOARD_REPORT_HID_SEND_CHANNEL.receive(),
             )
             .await
             {
-                select::Either::First(()) => {
-                    info!(
-                        "[USB] USB NKRO HID reports enabled = {}",
-                        USB_STATE.get().await
-                    );
-                }
+                select::Either::First(()) => {}
                 select::Either::Second(report) => {
                     info!(
                         "[USB] Writing NKRO HID keyboard report to USB: {:?}",
@@ -144,11 +133,7 @@ pub async fn usb_hid_kb_write_task(
                 }
             }
         } else {
-            USB_STATE_LISTENER.wait().await;
-            info!(
-                "[USB] USB NKRO HID reports enabled = {}",
-                USB_STATE.get().await
-            );
+            CURRENT_OUTPUT_STATE_LISTENER.wait().await;
 
             // Ignore any unprocessed reports due to lack of a connection
             while KEYBOARD_REPORT_HID_SEND_CHANNEL.try_receive().is_ok() {}
@@ -165,19 +150,14 @@ pub async fn usb_hid_consumer_write_task(
     >,
 ) {
     loop {
-        if USB_STATE.get().await {
+        if matches!(CURRENT_OUTPUT_STATE.get().await, Some(HIDOutput::Usb)) {
             match select(
-                USB_STATE_LISTENER.wait(),
+                CURRENT_OUTPUT_STATE_LISTENER.wait(),
                 CONSUMER_REPORT_HID_SEND_CHANNEL.receive(),
             )
             .await
             {
-                select::Either::First(()) => {
-                    info!(
-                        "[USB] USB consumer HID reports enabled = {}",
-                        USB_STATE.get().await
-                    );
-                }
+                select::Either::First(()) => {}
                 select::Either::Second(report) => {
                     info!(
                         "[USB] Writing consumer HID report to USB: {:?}",
@@ -192,11 +172,7 @@ pub async fn usb_hid_consumer_write_task(
                 }
             }
         } else {
-            USB_STATE_LISTENER.wait().await;
-            info!(
-                "[USB] USB consumer HID reports enabled = {}",
-                USB_STATE.get().await
-            );
+            CURRENT_OUTPUT_STATE_LISTENER.wait().await;
 
             // Ignore any unprocessed reports due to lack of a connection
             while CONSUMER_REPORT_HID_SEND_CHANNEL.try_receive().is_ok() {}

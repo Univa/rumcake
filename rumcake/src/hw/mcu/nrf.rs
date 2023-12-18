@@ -337,7 +337,8 @@ pub async fn softdevice_task(sd: &'static nrf_softdevice::Softdevice) {
         nrf_softdevice::raw::sd_power_usbremoved_enable(true as u8);
     }
 
-    let vbus_detect = VBUS_DETECT.get().unwrap();
+    let vbus_detect = VBUS_DETECT
+        .get_or_init(|| embassy_nrf::usb::vbus_detect::SoftwareVbusDetect::new(true, true));
 
     sd.run_with_callback(|e| match e {
         nrf_softdevice::SocEvent::PowerUsbPowerReady => {

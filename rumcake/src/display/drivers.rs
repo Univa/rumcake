@@ -81,10 +81,9 @@ macro_rules! on_update_default {
         let contents = contents.append(text_box!(
             bounding_box,
             $text_type,
-            if crate::usb::USB_STATE.get().await {
-                "MODE: USB"
-            } else {
-                "MODE: BT"
+            match crate::hw::OUTPUT_MODE_STATE.get().await {
+                crate::hw::OutputMode::Usb => "MODE: USB",
+                crate::hw::OutputMode::Bluetooth => "MODE: BT",
             }
         ));
 

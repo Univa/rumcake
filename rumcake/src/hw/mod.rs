@@ -11,6 +11,9 @@ compile_error!("Please enable only one chip feature flag.");
 pub mod mcu;
 
 use crate::State;
+use embassy_futures::select;
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::signal::Signal;
 
 /// State that contains the current battery level. `rumcake` may or may not use this
 /// static internally, depending on what MCU is being used. The contents of this state
@@ -25,6 +28,91 @@ pub static BATTERY_LEVEL_STATE: State<u8> = State::new(
         &crate::bluetooth::BATTERY_LEVEL_LISTENER,
     ],
 );
+
+/// Possible settings used to determine how the firmware will choose the destination for HID
+/// reports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputMode {
+    Usb,
+    Bluetooth,
+}
+
+/// State that contains the desired output mode. This configures how the firmware will decide to
+/// send HID reports. This doesn't not represent the actual destination of HID reports. Use
+/// [`CURRENT_OUTPUT_STATE`] for that.
+pub static OUTPUT_MODE_STATE: State<OutputMode> = State::new(
+    if cfg!(feature = "bluetooth") {
+        OutputMode::Bluetooth
+    } else {
+        OutputMode::Usb
+    },
+    &[
+        &OUTPUT_MODE_STATE_LISTENER,
+        #[cfg(feature = "display")]
+        &crate::display::OUTPUT_MODE_STATE_LISTENER,
+    ],
+);
+
+/// Possible destinations for HID reports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HIDOutput {
+    Usb,
+    Bluetooth,
+}
+
+/// State that contains the current destination of HID reports.
+pub static CURRENT_OUTPUT_STATE: State<Option<HIDOutput>> = State::new(
+    None,
+    &[
+        #[cfg(feature = "usb")]
+        &crate::usb::CURRENT_OUTPUT_STATE_LISTENER,
+        #[cfg(feature = "bluetooth")]
+        &crate::bluetooth::CURRENT_OUTPUT_STATE_LISTENER,
+    ],
+);
+
+pub(crate) static OUTPUT_MODE_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();
+pub(crate) static USB_RUNNING_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();
+pub(crate) static BLUETOOTH_CONNECTED_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> =
+    Signal::new();
+
+#[rumcake_macros::task]
+pub async fn output_switcher() {
+    // This task doesn't need to run if only one of USB or Bluetooth is enabled.
+    loop {
+        let output = match OUTPUT_MODE_STATE.get().await {
+            #[cfg(feature = "usb")]
+            OutputMode::Usb => {
+                if crate::usb::USB_RUNNING_STATE.get().await {
+                    Some(HIDOutput::Usb)
+                } else {
+                    None
+                }
+            }
+            #[cfg(feature = "bluetooth")]
+            OutputMode::Bluetooth => {
+                if crate::bluetooth::BLUETOOTH_CONNECTED_STATE.get().await {
+                    Some(HIDOutput::Bluetooth)
+                } else {
+                    None
+                }
+            }
+            #[allow(unreachable_patterns)]
+            _ => None,
+        };
+
+        CURRENT_OUTPUT_STATE.set(output).await;
+        defmt::info!("[HW] Output updated: {:?}", defmt::Debug2Format(&output));
+
+        // Wait for a change in state before attempting to update the output again.
+        select::select3(
+            USB_RUNNING_STATE_LISTENER.wait(),
+            BLUETOOTH_CONNECTED_STATE_LISTENER.wait(),
+            OUTPUT_MODE_STATE_LISTENER.wait(),
+        )
+        .await;
+    }
+}
 
 use core::cell::{Cell, RefCell};
 use defmt::{assert, debug, error};
