@@ -121,6 +121,9 @@ function main() {
       ],
       {
         stdio: "inherit",
+        env: {
+          RUSTFLAGS: "--cfg doc",
+        },
       },
     );
 
