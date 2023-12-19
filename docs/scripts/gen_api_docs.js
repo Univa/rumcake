@@ -100,6 +100,40 @@ function main() {
   for (const target of manifest.package.metadata.rumcake_docs.flavours) {
     const output_dir = path.join(".", "temp", target.feature);
 
+    console.log(`Checking rumcake for ${target.feature}.`);
+
+    const rustcheck = process.spawnSync(
+      "cargo",
+      [
+        "check",
+        "--release",
+        `--features=${
+          target.feature
+        },${manifest.package.metadata.rumcake_docs.features.join(
+          ",",
+        )},${target.extra_features.join(",")}`,
+        "--target",
+        target.triple, // build target triple
+        "--target-dir",
+        output_dir.toString(),
+        "--manifest-path",
+        path.join("..", "rumcake", "Cargo.toml").toString(),
+      ],
+      {
+        stdio: "inherit",
+      },
+    );
+
+    if (rustcheck.status) {
+      error = true;
+      console.error(`Check failed for ${target.feature}.`);
+      continue;
+    }
+
+    console.log(`rumcake for ${target.feature} has been checked successfully.`);
+
+    console.log(`Building ${target.feature} API docs.`);
+
     const rustdoc = process.spawnSync(
       "cargo",
       [
@@ -117,7 +151,6 @@ function main() {
         output_dir.toString(),
         "--manifest-path",
         path.join("..", "rumcake", "Cargo.toml").toString(),
-        "--quiet",
       ],
       {
         stdio: "inherit",
