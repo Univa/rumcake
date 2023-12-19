@@ -1206,7 +1206,7 @@ pub(crate) fn convert_action_to_keycode<K: ViaKeyboard>(action: Action<Keycode>)
 /// to a keyberon action. This array has a size of 16, one for each layer that can be assigned by
 /// Via. It should still be possible to assign any number of one shot keys to the layout at once
 /// with this method. This is needed to satisfy the &'static type used in the OneShot variant.
-static ONE_SHOT_LAYER_ACTIONS: [OneShotAction<Keycode, KeyCode>; 16] = {
+const ONE_SHOT_LAYER_ACTIONS: [OneShotAction<Keycode, KeyCode>; 16] = {
     let mut pool = [OneShotAction {
         action: keyberon::action::l(0),
         timeout: 5000,
@@ -1404,8 +1404,7 @@ pub(crate) fn convert_keycode_to_action<K: ViaKeyboard>(keycode: u16) -> Option<
         && keycode <= QMKKeycodeRanges::QK_ONE_SHOT_LAYER_MAX as u16
     {
         let layer = (keycode - QMKKeycodeRanges::QK_ONE_SHOT_LAYER as u16) as usize;
-        let action = &ONE_SHOT_LAYER_ACTIONS[layer];
-        return Some(Action::OneShot(action));
+        return ONE_SHOT_LAYER_ACTIONS.get(layer).map(Action::OneShot);
     }
 
     if QMKKeycodeRanges::QK_LIGHTING as u16 <= keycode
