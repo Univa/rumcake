@@ -1100,7 +1100,7 @@ pub(crate) fn convert_action_to_keycode<K: ViaKeyboard>(action: Action<Keycode>)
             },
             #[cfg(feature = "simple-backlight")]
             Keycode::SimpleBacklight(command) => {
-                if let Some(BacklightType::SimpleBacklight) = K::BacklightType {
+                if let Some(BacklightType::SimpleBacklight) = K::BACKLIGHT_TYPE {
                     return match command {
                         crate::backlight::simple_backlight::animations::BacklightCommand::TurnOn => {
                             QMKKeycodes::QK_BACKLIGHT_ON as u16
@@ -1158,7 +1158,7 @@ pub(crate) fn convert_action_to_keycode<K: ViaKeyboard>(action: Action<Keycode>)
             }
             #[cfg(feature = "rgb-backlight-matrix")]
             Keycode::RGBBacklightMatrix(command) => {
-                if let Some(BacklightType::RGBBacklightMatrix) = K::BacklightType {
+                if let Some(BacklightType::RGBBacklightMatrix) = K::BACKLIGHT_TYPE {
                     return match command {
                         crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::TurnOn => {
                             QMKKeycodes::QK_BACKLIGHT_ON as u16
