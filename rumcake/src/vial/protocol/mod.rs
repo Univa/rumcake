@@ -66,6 +66,8 @@ pub(crate) async fn process_vial_command<K: VialKeyboard + 'static>(
     [(); K::LAYERS]:,
     [(); K::LAYOUT_ROWS]:,
     [(); K::LAYOUT_COLS]:,
+    [(); K::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize]:,
+    [(); K::DYNAMIC_KEYMAP_MACRO_COUNT as usize]:,
 {
     if K::handle_via_command(data) {
         return;

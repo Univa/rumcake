@@ -51,7 +51,7 @@ enum QMKKeycodeRanges {
     QK_AUDIO_MAX = 0x74BF,
     QK_STENO = 0x74C0, // TODO: unhandled
     QK_STENO_MAX = 0x74FF,
-    QK_MACRO = 0x7700, // TODO: unhandled
+    QK_MACRO = 0x7700,
     QK_MACRO_MAX = 0x777F,
     QK_LIGHTING = 0x7800,
     QK_LIGHTING_MAX = 0x78FF,
@@ -900,7 +900,11 @@ const UNKNOWN_KEYCODE: u16 = 0xFFFF;
 /// For QK_USER, there exists 32 QMKKeycodes enum values that fall in that range. Even though the
 /// QK_USER range spans more than 32 possible values (0x7E40 to 0x7FFF), we will only use the codes
 /// that are defined as enum values in QMKKeycodes (QK_USER_0 to QK_USER_31), and no more.
-pub(crate) fn convert_action_to_keycode<K: ViaKeyboard>(action: Action<Keycode>) -> u16 {
+pub(crate) fn convert_action_to_keycode<K: ViaKeyboard + 'static>(action: Action<Keycode>) -> u16
+where
+    [(); K::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize]:,
+    [(); K::DYNAMIC_KEYMAP_MACRO_COUNT as usize]:,
+{
     match action {
         Action::NoOp => QMKKeycodes::KC_NO as u16,
         Action::Trans => QMKKeycodes::KC_TRANSPARENT as u16,
@@ -945,6 +949,17 @@ pub(crate) fn convert_action_to_keycode<K: ViaKeyboard>(action: Action<Keycode>)
                     - QMKKeycodeRanges::QK_ONE_SHOT_LAYER as u16
             {
                 QMKKeycodeRanges::QK_ONE_SHOT_LAYER as u16 + layer as u16
+            } else {
+                UNKNOWN_KEYCODE
+            }
+        }
+        Action::Sequence(sequence) => {
+            if let Some(macro_number) = K::get_macro_buffer()
+                .sequences
+                .iter()
+                .position(|s| core::ptr::eq(s as *const _, sequence as *const _))
+            {
+                QMKKeycodeRanges::QK_MACRO as u16 + macro_number as u16
             } else {
                 UNKNOWN_KEYCODE
             }
@@ -1220,7 +1235,13 @@ const ONE_SHOT_LAYER_ACTIONS: [OneShotAction<Keycode, KeyCode>; 16] = {
     pool
 };
 
-pub(crate) fn convert_keycode_to_action<K: ViaKeyboard>(keycode: u16) -> Option<Action<Keycode>> {
+pub(crate) fn convert_keycode_to_action<K: ViaKeyboard + 'static>(
+    keycode: u16,
+) -> Option<Action<Keycode>>
+where
+    [(); K::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize]:,
+    [(); K::DYNAMIC_KEYMAP_MACRO_COUNT as usize]:,
+{
     if keycode == QMKKeycodes::KC_NO as u16 {
         return Some(Action::NoOp);
     }
@@ -1405,6 +1426,16 @@ pub(crate) fn convert_keycode_to_action<K: ViaKeyboard>(keycode: u16) -> Option<
     {
         let layer = (keycode - QMKKeycodeRanges::QK_ONE_SHOT_LAYER as u16) as usize;
         return ONE_SHOT_LAYER_ACTIONS.get(layer).map(Action::OneShot);
+    }
+
+    if QMKKeycodeRanges::QK_MACRO as u16 <= keycode
+        && keycode <= QMKKeycodeRanges::QK_MACRO_MAX as u16
+    {
+        let sequence_number = (keycode - QMKKeycodeRanges::QK_MACRO as u16) as usize;
+        return K::get_macro_buffer()
+            .sequences
+            .get(sequence_number)
+            .map(Action::Sequence);
     }
 
     if QMKKeycodeRanges::QK_LIGHTING as u16 <= keycode

@@ -102,6 +102,8 @@ pub async fn usb_hid_vial_write_task<K: VialKeyboard + 'static>(
     [(); K::LAYERS]:,
     [(); K::LAYOUT_ROWS]:,
     [(); K::LAYOUT_COLS]:,
+    [(); K::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize]:,
+    [(); K::DYNAMIC_KEYMAP_MACRO_COUNT as usize]:,
 {
     assert!(K::DYNAMIC_KEYMAP_LAYER_COUNT <= K::LAYERS);
     assert!(K::DYNAMIC_KEYMAP_LAYER_COUNT <= 16);

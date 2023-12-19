@@ -37,11 +37,18 @@ You must enable the following `rumcake` features:
 ## Required code
 
 To set up Via and Vial support, your keyboard must implement the `ViaKeyboard` trait, and add `via` to your `keyboard` macro invocation.
-Optionally, you can add `use_storage` to the macro invocation to use the specified storage driver to save changes you make in
-the Via or Vial app. If you specify `use_storage`, be sure to also add `setup_via_storage_buffers!(<struct_name>)` to your
-`ViaKeyboard` implementation.
 
-```rust ins={5,9-12}
+Certain Via features need to be configured manually as well:
+
+- For macros, you need to implement [`DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE`](/rumcake/api/nrf52840/rumcake/via/trait.ViaKeyboard.html#associatedconstant.DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE)
+  and [`DYNAMIC_KEYMAP_MACRO_COUNT`](/rumcake/api/nrf52840/rumcake/via/trait.ViaKeyboard.html#associatedconstant.DYNAMIC_KEYMAP_MACRO_COUNT)
+  - This can be done trivially with the `setup_macro_buffer` macro
+- If you are using some form of backlighting (`simple-backlight`, `simple-backlight-matrix` or `rgb-backlight-matrix`), you need to change [`BACKLIGHT_TYPE`](https://univa.github.io/rumcake/api/nrf52840/rumcake/via/trait.ViaKeyboard.html#associatedconstant.BACKLIGHT_TYPE).
+  This controls how `QK_BACKLIGHT` keycodes get converted to `keyberon` actions. In other words, it controls the behaviour of `BL_` prefixed keycodes in the Via app.
+
+For other configurable Via options, see the [`ViaKeyboard` trait](/rumcake/api/nrf52840/rumcake/via/trait.ViaKeyboard.html).
+
+```rust ins={5,9-17}
 use rumcake::keyboard;
 
 #[keyboard(
@@ -51,8 +58,14 @@ use rumcake::keyboard;
 struct MyKeyboard;
 
 // Via setup
-use rumcake::via::ViaKeyboard;
-impl ViaKeyboard for MyKeyboard {}
+use rumcake::via::{BacklightType, ViaKeyboard};
+impl ViaKeyboard for MyKeyboard {
+    // OPTIONAL, this example assumes you are using simple-backlight-matrix.
+    const BACKLIGHT_TYPE: Option<BacklightType> = Some(BacklightType::SimpleBacklightMatrix)
+
+    // OPTIONAL, include this if you want to create macros using the Via app.
+    rumcake::setup_macro_buffer!(512, 16) // Max number of bytes that can be taken up by macros, followed by the max number of macros that can be created.
+}
 ```
 
 :::caution
@@ -60,8 +73,9 @@ By default, changes you make to your keyboard in the Via app (e.g. changing your
 lighting settings, etc.) will **NOT** be saved by default.
 
 Optionally, you can add `use_storage`, and a `storage` driver to save Via data.
+Be sure to also add `setup_via_storage_buffers!(<struct_name>)` to your `ViaKeyboard` implementation.
 
-```rust del={5,15} ins={6-9,16-18}
+```rust del={5} ins={6-9,22-23}
 use rumcake::keyboard;
 
 #[keyboard(
@@ -76,9 +90,15 @@ struct MyKeyboard;
 
 // Via setup
 use rumcake::via::ViaKeyboard;
-impl ViaKeyboard for MyKeyboard {}
 impl ViaKeyboard for MyKeyboard {
-    rumcake::setup_via_storage_buffers!(MyKeyboard); // Required if you specify `use_storage`
+    // OPTIONAL, this example assumes you are using simple-backlight-matrix.
+    const BACKLIGHT_TYPE: Option<BacklightType> = Some(BacklightType::SimpleBacklightMatrix)
+
+    // OPTIONAL, include this if you want to create macros using the Via app.
+    rumcake::setup_macro_buffer!(512, 16) // Max number of bytes that can be taken up by macros, followed by the max number of macros that can be created.
+
+    // Required if you specify `use_storage`
+    rumcake::setup_via_storage_buffers!(MyKeyboard);
 }
 ```
 
@@ -92,7 +112,9 @@ Instead of using `via` in your `keyboard` macro invocation, you should use `vial
 The following code example shows how to implement the `VialKeyboard` trait, and uses a build script to
 implement `KEYBOARD_DEFINITION`. Please follow the instructions in the [Vial Definitions](#compiling-vial-definitions) section.
 
-```rust del={7} ins={1-3,8,20-26}
+For other configurable Vial options, see the [`VialKeyboard` trait](/rumcake/api/nrf52840/rumcake/vial/trait.VialKeyboard.html)
+
+```rust del={7} ins={1-3,8,24-30}
 // GENERATED_KEYBOARD_DEFINITION comes from _generated.rs, which is made by the build.rs script.
 #[cfg(vial)]
 include!(concat!(env!("OUT_DIR"), "/_generated.rs"));
@@ -109,13 +131,17 @@ struct MyKeyboard;
 // Via setup
 use rumcake::via::ViaKeyboard;
 impl ViaKeyboard for MyKeyboard {
-    // rumcake::setup_via_storage_buffers!(MyKeyboard); // Optional, only required if you specify `use_storage`
+    // OPTIONAL, this example assumes you are using simple-backlight-matrix.
+    const BACKLIGHT_TYPE: Option<BacklightType> = Some(BacklightType::SimpleBacklightMatrix)
+
+    // OPTIONAL, include this if you want to create macros using the Via app.
+    rumcake::setup_macro_buffer!(512, 16) // Max number of bytes that can be taken up by macros, followed by the max number of macros that can be created.
 }
 
 use rumcake::vial::VialKeyboard;
 impl VialKeyboard for MyKeyboard {
     const VIAL_KEYBOARD_UID: [u8; 8] = [0; 8]; // Change this
-    const VIAL_UNLOCK_COMBO: &'static [(u8, u8)] = [(0, 1), (0, 0)]; // Matrix positions used to unlock VIAL (row, col), set it to whatever you want
+    const VIAL_UNLOCK_COMBO: &'static [(u8, u8)] = &[(0, 1), (0, 0)]; // Matrix positions used to unlock VIAL (row, col), set it to whatever you want
     const KEYBOARD_DEFINITION: &'static [u8] = &GENERATED_KEYBOARD_DEFINITION;
     // rumcake::setup_vial_storage_buffers!(MyKeyboard); // Optional, only required if you specify `use_storage`
 }
@@ -409,18 +435,39 @@ No menu for RGB matrix is provided. RGB backlight animations still need to be im
 
 - Basic keycodes (Basic tab in Via/Vial, or those available in HID keyboard reports)
 - Lighting keycodes, except for `QK_BACKLIGHT_TOGGLE_BREATHING`. RGB keycodes only work for underglow, not an RGB backlight matrix.
-- Momentary layers (`MO(x)`), default layers (`DF(x)`), toggle layers (`TG(x)`)
+- Momentary layers (`MO(x)`)
+- Default layers (`DF(x)`)
+- Toggle layers (`TG(x)`)
+- One-shot layers (`OSL(x)`)
+- Macro keycodes (`M0`, `M1`, `M2` ...)
 - Custom keycodes (`customKeycodes` in your JSON definition)
 - Certain media keycodes. Support for this must be enabled manually. Check the ["Media Keys" doc](../feature-media-keys/)
 - QK_OUTPUT_BLUETOOTH and QK_OUTPUT_USB
 
-Attempts to use unsupported keycodes will not result in any changes to your layout. It may show in the app, but reloading will revert the keycodes back to their previous state.
+You can assume that any keycodes not listed above are not supported.
+
+Attempts to use unsupported keycodes will not result in any changes to your layout. It may show in the Via app briefly, but reloading the app will revert the keycodes back to their previous state.
 
 For more information on how these keycodes get converted into `keyberon` actions, see [rumcake/src/via/protocol_12/keycodes.rs](https://github.com/Univa/rumcake/blob/4a7dfb8f9b04c321a43c35bc0d96fbc6afaabad2/rumcake/src/via/protocol_12/keycodes.rs#L1082)
 
+## Limitations
+
+For the keycodes that are supported, there are still some limitations that apply. Usually these limitations
+are due to memory constraints, while still allowing for the flexibility that `keyberon`'s actions provide.
+
+It's recommended to compile any non-basic actions directly into your firmware as opposed to assigning them
+through Via.
+
+- One-shot Layer keycodes **assigned through Via** only works for layers 0 to 15.
+  - One-shot actions that are already compiled into your `keyberon` layout can still work with greater layer numbers.
+- Sequence actions compiled into your `keyberon` layout will not show up in the Via app, it will show up as `0xFFFF`.
+- For Vial, using delay events and tap/press/release events with non-basic keycodes (higher than 0x00FF) in macros will not work. Using them will abort the macro when the event is executed.
+- For backlighting keycodes to work, you need to modify the `BACKLIGHT_TYPE` constant in your `ViaKeyboard` implementation. This defines how the backlighting keycodes get converted.
+- RGB keycodes only work for underglow, not an RGB backlight matrix.
+
 # To-do List
 
-- [ ] Tap-toggle, one shot layer keycodes (and other keycodes in the "Layers" submenu)
-- [ ] Dynamic keymap macros (Via)
+- [ ] Tap-toggle, one shot mod keycodes (and other keycodes in the "Layers" submenu)
 - [ ] QMK settings (Vial)
 - [ ] Dynamic keymap tap dance, combo, key overrides (Vial)
+- [ ] Vial macro support (delays and non-basic keycodes)

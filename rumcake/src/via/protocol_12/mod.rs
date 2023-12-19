@@ -124,6 +124,8 @@ pub(crate) async fn process_via_command<K: ViaKeyboard + 'static>(
     [(); K::LAYERS]:,
     [(); K::LAYOUT_COLS]:,
     [(); K::LAYOUT_ROWS]:,
+    [(); K::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize]:,
+    [(); K::DYNAMIC_KEYMAP_MACRO_COUNT as usize]:,
 {
     if K::handle_via_command(data) {
         return;
@@ -203,7 +205,7 @@ pub(crate) async fn process_via_command<K: ViaKeyboard + 'static>(
                 let size = data[3];
                 dynamic_keymap_macro_set_buffer::<K>(offset, size, &data[4..]).await
             }
-            ViaCommandId::DynamicKeymapMacroReset => todo!(),
+            ViaCommandId::DynamicKeymapMacroReset => dynamic_keymap_macro_reset::<K>(),
             ViaCommandId::DynamicKeymapGetLayerCount => {
                 dynamic_keymap_get_layer_count::<K>(&mut data[1..=1])
             }

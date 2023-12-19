@@ -23,7 +23,38 @@ pub(crate) mod protocol_12;
 
 pub(crate) use protocol_12 as protocol;
 
-enum BacklightType {
+/// Data structure that contains data for macros created by Via. Requires the size of the buffer,
+/// and the number of sequences that can be created to be specified.
+#[derive(Debug)]
+pub struct MacroBuffer<'a, const N: usize, const S: usize> {
+    buffer: [u8; N],
+    sequences: [&'a [u8]; S],
+}
+
+impl<'a, const N: usize, const S: usize> MacroBuffer<'a, N, S> {
+    pub const fn new() -> Self {
+        Self {
+            buffer: [0; N],
+            sequences: [&[]; S],
+        }
+    }
+
+    pub fn update_buffer(&'a mut self, offset: usize, data: &[u8]) {
+        self.buffer[offset..(offset + data.len())].copy_from_slice(data);
+
+        // update existing actions
+        let mut chunks = self.buffer.splitn(S + 1, |byte| *byte == 0);
+        for (i, action) in self.sequences.iter_mut().enumerate() {
+            if let Some(chunk) = chunks.nth(i) {
+                *action = chunk
+            }
+        }
+    }
+}
+
+/// The different types of backlighting that can be used with Via. See
+/// [`ViaKeyboard::BACKLIGHT_TYPE`].
+pub enum BacklightType {
     SimpleBacklight,
     SimpleBacklightMatrix,
     RGBBacklightMatrix,
@@ -48,18 +79,24 @@ pub trait ViaKeyboard: Keyboard + KeyboardLayout {
     const DYNAMIC_KEYMAP_LAYER_COUNT: usize = Self::LAYERS;
     // const DYNAMIC_KEYMAP_LAYER_COUNT: usize = 4; // This is the default if this variable isn't defined in QMK
 
-    /// The number of macros that your keyboard can store.
-    const DYNAMIC_KEYMAP_MACRO_COUNT: u8 = 0; // this is the default if this variable isn't defined in QMK, TODO: Change when macros are implemented
+    /// The number of macros that your keyboard can store. You should use [`setup_macro_buffer`] to
+    /// implement this.
+    const DYNAMIC_KEYMAP_MACRO_COUNT: u8 = 0; // This is the default if this variable isn't defined in QMK
 
-    /// The total amount of space allocated to macros in your storage peripheral.
-    const DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE: usize = 512;
-    // const DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE: usize = (Self::DYNAMIC_KEYMAP_EEPROM_MAX_ADDR
-    //     - Self::DYNAMIC_KEYMAP_MACRO_EEPROM_ADDR
-    //     + 1) as usize; // This is the default if not defined in QMK.
+    /// The total amount of bytes that can be used to store macros assigned by Via.
+    const DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE: u16;
 
     /// Determines how QK_BACKLIGHT keycodes should be converted to a [`crate::keyboard::Keycode`]
     /// and vice versa. If this is `None`, then backlighting keycodes will not be converted.
     const BACKLIGHT_TYPE: Option<BacklightType> = None;
+
+    /// Obtain a reference to macro data created by Via. You should use [`setup_macro_buffer`] to
+    /// implement this.
+    fn get_macro_buffer() -> &'static mut MacroBuffer<
+        'static,
+        { Self::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize },
+        { Self::DYNAMIC_KEYMAP_MACRO_COUNT as usize },
+    >;
 
     #[cfg(feature = "storage")]
     fn get_layout_options_storage_state(
@@ -81,7 +118,7 @@ pub trait ViaKeyboard: Keyboard + KeyboardLayout {
     #[cfg(feature = "storage")]
     fn get_dynamic_keymap_macro_storage_state() -> &'static mut crate::storage::StorageServiceState<
         3,
-        { Self::DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE },
+        { Self::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize },
     >;
 
     /// Override for handling a Via/Vial protocol packet.
@@ -108,6 +145,24 @@ pub trait ViaKeyboard: Keyboard + KeyboardLayout {
     fn handle_custom_value_command(data: &mut [u8], _len: u8) {
         data[0] = protocol::ViaCommandId::Unhandled as u8;
     }
+}
+
+#[macro_export]
+macro_rules! setup_macro_buffer {
+    ($K:literal, $A:literal) => {
+        const DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE: u16 = $K;
+        const DYNAMIC_KEYMAP_MACRO_COUNT: u8 = $A;
+
+        fn get_macro_buffer() -> &'static mut $crate::via::MacroBuffer<
+            'static,
+            { Self::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize },
+            { Self::DYNAMIC_KEYMAP_MACRO_COUNT as usize },
+        > {
+            static mut MACRO_BUFFER: $crate::via::MacroBuffer<'static, $K, $A> =
+                $crate::via::MacroBuffer::new();
+            unsafe { &mut MACRO_BUFFER }
+        }
+    };
 }
 
 /// Report descriptor used for Via. Pulled from QMK.
@@ -199,6 +254,8 @@ pub async fn usb_hid_via_write_task<K: ViaKeyboard + 'static>(
     [(); K::LAYERS]:,
     [(); K::LAYOUT_ROWS]:,
     [(); K::LAYOUT_COLS]:,
+    [(); K::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize]:,
+    [(); K::DYNAMIC_KEYMAP_MACRO_COUNT as usize]:,
 {
     assert!(K::DYNAMIC_KEYMAP_LAYER_COUNT <= K::LAYERS);
     assert!(K::DYNAMIC_KEYMAP_LAYER_COUNT <= 16);
@@ -285,12 +342,12 @@ pub mod storage {
             fn get_dynamic_keymap_macro_storage_state(
             ) -> &'static mut $crate::storage::StorageServiceState<
                 3,
-                { $k::DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE },
+                { $k::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize },
             > {
                 static mut DYNAMIC_KEYMAP_MACRO_STORAGE_STATE:
                     $crate::storage::StorageServiceState<
                         { 3 },
-                        { $k::DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE },
+                        { $k::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize },
                     > = $crate::storage::StorageServiceState::new();
                 unsafe { &mut DYNAMIC_KEYMAP_MACRO_STORAGE_STATE }
             }
@@ -357,7 +414,8 @@ pub mod storage {
         [(); K::VIA_EEPROM_LAYOUT_OPTIONS_SIZE]:,
         [(); K::DYNAMIC_KEYMAP_LAYER_COUNT * K::LAYOUT_COLS * K::LAYOUT_ROWS * 2]:,
         [(); K::DYNAMIC_KEYMAP_LAYER_COUNT * K::NUM_ENCODERS * 2 * 2]:,
-        [(); K::DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE]:,
+        [(); K::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize]:,
+        [(); K::DYNAMIC_KEYMAP_MACRO_COUNT as usize]:,
         [(); F::ERASE_SIZE]:,
         [(); K::LAYERS]:,
         [(); K::LAYOUT_ROWS]:,
@@ -467,6 +525,15 @@ pub mod storage {
                     &layout_metadata,
                 )
                 .await;
+            if let Ok((stored_data, stored_len)) = database
+                .read_raw(
+                    K::get_dynamic_keymap_macro_storage_state(),
+                    crate::storage::StorageKey::DynamicKeymapMacro,
+                )
+                .await
+            {
+                K::get_macro_buffer().update_buffer(0, &stored_data[..stored_len])
+            };
         }
 
         loop {
@@ -521,7 +588,7 @@ pub mod storage {
                         }
                         ViaStorageKeys::DynamicKeymapMacro => {
                             let key = key.into();
-                            let mut buf = [0; K::DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE];
+                            let mut buf = [0; K::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize];
 
                             // Read data
                             let stored_len = match database

@@ -2,6 +2,7 @@ use defmt::warn;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::signal::Signal;
 use keyberon::action::Action;
+use keyberon::key_code::KeyCode;
 
 use crate::keyboard::Keycode;
 
@@ -86,26 +87,52 @@ pub fn dynamic_keymap_macro_get_count<K: ViaKeyboard>(data: &mut [u8]) {
     data[0] = K::DYNAMIC_KEYMAP_MACRO_COUNT;
 }
 
-pub fn dynamic_keymap_macro_get_buffer_size<K: ViaKeyboard>(data: &mut [u8]) {
-    data[0..=1].copy_from_slice(&(K::DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE as u16).to_be_bytes());
+pub fn dynamic_keymap_macro_reset<K: ViaKeyboard + 'static>()
+where
+    [(); K::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize]:,
+    [(); K::DYNAMIC_KEYMAP_MACRO_COUNT as usize]:,
+{
+    K::get_macro_buffer().buffer.fill(0);
 }
 
-pub async fn dynamic_keymap_macro_get_buffer<K: ViaKeyboard>(
+pub fn dynamic_keymap_macro_get_buffer_size<K: ViaKeyboard>(data: &mut [u8]) {
+    data[0..=1].copy_from_slice(&K::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE.to_be_bytes());
+}
+
+pub async fn dynamic_keymap_macro_get_buffer<K: ViaKeyboard + 'static>(
     offset: u16,
     size: u8,
     data: &mut [u8],
-) {
-    // TODO: macro support
-}
-
-pub async fn dynamic_keymap_macro_set_buffer<K: ViaKeyboard>(offset: u16, size: u8, data: &[u8]) {
-    let len = if offset as usize + size as usize > K::DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE {
-        K::DYNAMIC_KEYMAP_MACRO_EEPROM_SIZE.saturating_sub(offset as usize)
+) where
+    [(); K::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize]:,
+    [(); K::DYNAMIC_KEYMAP_MACRO_COUNT as usize]:,
+{
+    let len = if offset as usize + size as usize > K::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize {
+        (K::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize).saturating_sub(offset as usize)
     } else {
         size as usize
     };
 
-    // TODO: macro support
+    let buf = K::get_macro_buffer().buffer;
+
+    data[..len].copy_from_slice(&buf[(offset as usize)..(offset as usize + len)]);
+}
+
+pub async fn dynamic_keymap_macro_set_buffer<K: ViaKeyboard + 'static>(
+    offset: u16,
+    size: u8,
+    data: &[u8],
+) where
+    [(); K::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize]:,
+    [(); K::DYNAMIC_KEYMAP_MACRO_COUNT as usize]:,
+{
+    let len = if offset as usize + size as usize > K::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize {
+        (K::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize).saturating_sub(offset as usize)
+    } else {
+        size as usize
+    };
+
+    K::get_macro_buffer().update_buffer(offset as usize, &data[..len]);
 
     #[cfg(feature = "storage")]
     super::storage::update_data(

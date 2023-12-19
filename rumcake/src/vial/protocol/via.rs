@@ -173,6 +173,8 @@ pub(crate) async fn process_via_command<K: VialKeyboard + 'static>(
     [(); K::LAYERS]:,
     [(); K::LAYOUT_ROWS]:,
     [(); K::LAYOUT_COLS]:,
+    [(); K::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize]:,
+    [(); K::DYNAMIC_KEYMAP_MACRO_COUNT as usize]:,
 {
     info!("[VIA] Processing Via command");
     if let Some(command) = num::FromPrimitive::from_u8(data[0]) {
