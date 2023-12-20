@@ -17,13 +17,6 @@
 compile_error!("Exactly one of `simple-backlight`, `simple-backlight-matrix`, `rgb-backlight-matrix` must be enabled at a time. Please choose the one that you want to use.");
 
 use bitflags::bitflags;
-use embassy_futures::select;
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::channel::Channel;
-use embassy_time::{Duration, Ticker};
-
-use crate::keyboard::MATRIX_EVENTS;
-use crate::{LEDEffect, State};
 
 pub mod drivers;
 
@@ -344,9 +337,7 @@ macro_rules! backlight_module {
 
         pub mod animations;
 
-        use animations::{
-            backlight_effect_items, BacklightAnimator, BacklightCommand, BacklightConfig,
-        };
+        use animations::{BacklightAnimator, BacklightCommand, BacklightConfig};
 
         /// Channel for sending backlight commands.
         ///
