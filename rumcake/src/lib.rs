@@ -182,15 +182,17 @@ pub mod tasks {
         __start_usb_task, __usb_hid_consumer_write_task_task, __usb_hid_kb_write_task_task,
     };
 
+    #[cfg(all(feature = "via", feature = "usb"))]
+    pub use crate::usb::__usb_hid_via_read_task_task;
+    #[cfg(all(feature = "via", feature = "usb"))]
+    pub use crate::usb::__usb_hid_via_write_task_task;
     #[cfg(feature = "via")]
-    pub use crate::via::__usb_hid_via_read_task_task;
-    #[cfg(feature = "via")]
-    pub use crate::via::__usb_hid_via_write_task_task;
+    pub use crate::via::__via_process_task_task;
     #[cfg(all(feature = "via", feature = "storage"))]
     pub use crate::via::storage::__via_storage_task_task;
 
     #[cfg(feature = "vial")]
-    pub use crate::vial::__usb_hid_vial_write_task_task;
+    pub use crate::vial::__vial_process_task_task;
     #[cfg(all(feature = "vial", feature = "storage"))]
     pub use crate::vial::storage::__vial_storage_task_task;
 

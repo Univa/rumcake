@@ -6,7 +6,10 @@ use defmt::{error, info, Debug2Format};
 use embassy_futures::select::{self, select};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::signal::Signal;
-use embassy_usb::class::hid::{Config, HidWriter, State as UsbState};
+use embassy_usb::class::hid::{
+    Config, HidReader, HidReaderWriter, HidWriter, ReportId, RequestHandler, State as UsbState,
+};
+use embassy_usb::control::OutResponse;
 use embassy_usb::driver::Driver;
 use embassy_usb::{Builder, UsbDevice};
 use packed_struct::PackedStruct;
@@ -18,13 +21,11 @@ use usbd_human_interface_device::device::keyboard::{
     NKROBootKeyboardReport, NKRO_BOOT_KEYBOARD_REPORT_DESCRIPTOR,
 };
 
-use crate::hw::{HIDOutput, OutputMode, CURRENT_OUTPUT_STATE};
+use crate::hw::{HIDOutput, CURRENT_OUTPUT_STATE};
 use crate::keyboard::{
     Keyboard, KeyboardLayout, CONSUMER_REPORT_HID_SEND_CHANNEL, KEYBOARD_REPORT_HID_SEND_CHANNEL,
 };
 use crate::{State, StaticArray};
-
-pub(crate) static CURRENT_OUTPUT_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();
 
 pub(crate) static USB_RUNNING_STATE: State<bool> =
     State::new(false, &[&crate::hw::USB_RUNNING_STATE_LISTENER]);
@@ -102,6 +103,31 @@ pub async fn start_usb(mut usb: UsbDevice<'static, impl Driver<'static>>) {
     }
 }
 
+macro_rules! usb_task_inner {
+    ($hid:ident, $output_listener:path, $channel:path, $info_log:literal, $error_log:literal) => {
+        loop {
+            if matches!(CURRENT_OUTPUT_STATE.get().await, Some(HIDOutput::Usb)) {
+                match select($output_listener.wait(), $channel.receive()).await {
+                    select::Either::First(()) => {}
+                    select::Either::Second(report) => {
+                        info!($info_log, Debug2Format(&report));
+                        if let Err(err) = $hid.write(&report.pack().unwrap()).await {
+                            error!($error_log, Debug2Format(&err));
+                        };
+                    }
+                }
+            } else {
+                $output_listener.wait().await;
+
+                // Ignore any unprocessed reports due to lack of a connection
+                while $channel.try_receive().is_ok() {}
+            }
+        }
+    };
+}
+
+pub(crate) static KB_CURRENT_OUTPUT_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();
+
 #[rumcake_macros::task]
 pub async fn usb_hid_kb_write_task(
     mut hid: HidWriter<
@@ -110,36 +136,17 @@ pub async fn usb_hid_kb_write_task(
         { <<NKROBootKeyboardReport as PackedStruct>::ByteArray as StaticArray>::LEN },
     >,
 ) {
-    loop {
-        if matches!(CURRENT_OUTPUT_STATE.get().await, Some(HIDOutput::Usb)) {
-            match select(
-                CURRENT_OUTPUT_STATE_LISTENER.wait(),
-                KEYBOARD_REPORT_HID_SEND_CHANNEL.receive(),
-            )
-            .await
-            {
-                select::Either::First(()) => {}
-                select::Either::Second(report) => {
-                    info!(
-                        "[USB] Writing NKRO HID keyboard report to USB: {:?}",
-                        Debug2Format(&report)
-                    );
-                    if let Err(err) = hid.write(&report.pack().unwrap()).await {
-                        error!(
-                            "[USB] Couldn't write HID keyboard report: {:?}",
-                            Debug2Format(&err)
-                        );
-                    };
-                }
-            }
-        } else {
-            CURRENT_OUTPUT_STATE_LISTENER.wait().await;
-
-            // Ignore any unprocessed reports due to lack of a connection
-            while KEYBOARD_REPORT_HID_SEND_CHANNEL.try_receive().is_ok() {}
-        }
-    }
+    usb_task_inner!(
+        hid,
+        KB_CURRENT_OUTPUT_STATE_LISTENER,
+        KEYBOARD_REPORT_HID_SEND_CHANNEL,
+        "[USB] Writing NKRO HID keyboard report to USB: {:?}",
+        "[USB] Couldn't write HID keyboard report: {:?}"
+    )
 }
+
+pub(crate) static CONSUMER_CURRENT_OUTPUT_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> =
+    Signal::new();
 
 #[rumcake_macros::task]
 pub async fn usb_hid_consumer_write_task(
@@ -149,33 +156,84 @@ pub async fn usb_hid_consumer_write_task(
         { <<MultipleConsumerReport as PackedStruct>::ByteArray as StaticArray>::LEN },
     >,
 ) {
-    loop {
-        if matches!(CURRENT_OUTPUT_STATE.get().await, Some(HIDOutput::Usb)) {
-            match select(
-                CURRENT_OUTPUT_STATE_LISTENER.wait(),
-                CONSUMER_REPORT_HID_SEND_CHANNEL.receive(),
-            )
-            .await
-            {
-                select::Either::First(()) => {}
-                select::Either::Second(report) => {
-                    info!(
-                        "[USB] Writing consumer HID report to USB: {:?}",
-                        Debug2Format(&report)
-                    );
-                    if let Err(err) = hid.write(&report.pack().unwrap()).await {
-                        error!(
-                            "[USB] Couldn't write consumer HID report: {:?}",
-                            Debug2Format(&err)
-                        );
-                    };
-                }
-            }
-        } else {
-            CURRENT_OUTPUT_STATE_LISTENER.wait().await;
+    usb_task_inner!(
+        hid,
+        CONSUMER_CURRENT_OUTPUT_STATE_LISTENER,
+        CONSUMER_REPORT_HID_SEND_CHANNEL,
+        "[USB] Writing consumer HID report to USB: {:?}",
+        "[USB] Couldn't write consumer HID report: {:?}"
+    );
+}
 
-            // Ignore any unprocessed reports due to lack of a connection
-            while CONSUMER_REPORT_HID_SEND_CHANNEL.try_receive().is_ok() {}
-        }
+#[cfg(feature = "via")]
+struct ViaCommandHandler;
+
+#[cfg(feature = "via")]
+/// Configure the HID report reader and writer for Via/Vial packets.
+///
+/// The reader should be passed to [`usb_hid_via_read_task`], and the writer should be passed to
+/// [`usb_hid_via_write_task`].
+pub fn setup_usb_via_hid_reader_writer(
+    builder: &mut Builder<'static, impl Driver<'static>>,
+) -> HidReaderWriter<'static, impl Driver<'static>, 32, 32> {
+    static VIA_STATE: StaticCell<UsbState> = StaticCell::new();
+    let via_state = VIA_STATE.init(UsbState::new());
+    let via_hid_config = Config {
+        request_handler: Some(&VIA_COMMAND_HANDLER),
+        report_descriptor: crate::via::VIA_REPORT_DESCRIPTOR,
+        poll_ms: 1,
+        max_packet_size: 32,
+    };
+    HidReaderWriter::<_, 32, 32>::new(builder, via_state, via_hid_config)
+}
+
+#[cfg(feature = "via")]
+static VIA_COMMAND_HANDLER: ViaCommandHandler = ViaCommandHandler;
+
+#[cfg(feature = "via")]
+impl RequestHandler for ViaCommandHandler {
+    fn get_report(&self, _id: ReportId, _buf: &mut [u8]) -> Option<usize> {
+        None
     }
+
+    fn set_report(&self, _id: ReportId, buf: &[u8]) -> OutResponse {
+        let mut data: [u8; 32] = [0; 32];
+        data.copy_from_slice(buf);
+
+        if let Err(err) = crate::via::VIA_REPORT_HID_RECEIVE_CHANNEL.try_send(data) {
+            error!(
+                "[VIA] Could not queue the Via command to be processed: {:?}",
+                err
+            );
+        };
+
+        OutResponse::Accepted
+    }
+
+    fn get_idle_ms(&self, _id: Option<ReportId>) -> Option<u32> {
+        None
+    }
+
+    fn set_idle_ms(&self, _id: Option<ReportId>, _duration_ms: u32) {}
+}
+
+#[cfg(feature = "via")]
+#[rumcake_macros::task]
+pub async fn usb_hid_via_read_task(hid: HidReader<'static, impl Driver<'static>, 32>) {
+    hid.run(false, &VIA_COMMAND_HANDLER).await;
+}
+
+#[cfg(feature = "via")]
+pub(crate) static VIA_CURRENT_OUTPUT_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();
+
+#[cfg(feature = "via")]
+#[rumcake_macros::task]
+pub async fn usb_hid_via_write_task(mut hid: HidWriter<'static, impl Driver<'static>, 32>) {
+    usb_task_inner!(
+        hid,
+        VIA_CURRENT_OUTPUT_STATE_LISTENER,
+        crate::via::VIA_REPORT_HID_SEND_CHANNEL,
+        "[USB] Writing HID via report: {:?}",
+        "[USB] Couldn't write HID via report: {:?}"
+    )
 }

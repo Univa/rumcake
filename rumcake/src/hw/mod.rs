@@ -65,7 +65,11 @@ pub static CURRENT_OUTPUT_STATE: State<Option<HIDOutput>> = State::new(
     None,
     &[
         #[cfg(feature = "usb")]
-        &crate::usb::CURRENT_OUTPUT_STATE_LISTENER,
+        &crate::usb::KB_CURRENT_OUTPUT_STATE_LISTENER,
+        #[cfg(feature = "usb")]
+        &crate::usb::CONSUMER_CURRENT_OUTPUT_STATE_LISTENER,
+        #[cfg(all(feature = "usb", feature = "via"))]
+        &crate::usb::VIA_CURRENT_OUTPUT_STATE_LISTENER,
         #[cfg(feature = "bluetooth")]
         &crate::bluetooth::CURRENT_OUTPUT_STATE_LISTENER,
     ],

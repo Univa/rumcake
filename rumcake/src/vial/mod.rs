@@ -12,7 +12,7 @@ use embassy_usb::class::hid::HidWriter;
 use embassy_usb::driver::Driver;
 use smart_leds::RGB8;
 
-use crate::via::{ViaKeyboard, VIA_REPORT_HID_SEND_CHANNEL};
+use crate::via::{ViaKeyboard, VIA_REPORT_HID_RECEIVE_CHANNEL, VIA_REPORT_HID_SEND_CHANNEL};
 
 mod handlers;
 
@@ -92,10 +92,8 @@ pub(crate) static VIAL_DIRECT_SET_CHANNEL: Channel<ThreadModeRawMutex, (u8, RGB8
     Channel::new();
 
 #[rumcake_macros::task]
-pub async fn usb_hid_vial_write_task<K: VialKeyboard + 'static>(
-    _k: K,
-    mut hid: HidWriter<'static, impl Driver<'static>, 32>,
-) where
+pub async fn vial_process_task<K: VialKeyboard + 'static>(_k: K)
+where
     [(); K::BacklightMatrixDevice::LIGHTING_COLS]:,
     [(); K::BacklightMatrixDevice::LIGHTING_ROWS]:,
     [(); (K::LAYOUT_COLS + u8::BITS as usize - 1) / u8::BITS as usize * K::LAYOUT_ROWS]:,
@@ -119,7 +117,7 @@ pub async fn usb_hid_vial_write_task<K: VialKeyboard + 'static>(
 
     let report_fut = async {
         loop {
-            let mut report = VIA_REPORT_HID_SEND_CHANNEL.receive().await;
+            let mut report = VIA_REPORT_HID_RECEIVE_CHANNEL.receive().await;
 
             if K::VIAL_ENABLED && K::VIA_ENABLED {
                 {
@@ -133,13 +131,7 @@ pub async fn usb_hid_vial_write_task<K: VialKeyboard + 'static>(
                     .await;
                 }
 
-                debug!("[VIAL] Writing HID raw report {:?}", Debug2Format(&report));
-                if let Err(err) = hid.write(&report).await {
-                    error!(
-                        "[VIAL] Couldn't write HID raw report: {:?}",
-                        Debug2Format(&err)
-                    );
-                };
+                VIA_REPORT_HID_SEND_CHANNEL.send(report).await;
             }
         }
     };

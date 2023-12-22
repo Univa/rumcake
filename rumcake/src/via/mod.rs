@@ -5,18 +5,11 @@
 //! storage buffers using [`crate::setup_via_storage_buffers`].
 
 use crate::keyboard::{Keyboard, KeyboardLayout};
-use defmt::{assert, debug, error, Debug2Format};
+use defmt::assert;
 use embassy_futures::join;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
-use embassy_usb::class::hid::{
-    Config, HidReader, HidReaderWriter, HidWriter, ReportId, RequestHandler, State,
-};
-use embassy_usb::control::OutResponse;
-use embassy_usb::driver::Driver;
-use embassy_usb::Builder;
-use static_cell::StaticCell;
 
 pub(crate) mod handlers;
 pub(crate) mod protocol_12;
@@ -166,7 +159,7 @@ macro_rules! setup_macro_buffer {
 }
 
 /// Report descriptor used for Via. Pulled from QMK.
-const VIA_REPORT_DESCRIPTOR: &[u8] = &[
+pub(crate) const VIA_REPORT_DESCRIPTOR: &[u8] = &[
     0x06, 0x60, 0xFF, // Usage Page (Vendor Defined)
     0x09, 0x61, // Usage (Vendor Defined)
     0xA1, 0x01, // Collection (Application)
@@ -187,69 +180,18 @@ const VIA_REPORT_DESCRIPTOR: &[u8] = &[
     0xC0, // End Collection
 ];
 
-struct ViaCommandHandler;
+/// Channel used to receive reports from the Via app to be processed. Reports that are sent to this
+/// channel will be processed by the Via task, and call the appropriate command handler, depending
+/// on the report contents.
+pub static VIA_REPORT_HID_RECEIVE_CHANNEL: Channel<ThreadModeRawMutex, [u8; 32], 1> =
+    Channel::new();
 
-static VIA_COMMAND_HANDLER: ViaCommandHandler = ViaCommandHandler;
-
-impl RequestHandler for ViaCommandHandler {
-    fn get_report(&self, _id: ReportId, _buf: &mut [u8]) -> Option<usize> {
-        None
-    }
-
-    fn set_report(&self, _id: ReportId, buf: &[u8]) -> OutResponse {
-        let mut data: [u8; 32] = [0; 32];
-        data.copy_from_slice(buf);
-
-        if let Err(err) = VIA_REPORT_HID_SEND_CHANNEL.try_send(data) {
-            error!(
-                "[VIA] Could not queue the Via command to be processed: {:?}",
-                err
-            );
-        };
-
-        OutResponse::Accepted
-    }
-
-    fn get_idle_ms(&self, _id: Option<ReportId>) -> Option<u32> {
-        None
-    }
-
-    fn set_idle_ms(&self, _id: Option<ReportId>, _duration_ms: u32) {}
-}
-
-/// Configure the HID report reader and writer for Via/Vial packets.
-///
-/// The reader should be passed to [`usb_hid_via_read_task`], and the writer should be passed to
-/// [`usb_hid_via_write_task`].
-pub fn setup_usb_via_hid_reader_writer(
-    builder: &mut Builder<'static, impl Driver<'static>>,
-) -> HidReaderWriter<'static, impl Driver<'static>, 32, 32> {
-    static VIA_STATE: StaticCell<State> = StaticCell::new();
-    let via_state = VIA_STATE.init(State::new());
-    let via_hid_config = Config {
-        request_handler: Some(&VIA_COMMAND_HANDLER),
-        report_descriptor: VIA_REPORT_DESCRIPTOR,
-        poll_ms: 1,
-        max_packet_size: 32,
-    };
-    HidReaderWriter::<_, 32, 32>::new(builder, via_state, via_hid_config)
-}
-
-/// Channel used to send reports from the Via app. Reports that are sent to this channel will be
-/// processed by the Via task, and call the appropriate command handler, depending on the report
-/// contents.
+/// Channel used to send Via reports back to the Via host.
 pub static VIA_REPORT_HID_SEND_CHANNEL: Channel<ThreadModeRawMutex, [u8; 32], 1> = Channel::new();
 
 #[rumcake_macros::task]
-pub async fn usb_hid_via_read_task(hid: HidReader<'static, impl Driver<'static>, 32>) {
-    hid.run(false, &VIA_COMMAND_HANDLER).await;
-}
-
-#[rumcake_macros::task]
-pub async fn usb_hid_via_write_task<K: ViaKeyboard + 'static>(
-    _k: K,
-    mut hid: HidWriter<'static, impl Driver<'static>, 32>,
-) where
+pub async fn via_process_task<K: ViaKeyboard + 'static>(_k: K)
+where
     [(); (K::LAYOUT_COLS + u8::BITS as usize - 1) / u8::BITS as usize * K::LAYOUT_ROWS]:,
     [(); K::LAYERS]:,
     [(); K::LAYOUT_ROWS]:,
@@ -265,7 +207,7 @@ pub async fn usb_hid_via_write_task<K: ViaKeyboard + 'static>(
 
     let report_fut = async {
         loop {
-            let mut report = VIA_REPORT_HID_SEND_CHANNEL.receive().await;
+            let mut report = VIA_REPORT_HID_RECEIVE_CHANNEL.receive().await;
 
             if K::VIA_ENABLED {
                 {
@@ -273,13 +215,7 @@ pub async fn usb_hid_via_write_task<K: ViaKeyboard + 'static>(
                     protocol::process_via_command::<K>(&mut report, &mut via_state).await;
                 }
 
-                debug!("[VIA] Writing HID raw report {:?}", Debug2Format(&report));
-                if let Err(err) = hid.write(&report).await {
-                    error!(
-                        "[VIA] Couldn't write HID raw report: {:?}",
-                        Debug2Format(&err)
-                    );
-                };
+                VIA_REPORT_HID_SEND_CHANNEL.send(report).await;
             }
         }
     };

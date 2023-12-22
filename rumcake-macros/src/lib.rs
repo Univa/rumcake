@@ -469,11 +469,20 @@ pub fn main(
         }
     }
 
-    if keyboard.via.is_some() || keyboard.vial.is_some() {
+    if keyboard.usb && (keyboard.via.is_some() || keyboard.vial.is_some()) {
         initialization.extend(quote! {
             // Via HID setup
             let (via_reader, via_writer) =
-                rumcake::via::setup_usb_via_hid_reader_writer(&mut builder).split();
+                rumcake::usb::setup_usb_via_hid_reader_writer(&mut builder).split();
+        });
+        spawning.extend(quote! {
+            // HID raw report (for VIA) reading and writing
+            spawner
+                .spawn(rumcake::usb_hid_via_read_task!(via_reader))
+                .unwrap();
+        });
+        spawning.extend(quote! {
+            spawner.spawn(rumcake::usb_hid_via_write_task!(via_writer)).unwrap();
         });
     }
 
@@ -497,13 +506,9 @@ pub fn main(
         }
 
         spawning.extend(quote! {
-            // HID raw report (for VIA) reading and writing
             spawner
-                .spawn(rumcake::usb_hid_via_read_task!(via_reader))
+                .spawn(rumcake::via_process_task!(#kb_name))
                 .unwrap();
-        });
-        spawning.extend(quote! {
-            spawner.spawn(rumcake::usb_hid_via_write_task!(#kb_name, via_writer)).unwrap();
         });
     } else if let Some(args) = keyboard.vial {
         let args = args.unwrap_or_default();
@@ -521,14 +526,8 @@ pub fn main(
         }
 
         spawning.extend(quote! {
-            // HID raw report (for VIA) reading and writing
             spawner
-                .spawn(rumcake::usb_hid_via_read_task!(via_reader))
-                .unwrap();
-        });
-        spawning.extend(quote! {
-            spawner
-                .spawn(rumcake::usb_hid_vial_write_task!(#kb_name, via_writer))
+                .spawn(rumcake::vial_process_task!(#kb_name))
                 .unwrap();
         });
     }
