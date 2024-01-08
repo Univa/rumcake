@@ -5,7 +5,7 @@
 > [!WARNING]
 > rumcake is still a work in progress. Expect some bugs and breaking changes.
 
-## [User Docs](https://univa.github.io/rumcake/) - [API Reference](https://univa.github.io/rumcake/api/)
+## [User Docs](https://univa.github.io/rumcake/) - [API Reference](https://univa.github.io/rumcake/api/) - [How to Contribute](/CONTRIBUTING.md)
 
 <!--toc:start-->
 
