@@ -6,13 +6,14 @@ This document contains information about how you can help improve rumcake, inclu
 different ways to contribute, and general guidelines for submitting contributions.
 
 <!--toc:start-->
-
-- [Code Contributions](#code-contributions)
-  - [Doc Comments / API Reference](#doc-comments-api-reference)
-  - [Making a pull request](#making-a-pull-request)
-- [New Features](#new-features)
-- [Testing & Reporting Issues](#testing-reporting-issues)
-- [Writing User Docs](#writing-user-docs) - [How to Develop User Docs](#how-to-develop-user-docs) - [Doc Guidelines](#doc-guidelines)
+  - [Code Contributions](#code-contributions)
+    - [Doc Comments / API Reference](#doc-comments-api-reference)
+    - [Making a pull request](#making-a-pull-request)
+  - [New Features](#new-features)
+  - [Testing & Reporting Issues](#testing-reporting-issues)
+  - [Writing User Docs](#writing-user-docs)
+    - [How to Develop User Docs](#how-to-develop-user-docs)
+    - [Doc Guidelines](#doc-guidelines)
 <!--toc:end-->
 
 ## Code Contributions
