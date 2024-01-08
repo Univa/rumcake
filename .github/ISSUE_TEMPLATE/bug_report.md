@@ -6,6 +6,15 @@ labels: bug
 assignees: ""
 ---
 
+<!--
+Before you submit:
+
+Please refrain from posting issues related to flashing firmware. Consider opening
+an issue in the rumcake-templates repository instead: https://github.com/Univa/rumcake-templates.
+
+Also double-check that there isn't already a duplicate issue in the issues tab: https://github.com/Univa/rumcake/issues
+-->
+
 ## Description of the issue
 
 <!-- Insert a quick and concise description of the bug -->
