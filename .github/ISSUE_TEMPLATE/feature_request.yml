@@ -1,0 +1,21 @@
+name: Feature Request
+description: Suggest an idea for the rumcake library.
+title: "Feature: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Suggest a feature to extend rumcake's functionality.
+  - type: checkboxes
+    attributes:
+      label: Type of Feature Request
+      options:
+        - label: Enhancement to an existing `rumcake` feature
+        - label: New feature unrelated to existing `rumcake` features
+        - label: New driver for existing `rumcake` features
+        - label: Support for a new MCU
+  - type: textarea
+    attributes:
+      label: Description
+      description: Describe how you would like the solution to look, and how it would behave.
