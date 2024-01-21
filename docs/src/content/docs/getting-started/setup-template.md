@@ -3,7 +3,7 @@ title: Setup - Using a Template
 description: How to configure your Cargo workspace using a template.
 next:
   label: Matrix and Layout
-  link: ../matrix-and-layout
+  link: ../matrix-and-layout/
 sidebar:
   order: 1
 ---
