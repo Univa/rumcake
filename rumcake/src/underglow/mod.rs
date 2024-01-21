@@ -174,7 +174,8 @@ pub mod storage {
     use embassy_time::Duration;
     use embassy_time::Timer;
     use embedded_storage_async::nor_flash::NorFlash;
-    use postcard::experimental::max_size::MaxSize;
+
+    use crate::storage::StorageDevice;
 
     use super::UnderglowConfig;
     use super::UNDERGLOW_CONFIG_STATE;
@@ -182,28 +183,22 @@ pub mod storage {
     pub(super) static UNDERGLOW_CONFIG_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> =
         Signal::new();
 
-    static mut UNDERGLOW_STORAGE_STATE: crate::storage::StorageServiceState<
-        { core::mem::size_of::<TypeId>() },
-        { UnderglowConfig::POSTCARD_MAX_SIZE },
-    > = crate::storage::StorageServiceState::new();
-
     pub(super) static UNDERGLOW_SAVE_SIGNAL: Signal<ThreadModeRawMutex, ()> = Signal::new();
 
     #[rumcake_macros::task]
-    pub async fn underglow_storage_task<F: NorFlash>(
-        database: &'static crate::storage::Database<'static, F>,
+    pub async fn underglow_storage_task<K: StorageDevice, F: NorFlash>(
+        _k: K,
+        database: &crate::storage::StorageService<'static, F>,
     ) where
         [(); F::ERASE_SIZE]:,
     {
         {
-            let mut database = database.lock().await;
-
             // Check stored underglow config metadata (type id) to see if it has changed
             let metadata: [u8; core::mem::size_of::<TypeId>()] =
                 unsafe { core::mem::transmute(TypeId::of::<UnderglowConfig>()) };
             let _ = database
-                .initialize(
-                    unsafe { &mut UNDERGLOW_STORAGE_STATE },
+                .check_metadata(
+                    K::get_storage_buffer(),
                     crate::storage::StorageKey::UnderglowConfig,
                     &metadata,
                 )
@@ -212,7 +207,7 @@ pub mod storage {
             // Get underglow config from storage
             if let Ok(config) = database
                 .read(
-                    unsafe { &mut UNDERGLOW_STORAGE_STATE },
+                    K::get_storage_buffer(),
                     crate::storage::StorageKey::UnderglowConfig,
                 )
                 .await
@@ -230,10 +225,8 @@ pub mod storage {
 
         let save = || async {
             let _ = database
-                .lock()
-                .await
                 .write(
-                    unsafe { &mut UNDERGLOW_STORAGE_STATE },
+                    K::get_storage_buffer(),
                     crate::storage::StorageKey::UnderglowConfig,
                     UNDERGLOW_CONFIG_STATE.get().await,
                 )

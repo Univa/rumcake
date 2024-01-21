@@ -3,13 +3,10 @@
 //! To use Vial, you will need to implement [`ViaKeyboard`] and [`VialKeyboard`].
 
 use crate::backlight::{BacklightMatrixDevice, EmptyBacklightMatrix};
-use defmt::{debug, error, Debug2Format};
 use embassy_futures::join;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
-use embassy_usb::class::hid::HidWriter;
-use embassy_usb::driver::Driver;
 use smart_leds::RGB8;
 
 use crate::via::{ViaKeyboard, VIA_REPORT_HID_RECEIVE_CHANNEL, VIA_REPORT_HID_SEND_CHANNEL};
@@ -56,18 +53,6 @@ pub trait VialKeyboard: ViaKeyboard {
     > {
         None
     }
-
-    #[cfg(feature = "storage")]
-    fn get_dynamic_keymap_tap_dance_storage_state(
-    ) -> &'static mut crate::storage::StorageServiceState<1, 1>;
-
-    #[cfg(feature = "storage")]
-    fn get_dynamic_keymap_combo_storage_state(
-    ) -> &'static mut crate::storage::StorageServiceState<1, 1>;
-
-    #[cfg(feature = "storage")]
-    fn get_dynamic_keymap_key_override_storage_state(
-    ) -> &'static mut crate::storage::StorageServiceState<1, 1>;
 }
 
 #[macro_export]
@@ -146,38 +131,9 @@ pub mod storage {
     use embassy_sync::signal::Signal;
     use embedded_storage_async::nor_flash::NorFlash;
 
-    use crate::storage::StorageKey;
+    use crate::storage::{StorageDevice, StorageKey};
 
     use super::VialKeyboard;
-
-    #[macro_export]
-    macro_rules! setup_vial_storage_buffers {
-        ($k:ident) => {
-            fn get_dynamic_keymap_tap_dance_storage_state(
-            ) -> &'static mut $crate::storage::StorageServiceState<1, 1> {
-                static mut DYNAMIC_KEYMAP_TAP_DANCE_STORAGE_STATE:
-                    $crate::storage::StorageServiceState<1, 1> =
-                    $crate::storage::StorageServiceState::new();
-                unsafe { &mut DYNAMIC_KEYMAP_TAP_DANCE_STORAGE_STATE }
-            }
-
-            fn get_dynamic_keymap_combo_storage_state(
-            ) -> &'static mut $crate::storage::StorageServiceState<1, 1> {
-                static mut DYNAMIC_KEYMAP_COMBO_STORAGE_STATE:
-                    $crate::storage::StorageServiceState<1, 1> =
-                    $crate::storage::StorageServiceState::new();
-                unsafe { &mut DYNAMIC_KEYMAP_COMBO_STORAGE_STATE }
-            }
-
-            fn get_dynamic_keymap_key_override_storage_state(
-            ) -> &'static mut $crate::storage::StorageServiceState<1, 1> {
-                static mut DYNAMIC_KEYMAP_KEY_OVERRIDE_STORAGE_STATE:
-                    $crate::storage::StorageServiceState<1, 1> =
-                    $crate::storage::StorageServiceState::new();
-                unsafe { &mut DYNAMIC_KEYMAP_KEY_OVERRIDE_STORAGE_STATE }
-            }
-        };
-    }
 
     pub(super) enum VialStorageKeys {
         DynamicKeymapTapDance,
@@ -225,21 +181,19 @@ pub mod storage {
     static OPERATION_CHANNEL: Channel<ThreadModeRawMutex, Operation, 1> = Channel::new();
 
     #[rumcake_macros::task]
-    pub async fn vial_storage_task<K: VialKeyboard + 'static, F: NorFlash>(
+    pub async fn vial_storage_task<K: StorageDevice + VialKeyboard + 'static, F: NorFlash>(
         _k: K,
-        database: &'static crate::storage::Database<'static, F>,
+        database: &crate::storage::StorageService<'static, F>,
     ) where
         [(); F::ERASE_SIZE]:,
     {
         // Initialize Vial data
         {
-            let mut database = database.lock().await;
-
             // let tap_dance_metadata: [u8; core::mem::size_of::<TypeId>()] = unsafe {core::mem::transmute(TypeId::of::<>())};
             let tap_dance_metadata = [1];
             let _ = database
-                .initialize(
-                    K::get_dynamic_keymap_tap_dance_storage_state(),
+                .check_metadata(
+                    K::get_storage_buffer(),
                     StorageKey::DynamicKeymapTapDance,
                     &tap_dance_metadata,
                 )
@@ -248,8 +202,8 @@ pub mod storage {
             // let combo_metadata: [u8; core::mem::size_of::<TypeId>()] = unsafe {core::mem::transmute(TypeId::of::<>())};
             let combo_metadata = [1];
             let _ = database
-                .initialize(
-                    K::get_dynamic_keymap_combo_storage_state(),
+                .check_metadata(
+                    K::get_storage_buffer(),
                     StorageKey::DynamicKeymapCombo,
                     &combo_metadata,
                 )
@@ -258,8 +212,8 @@ pub mod storage {
             // let key_override_metadata: [u8; core::mem::size_of::<TypeId>()] = unsafe {core::mem::transmute(TypeId::of::<>())};
             let key_override_metadata = [1];
             let _ = database
-                .initialize(
-                    K::get_dynamic_keymap_key_override_storage_state(),
+                .check_metadata(
+                    K::get_storage_buffer(),
                     StorageKey::DynamicKeymapKeyOverride,
                     &key_override_metadata,
                 )
@@ -268,17 +222,12 @@ pub mod storage {
 
         loop {
             match OPERATION_CHANNEL.receive().await {
-                Operation::Write(data, key, offset, len) => {
-                    let mut database = database.lock().await;
-
-                    match key {
-                        VialStorageKeys::DynamicKeymapTapDance => {}
-                        VialStorageKeys::DynamicKeymapCombo => {}
-                        VialStorageKeys::DynamicKeymapKeyOverride => {}
-                    }
-                }
+                Operation::Write(data, key, offset, len) => match key {
+                    VialStorageKeys::DynamicKeymapTapDance => {}
+                    VialStorageKeys::DynamicKeymapCombo => {}
+                    VialStorageKeys::DynamicKeymapKeyOverride => {}
+                },
                 Operation::Delete => {
-                    let mut database = database.lock().await;
                     let _ = database.delete(StorageKey::DynamicKeymapTapDance).await;
                     let _ = database.delete(StorageKey::DynamicKeymapCombo).await;
                     let _ = database.delete(StorageKey::DynamicKeymapKeyOverride).await;

@@ -66,9 +66,10 @@ __config_end = __config_start + LENGTH(CONFIG); /* add this */
 - The value of `__config_start` and `__config_end` must be **relative to the start address of the FLASH section**.
   - Note that in the above example, we subtract `ORIGIN(FLASH)` for this reason.
 
-Finally, you can add `storage = "internal"` to your `#[keyboard]` macro invocation:
+Finally, you can add `storage = "internal"` to your `#[keyboard]` macro invocation, and make sure to implement
+`StorageDevice` for your keyboard:
 
-```rust ins={5,7}
+```rust ins={5,7,11-12}
 #[keyboard(
     // somewhere in your keyboard macro invocation ...
     underglow(
@@ -78,7 +79,19 @@ Finally, you can add `storage = "internal"` to your `#[keyboard]` macro invocati
     storage = "internal" // Add this
 )]
 struct MyKeyboard;
+
+use rumcake::storage::StorageDevice;
+impl StorageDevice for MyKeyboard {}
 ```
+
+:::tip
+By default, the `setup_storage_buffer()` function in the `StorageDevice` trait creates a buffer
+with a size of 1024 bytes. You can override the implementation to increase the size of the
+buffer to store values that may be larger, or you can decrease the size to save memory.
+
+Keep in mind, that the size of this buffer must be large enough to store the largest possible value
+that you will be reading, or writing from the storage peripheral.
+:::
 
 # Storage space considerations
 

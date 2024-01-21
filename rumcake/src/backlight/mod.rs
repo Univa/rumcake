@@ -370,18 +370,14 @@ macro_rules! storage_module {
         use embassy_time::Duration;
         use embassy_time::Timer;
         use embedded_storage_async::nor_flash::NorFlash;
-        use postcard::experimental::max_size::MaxSize;
+
+        use crate::storage::StorageDevice;
 
         use super::BacklightConfig;
         use super::BACKLIGHT_CONFIG_STATE;
 
         pub(super) static BACKLIGHT_CONFIG_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> =
             Signal::new();
-
-        static mut BACKLIGHT_STORAGE_STATE: crate::storage::StorageServiceState<
-            { core::mem::size_of::<TypeId>() },
-            { BacklightConfig::POSTCARD_MAX_SIZE },
-        > = crate::storage::StorageServiceState::new();
 
         pub(super) static BACKLIGHT_SAVE_SIGNAL: Signal<ThreadModeRawMutex, ()> = Signal::new();
     };
@@ -390,20 +386,19 @@ macro_rules! storage_module {
 macro_rules! storage_task_fn {
     ($name:tt, $key:ident) => {
         #[rumcake_macros::task]
-        pub async fn $name<F: NorFlash>(
-            database: &'static crate::storage::Database<'static, F>,
+        pub async fn $name<K: StorageDevice, F: NorFlash>(
+            _k: K,
+            database: &crate::storage::StorageService<'static, F>,
         ) where
             [(); F::ERASE_SIZE]:,
         {
             {
-                let mut database = database.lock().await;
-
                 // Check stored backlight config metadata (type id) to see if it has changed
                 let metadata: [u8; core::mem::size_of::<TypeId>()] =
                     unsafe { core::mem::transmute(TypeId::of::<BacklightConfig>()) };
                 let _ = database
-                    .initialize(
-                        unsafe { &mut BACKLIGHT_STORAGE_STATE },
+                    .check_metadata(
+                        K::get_storage_buffer(),
                         crate::storage::StorageKey::$key,
                         &metadata,
                     )
@@ -412,7 +407,7 @@ macro_rules! storage_task_fn {
                 // Get backlight config from storage
                 if let Ok(config) = database
                     .read(
-                        unsafe { &mut BACKLIGHT_STORAGE_STATE },
+                        K::get_storage_buffer(),
                         crate::storage::StorageKey::$key,
                     )
                     .await
@@ -430,10 +425,8 @@ macro_rules! storage_task_fn {
 
             let save = || async {
                 let _ = database
-                    .lock()
-                    .await
                     .write(
-                        unsafe { &mut BACKLIGHT_STORAGE_STATE },
+                        K::get_storage_buffer(),
                         crate::storage::StorageKey::$key,
                         BACKLIGHT_CONFIG_STATE.get().await,
                     )

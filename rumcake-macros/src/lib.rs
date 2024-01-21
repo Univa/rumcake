@@ -329,8 +329,9 @@ fn setup_storage_driver(driver: &str, uses_bluetooth: bool) -> Option<TokenStrea
                     let config_start = unsafe { &rumcake::hw::__config_start as *const u32 as usize };
                     let config_end = unsafe { &rumcake::hw::__config_end as *const u32 as usize };
                     static mut READ_BUF: [u8; rumcake::hw::mcu::nrf_softdevice::ERASE_SIZE] = [0; rumcake::hw::mcu::nrf_softdevice::ERASE_SIZE];
-                    static DATABASE: rumcake::storage::Database<'static, rumcake::hw::nrf_softdevice::Flash> = rumcake::storage::Database::new();
-                    DATABASE.setup(flash, config_start, config_end, unsafe { &mut READ_BUF }).await;
+                    static mut OP_BUF: [u8; rumcake::hw::mcu::nrf_softdevice::ERASE_SIZE] = [0; rumcake::hw::mcu::nrf_softdevice::ERASE_SIZE];
+                    static DATABASE: rumcake::storage::StorageService<'static, rumcake::hw::nrf_softdevice::Flash> = rumcake::storage::Database::new();
+                    unsafe { DATABASE.setup(flash, config_start, config_end, &mut read_buf, &mut op_buf).await; }
                 })
             } else {
                 Some(quote! {
@@ -339,8 +340,9 @@ fn setup_storage_driver(driver: &str, uses_bluetooth: bool) -> Option<TokenStrea
                     let config_start = unsafe { &rumcake::hw::__config_start as *const u32 as usize };
                     let config_end = unsafe { &rumcake::hw::__config_end as *const u32 as usize };
                     static mut READ_BUF: [u8; rumcake::hw::mcu::Flash::ERASE_SIZE] = [0; rumcake::hw::mcu::Flash::ERASE_SIZE];
-                    static DATABASE: rumcake::storage::Database<'static, rumcake::hw::mcu::Flash> = rumcake::storage::Database::new();
-                    DATABASE.setup(flash, config_start, config_end, unsafe { &mut READ_BUF }).await;
+                    static mut OP_BUF: [u8; rumcake::hw::mcu::Flash::ERASE_SIZE] = [0; rumcake::hw::mcu::Flash::ERASE_SIZE];
+                    static DATABASE: rumcake::storage::StorageService<'static, rumcake::hw::mcu::Flash> = rumcake::storage::StorageService::new();
+                    unsafe { DATABASE.setup(flash, config_start, config_end, &mut READ_BUF, &mut OP_BUF).await; }
                 })
             }
         }
@@ -413,8 +415,16 @@ pub fn main(
                 keyboard.storage.span() => compile_error!("Storage driver was specified, but rumcake's `storage` feature flag is not enabled. Please enable the feature.");
             });
         } else {
-            let driver_setup = setup_storage_driver(driver.as_str(), uses_bluetooth);
-            initialization.extend(driver_setup);
+            match setup_storage_driver(driver.as_str(), uses_bluetooth) {
+                Some(driver_setup) => {
+                    initialization.extend(driver_setup);
+                }
+                None => {
+                    initialization.extend(quote_spanned! {
+                        driver.span() => compile_error!("Unknown storage driver.");
+                    });
+                }
+            };
         }
     };
 
@@ -604,7 +614,7 @@ pub fn main(
 
                     if args.use_storage {
                         spawning.extend(quote! {
-                            spawner.spawn(rumcake::underglow_storage_task!(&DATABASE)).unwrap();
+                            spawner.spawn(rumcake::underglow_storage_task!(#kb_name, &DATABASE)).unwrap();
                         });
                     }
 
@@ -642,7 +652,7 @@ pub fn main(
 
                     if args.use_storage {
                         spawning.extend(quote! {
-                            spawner.spawn(rumcake::simple_backlight_storage_task!(&DATABASE)).unwrap();
+                            spawner.spawn(rumcake::simple_backlight_storage_task!(#kb_name, &DATABASE)).unwrap();
                         });
                     }
 
@@ -679,7 +689,7 @@ pub fn main(
 
                     if args.use_storage {
                         spawning.extend(quote! {
-                            spawner.spawn(rumcake::simple_backlight_matrix_storage_task!(&DATABASE)).unwrap();
+                            spawner.spawn(rumcake::simple_backlight_matrix_storage_task!(#kb_name, &DATABASE)).unwrap();
                         });
                     }
 
@@ -716,7 +726,7 @@ pub fn main(
 
                     if args.use_storage {
                         spawning.extend(quote! {
-                            spawner.spawn(rumcake::rgb_backlight_matrix_storage_task!(&DATABASE)).unwrap();
+                            spawner.spawn(rumcake::rgb_backlight_matrix_storage_task!(#kb_name, &DATABASE)).unwrap();
                         });
                     }
 

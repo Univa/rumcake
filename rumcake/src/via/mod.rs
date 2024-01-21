@@ -91,29 +91,6 @@ pub trait ViaKeyboard: Keyboard + KeyboardLayout {
         { Self::DYNAMIC_KEYMAP_MACRO_COUNT as usize },
     >;
 
-    #[cfg(feature = "storage")]
-    fn get_layout_options_storage_state(
-    ) -> &'static mut crate::storage::StorageServiceState<1, { Self::VIA_EEPROM_LAYOUT_OPTIONS_SIZE }>;
-
-    #[cfg(feature = "storage")]
-    fn get_dynamic_keymap_storage_state() -> &'static mut crate::storage::StorageServiceState<
-        3,
-        { Self::DYNAMIC_KEYMAP_LAYER_COUNT * Self::LAYOUT_COLS * Self::LAYOUT_ROWS * 2 },
-    >;
-
-    #[cfg(feature = "storage")]
-    fn get_dynamic_keymap_encoder_storage_state(
-    ) -> &'static mut crate::storage::StorageServiceState<
-        2,
-        { Self::DYNAMIC_KEYMAP_LAYER_COUNT * Self::NUM_ENCODERS * 2 * 2 },
-    >;
-
-    #[cfg(feature = "storage")]
-    fn get_dynamic_keymap_macro_storage_state() -> &'static mut crate::storage::StorageServiceState<
-        3,
-        { Self::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize },
-    >;
-
     /// Override for handling a Via/Vial protocol packet.
     ///
     /// Returning `true` indicates that a command is fully handled, so the Via/Vial task will not
@@ -231,64 +208,9 @@ pub mod storage {
     use embassy_sync::signal::Signal;
     use embedded_storage_async::nor_flash::NorFlash;
 
-    use crate::storage::StorageKey;
+    use crate::storage::{StorageDevice, StorageKey};
 
     use super::ViaKeyboard;
-
-    #[macro_export]
-    macro_rules! setup_via_storage_buffers {
-        ($k:ident) => {
-            fn get_layout_options_storage_state(
-            ) -> &'static mut $crate::storage::StorageServiceState<
-                1,
-                { $k::VIA_EEPROM_LAYOUT_OPTIONS_SIZE },
-            > {
-                static mut LAYOUT_OPTIONS_STORAGE_STATE: $crate::storage::StorageServiceState<
-                    { 1 },
-                    { $k::VIA_EEPROM_LAYOUT_OPTIONS_SIZE },
-                > = $crate::storage::StorageServiceState::new();
-                unsafe { &mut LAYOUT_OPTIONS_STORAGE_STATE }
-            }
-
-            fn get_dynamic_keymap_storage_state(
-            ) -> &'static mut $crate::storage::StorageServiceState<
-                3,
-                { $k::DYNAMIC_KEYMAP_LAYER_COUNT * $k::LAYOUT_COLS * $k::LAYOUT_ROWS * 2 },
-            > {
-                static mut DYNAMIC_KEYMAP_STORAGE_STATE: $crate::storage::StorageServiceState<
-                    { 3 },
-                    { $k::DYNAMIC_KEYMAP_LAYER_COUNT * $k::LAYOUT_COLS * $k::LAYOUT_ROWS * 2 },
-                > = $crate::storage::StorageServiceState::new();
-                unsafe { &mut DYNAMIC_KEYMAP_STORAGE_STATE }
-            }
-
-            fn get_dynamic_keymap_encoder_storage_state(
-            ) -> &'static mut $crate::storage::StorageServiceState<
-                2,
-                { $k::DYNAMIC_KEYMAP_LAYER_COUNT * $k::NUM_ENCODERS * 2 * 2 },
-            > {
-                static mut DYNAMIC_KEYMAP_ENCODER_STORAGE_STATE:
-                    $crate::storage::StorageServiceState<
-                        { 2 },
-                        { $k::DYNAMIC_KEYMAP_LAYER_COUNT * $k::NUM_ENCODERS * 2 * 2 },
-                    > = $crate::storage::StorageServiceState::new();
-                unsafe { &mut DYNAMIC_KEYMAP_ENCODER_STORAGE_STATE }
-            }
-
-            fn get_dynamic_keymap_macro_storage_state(
-            ) -> &'static mut $crate::storage::StorageServiceState<
-                3,
-                { $k::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize },
-            > {
-                static mut DYNAMIC_KEYMAP_MACRO_STORAGE_STATE:
-                    $crate::storage::StorageServiceState<
-                        { 3 },
-                        { $k::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize },
-                    > = $crate::storage::StorageServiceState::new();
-                unsafe { &mut DYNAMIC_KEYMAP_MACRO_STORAGE_STATE }
-            }
-        };
-    }
 
     pub(super) enum ViaStorageKeys {
         LayoutOptions,
@@ -343,9 +265,9 @@ pub mod storage {
     pub(super) static VIA_LAYOUT_OPTIONS: Signal<ThreadModeRawMutex, u32> = Signal::new();
 
     #[rumcake_macros::task]
-    pub async fn via_storage_task<K: ViaKeyboard + 'static, F: NorFlash>(
+    pub async fn via_storage_task<K: StorageDevice + ViaKeyboard + 'static, F: NorFlash>(
         _k: K,
-        database: &'static crate::storage::Database<'static, F>,
+        database: &crate::storage::StorageService<'_, F>,
     ) where
         [(); K::VIA_EEPROM_LAYOUT_OPTIONS_SIZE]:,
         [(); K::DYNAMIC_KEYMAP_LAYER_COUNT * K::LAYOUT_COLS * K::LAYOUT_ROWS * 2]:,
@@ -359,20 +281,18 @@ pub mod storage {
     {
         // Initialize VIA data
         {
-            let mut database = database.lock().await;
-
             // Initialize layout options
             let options_metadata = [K::VIA_EEPROM_LAYOUT_OPTIONS_SIZE as u8];
             let _ = database
-                .initialize(
-                    K::get_layout_options_storage_state(),
+                .check_metadata(
+                    K::get_storage_buffer(),
                     crate::storage::StorageKey::LayoutOptions,
                     &options_metadata,
                 )
                 .await;
             if let Ok((stored_data, stored_len)) = database
                 .read_raw(
-                    K::get_layout_options_storage_state(),
+                    K::get_storage_buffer(),
                     crate::storage::StorageKey::LayoutOptions,
                 )
                 .await
@@ -389,15 +309,15 @@ pub mod storage {
                 K::LAYOUT_ROWS as u8,
             ];
             let _ = database
-                .initialize(
-                    K::get_dynamic_keymap_storage_state(),
+                .check_metadata(
+                    K::get_storage_buffer(),
                     crate::storage::StorageKey::DynamicKeymap,
                     &layout_metadata,
                 )
                 .await;
             if let Ok((stored_data, stored_len)) = database
                 .read_raw(
-                    K::get_dynamic_keymap_storage_state(),
+                    K::get_storage_buffer(),
                     crate::storage::StorageKey::DynamicKeymap,
                 )
                 .await
@@ -435,19 +355,15 @@ pub mod storage {
                     );
                 }
                 let _ = database
-                    .write_raw(
-                        K::get_dynamic_keymap_storage_state(),
-                        StorageKey::DynamicKeymap,
-                        &buf,
-                    )
+                    .write_raw(K::get_storage_buffer(), StorageKey::DynamicKeymap, &buf)
                     .await;
             };
 
             // Initialize encoder layout
             let encoder_metadata = [K::DYNAMIC_KEYMAP_LAYER_COUNT as u8, K::NUM_ENCODERS as u8];
             let _ = database
-                .initialize(
-                    K::get_dynamic_keymap_encoder_storage_state(),
+                .check_metadata(
+                    K::get_storage_buffer(),
                     crate::storage::StorageKey::DynamicKeymapEncoder,
                     &encoder_metadata,
                 )
@@ -455,15 +371,15 @@ pub mod storage {
 
             // Initialize macros
             let _ = database
-                .initialize(
-                    K::get_dynamic_keymap_macro_storage_state(),
+                .check_metadata(
+                    K::get_storage_buffer(),
                     crate::storage::StorageKey::DynamicKeymapMacro,
                     &layout_metadata,
                 )
                 .await;
             if let Ok((stored_data, stored_len)) = database
                 .read_raw(
-                    K::get_dynamic_keymap_macro_storage_state(),
+                    K::get_storage_buffer(),
                     crate::storage::StorageKey::DynamicKeymapMacro,
                 )
                 .await
@@ -475,18 +391,12 @@ pub mod storage {
         loop {
             match OPERATION_CHANNEL.receive().await {
                 Operation::Write(data, key, offset, len) => {
-                    let mut database = database.lock().await;
-
                     match key {
                         ViaStorageKeys::LayoutOptions => {
                             // Update data
                             // For layout options, we just overwrite all of the old data
                             if let Err(()) = database
-                                .write_raw(
-                                    K::get_layout_options_storage_state(),
-                                    key.into(),
-                                    &data[..len],
-                                )
+                                .write_raw(K::get_storage_buffer(), key.into(), &data[..len])
                                 .await
                             {
                                 warn!("[VIA] Could not write layout options.")
@@ -500,10 +410,7 @@ pub mod storage {
                                 * 2];
 
                             // Read data
-                            match database
-                                .read_raw(K::get_dynamic_keymap_storage_state(), key)
-                                .await
-                            {
+                            match database.read_raw(K::get_storage_buffer(), key).await {
                                 Ok((stored_data, stored_len)) => {
                                     buf[..stored_len].copy_from_slice(stored_data);
                                 }
@@ -515,9 +422,8 @@ pub mod storage {
                             // Update data
                             buf[offset..(offset + len)].copy_from_slice(&data[..len]);
 
-                            if let Err(()) = database
-                                .write_raw(K::get_dynamic_keymap_storage_state(), key, &buf)
-                                .await
+                            if let Err(()) =
+                                database.write_raw(K::get_storage_buffer(), key, &buf).await
                             {
                                 warn!("[VIA] Could not write dynamic keymap buffer.",)
                             };
@@ -527,19 +433,17 @@ pub mod storage {
                             let mut buf = [0; K::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize];
 
                             // Read data
-                            let stored_len = match database
-                                .read_raw(K::get_dynamic_keymap_macro_storage_state(), key)
-                                .await
-                            {
-                                Ok((stored_data, stored_len)) => {
-                                    buf[..stored_len].copy_from_slice(stored_data);
-                                    stored_len
-                                }
-                                Err(()) => {
-                                    warn!("[VIA] Could not read dynamic keymap macro buffer.");
-                                    0 // Assume that there is no data yet
-                                }
-                            };
+                            let stored_len =
+                                match database.read_raw(K::get_storage_buffer(), key).await {
+                                    Ok((stored_data, stored_len)) => {
+                                        buf[..stored_len].copy_from_slice(stored_data);
+                                        stored_len
+                                    }
+                                    Err(()) => {
+                                        warn!("[VIA] Could not read dynamic keymap macro buffer.");
+                                        0 // Assume that there is no data yet
+                                    }
+                                };
 
                             // Update data
                             buf[offset..(offset + len)].copy_from_slice(&data[..len]);
@@ -547,11 +451,7 @@ pub mod storage {
                             let new_length = stored_len.max(offset + len);
 
                             if let Err(()) = database
-                                .write_raw(
-                                    K::get_dynamic_keymap_macro_storage_state(),
-                                    key,
-                                    &buf[..new_length],
-                                )
+                                .write_raw(K::get_storage_buffer(), key, &buf[..new_length])
                                 .await
                             {
                                 warn!("[VIA] Could not write dynamic keymap macro buffer.")
@@ -563,10 +463,7 @@ pub mod storage {
                                 [0; K::DYNAMIC_KEYMAP_LAYER_COUNT * K::NUM_ENCODERS * 2 * 2];
 
                             // Read data
-                            match database
-                                .read_raw(K::get_dynamic_keymap_encoder_storage_state(), key)
-                                .await
-                            {
+                            match database.read_raw(K::get_storage_buffer(), key).await {
                                 Ok((stored_data, stored_len)) => {
                                     buf[..stored_len].copy_from_slice(stored_data);
                                 }
@@ -578,9 +475,8 @@ pub mod storage {
                             // Update data
                             buf[offset..(offset + len)].copy_from_slice(&data[..len]);
 
-                            if let Err(()) = database
-                                .write_raw(K::get_dynamic_keymap_encoder_storage_state(), key, &buf)
-                                .await
+                            if let Err(()) =
+                                database.write_raw(K::get_storage_buffer(), key, &buf).await
                             {
                                 warn!("[VIA] Could not write dynamic keymap encoder.")
                             };
@@ -588,7 +484,6 @@ pub mod storage {
                     }
                 }
                 Operation::Delete => {
-                    let mut database = database.lock().await;
                     let _ = database.delete(StorageKey::LayoutOptions).await;
                     let _ = database.delete(StorageKey::DynamicKeymap).await;
                     let _ = database.delete(StorageKey::DynamicKeymapMacro).await;

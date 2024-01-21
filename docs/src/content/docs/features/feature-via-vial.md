@@ -73,7 +73,6 @@ By default, changes you make to your keyboard in the Via app (e.g. changing your
 lighting settings, etc.) will **NOT** be saved by default.
 
 Optionally, you can add `use_storage`, and a `storage` driver to save Via data.
-Be sure to also add `setup_via_storage_buffers!(<struct_name>)` to your `ViaKeyboard` implementation.
 
 ```rust del={5} ins={6-9,22-23}
 use rumcake::keyboard;
@@ -82,24 +81,11 @@ use rumcake::keyboard;
     // somewhere in your keyboard macro invocation ...
     via,
     via(
-        use_storage // Optional, if you want to save via configuration
+        use_storage // Optional, if you want to save Via configuration
     ),
     storage = "internal" // You need to specify a storage driver if you specified `use_storage`. See feature-storage.md for more information.
 )]
 struct MyKeyboard;
-
-// Via setup
-use rumcake::via::ViaKeyboard;
-impl ViaKeyboard for MyKeyboard {
-    // OPTIONAL, this example assumes you are using simple-backlight-matrix.
-    const BACKLIGHT_TYPE: Option<BacklightType> = Some(BacklightType::SimpleBacklightMatrix)
-
-    // OPTIONAL, include this if you want to create macros using the Via app.
-    rumcake::setup_macro_buffer!(512, 16) // Max number of bytes that can be taken up by macros, followed by the max number of macros that can be created.
-
-    // Required if you specify `use_storage`
-    rumcake::setup_via_storage_buffers!(MyKeyboard);
-}
 ```
 
 You will need to do additional setup for your selected storage driver as well.
@@ -143,13 +129,26 @@ impl VialKeyboard for MyKeyboard {
     const VIAL_KEYBOARD_UID: [u8; 8] = [0; 8]; // Change this
     const VIAL_UNLOCK_COMBO: &'static [(u8, u8)] = &[(0, 1), (0, 0)]; // Matrix positions used to unlock VIAL (row, col), set it to whatever you want
     const KEYBOARD_DEFINITION: &'static [u8] = &GENERATED_KEYBOARD_DEFINITION;
-    // rumcake::setup_vial_storage_buffers!(MyKeyboard); // Optional, only required if you specify `use_storage`
 }
 ```
 
 :::caution
-Similarly to the previous caution, if you specify `use_storage`, be sure to also add
-`setup_vial_storage_buffers!(<struct_name>)` to the `VialKeyboard` implementation.
+Similarly to the previous caution, you need to specify `use_storage`, to save Vial data:
+
+```rust del={5} ins={6-9,22-23}
+use rumcake::keyboard;
+
+#[keyboard(
+    // somewhere in your keyboard macro invocation ...
+    vial,
+    vial(
+        use_storage // Optional, if you want to save Vial configuration
+    ),
+    storage = "internal" // You need to specify a storage driver if you specified `use_storage`. See feature-storage.md for more information.
+)]
+struct MyKeyboard;
+```
+
 :::
 
 ## Compiling Vial Definitions
