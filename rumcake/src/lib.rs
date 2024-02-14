@@ -151,68 +151,66 @@ pub mod hw;
 pub mod drivers;
 
 pub mod tasks {
-    pub use crate::hw::__output_switcher_task;
-    pub use crate::keyboard::{__layout_collect_task, __matrix_poll_task};
+    pub use crate::hw::__output_switcher;
+    pub use crate::keyboard::{__layout_collect, __matrix_poll};
 
     #[cfg(feature = "simple-backlight")]
-    pub use crate::backlight::simple_backlight::__simple_backlight_task_task;
+    pub use crate::backlight::simple_backlight::__simple_backlight_task;
     #[cfg(all(feature = "storage", feature = "simple-backlight"))]
-    pub use crate::backlight::simple_backlight::storage::__simple_backlight_storage_task_task;
+    pub use crate::backlight::simple_backlight::storage::__simple_backlight_storage_task;
 
     #[cfg(feature = "simple-backlight-matrix")]
-    pub use crate::backlight::simple_backlight_matrix::__simple_backlight_matrix_task_task;
+    pub use crate::backlight::simple_backlight_matrix::__simple_backlight_matrix_task;
     #[cfg(all(feature = "storage", feature = "simple-backlight-matrix"))]
-    pub use crate::backlight::simple_backlight_matrix::storage::__simple_backlight_matrix_storage_task_task;
+    pub use crate::backlight::simple_backlight_matrix::storage::__simple_backlight_matrix_storage_task;
 
     #[cfg(feature = "rgb-backlight-matrix")]
-    pub use crate::backlight::rgb_backlight_matrix::__rgb_backlight_matrix_task_task;
+    pub use crate::backlight::rgb_backlight_matrix::__rgb_backlight_matrix_task;
     #[cfg(all(feature = "storage", feature = "rgb-backlight-matrix"))]
-    pub use crate::backlight::rgb_backlight_matrix::storage::__rgb_backlight_matrix_storage_task_task;
+    pub use crate::backlight::rgb_backlight_matrix::storage::__rgb_backlight_matrix_storage_task;
 
     #[cfg(feature = "underglow")]
-    pub use crate::underglow::__underglow_task_task;
+    pub use crate::underglow::__underglow_task;
     #[cfg(all(feature = "underglow", feature = "storage"))]
-    pub use crate::underglow::storage::__underglow_storage_task_task;
+    pub use crate::underglow::storage::__underglow_storage_task;
 
     #[cfg(feature = "display")]
-    pub use crate::display::__display_task_task;
+    pub use crate::display::__display_task;
 
     #[cfg(feature = "usb")]
-    pub use crate::usb::{
-        __start_usb_task, __usb_hid_consumer_write_task_task, __usb_hid_kb_write_task_task,
-    };
+    pub use crate::usb::{__start_usb, __usb_hid_consumer_write_task, __usb_hid_kb_write_task};
 
     #[cfg(all(feature = "via", feature = "usb"))]
-    pub use crate::usb::__usb_hid_via_read_task_task;
+    pub use crate::usb::__usb_hid_via_read_task;
     #[cfg(all(feature = "via", feature = "usb"))]
-    pub use crate::usb::__usb_hid_via_write_task_task;
+    pub use crate::usb::__usb_hid_via_write_task;
     #[cfg(feature = "via")]
-    pub use crate::via::__via_process_task_task;
+    pub use crate::via::__via_process_task;
     #[cfg(all(feature = "via", feature = "storage"))]
-    pub use crate::via::storage::__via_storage_task_task;
+    pub use crate::via::storage::__via_storage_task;
 
     #[cfg(feature = "vial")]
-    pub use crate::vial::__vial_process_task_task;
+    pub use crate::vial::__vial_process_task;
     #[cfg(all(feature = "vial", feature = "storage"))]
-    pub use crate::vial::storage::__vial_storage_task_task;
+    pub use crate::vial::storage::__vial_storage_task;
 
     #[cfg(feature = "split-central")]
-    pub use crate::split::central::__central_task_task;
+    pub use crate::split::central::__central_task;
 
     #[cfg(feature = "split-peripheral")]
-    pub use crate::split::peripheral::__peripheral_task_task;
+    pub use crate::split::peripheral::__peripheral_task;
 
     #[cfg(feature = "nrf")]
-    pub use crate::hw::mcu::__adc_task_task;
+    pub use crate::hw::mcu::__adc_task;
 
     #[cfg(feature = "nrf-ble")]
-    pub use crate::hw::mcu::__softdevice_task_task;
+    pub use crate::hw::mcu::__softdevice_task;
 
     #[cfg(all(feature = "nrf", feature = "bluetooth"))]
-    pub use crate::bluetooth::nrf_ble::__nrf_ble_task_task;
+    pub use crate::bluetooth::nrf_ble::__nrf_ble_task;
 
     #[cfg(all(feature = "drivers", feature = "nrf-ble", feature = "split-central"))]
-    pub use crate::drivers::nrf_ble::central::__nrf_ble_central_task_task;
+    pub use crate::drivers::nrf_ble::central::__nrf_ble_central_task;
     #[cfg(all(feature = "drivers", feature = "nrf-ble", feature = "split-peripheral"))]
-    pub use crate::drivers::nrf_ble::peripheral::__nrf_ble_peripheral_task_task;
+    pub use crate::drivers::nrf_ble::peripheral::__nrf_ble_peripheral_task;
 }

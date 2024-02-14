@@ -791,7 +791,7 @@ pub fn task(
     // Copy the function and change the identifier
     let mut inner = fun.clone();
     let task_name = inner.sig.ident;
-    inner.sig.ident = format_ident!("__{}_task", task_name);
+    inner.sig.ident = format_ident!("__{}", task_name);
 
     let task_name_string = task_name.to_string();
     inner.block.stmts.insert(
