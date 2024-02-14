@@ -11,7 +11,7 @@ use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::{Mutex, MutexGuard};
 use embassy_sync::signal::Signal;
 
-pub trait StaticArray {
+pub(crate) trait StaticArray {
     const LEN: usize;
 }
 
