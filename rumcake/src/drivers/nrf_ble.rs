@@ -24,7 +24,10 @@ pub mod central {
     use nrf_softdevice::{RawError, Softdevice};
 
     use crate::split::drivers::{CentralDeviceDriver, CentralDeviceError};
-    use crate::split::{MessageToCentral, MessageToPeripheral};
+    use crate::split::{
+        MessageToCentral, MessageToPeripheral, MESSAGE_TO_CENTRAL_BUFFER_SIZE,
+        MESSAGE_TO_PERIPHERAL_BUFFER_SIZE,
+    };
 
     pub struct NRFBLECentralDriver<'a> {
         publisher: Publisher<'a, ThreadModeRawMutex, MessageToPeripheral, 4, 4, 1>,
@@ -82,10 +85,10 @@ pub mod central {
     #[nrf_softdevice::gatt_client(uuid = "51a97f95-3492-4269-b5fd-32ac8dc72590")]
     struct SplitServiceClient {
         #[characteristic(uuid = "e35e4d4e-33f3-41e9-a526-edd36084dc0d", read, notify)]
-        message_to_central: [u8; 7],
+        message_to_central: [u8; MESSAGE_TO_CENTRAL_BUFFER_SIZE],
 
         #[characteristic(uuid = "38668033-1c59-4877-8841-8eecf6d521f7", write)]
-        message_to_peripheral: [u8; 7],
+        message_to_peripheral: [u8; MESSAGE_TO_PERIPHERAL_BUFFER_SIZE],
     }
 
     #[rumcake_macros::task]
@@ -179,7 +182,7 @@ pub mod central {
                         loop {
                             let message = subscriber.next_message_pure().await;
 
-                            let mut buf = [0; 7];
+                            let mut buf = [0; MESSAGE_TO_PERIPHERAL_BUFFER_SIZE];
                             postcard::to_slice_cobs(&message, &mut buf).unwrap();
 
                             debug!(
@@ -244,7 +247,10 @@ pub mod peripheral {
 
     use crate::hw::mcu::BLUETOOTH_ADVERTISING_MUTEX;
     use crate::split::drivers::{PeripheralDeviceDriver, PeripheralDeviceError};
-    use crate::split::{MessageToCentral, MessageToPeripheral};
+    use crate::split::{
+        MessageToCentral, MessageToPeripheral, MESSAGE_TO_CENTRAL_BUFFER_SIZE,
+        MESSAGE_TO_PERIPHERAL_BUFFER_SIZE,
+    };
 
     /// A trait that nRF-based keyboards must implement to use bluetooth to drive peripheral devices in a split keyboard setup.
     pub trait NRFBLEPeripheralDevice {
@@ -289,10 +295,10 @@ pub mod peripheral {
     #[nrf_softdevice::gatt_service(uuid = "51a97f95-3492-4269-b5fd-32ac8dc72590")]
     pub struct SplitService {
         #[characteristic(uuid = "e35e4d4e-33f3-41e9-a526-edd36084dc0d", read, notify)]
-        message_to_central: [u8; 7],
+        message_to_central: [u8; MESSAGE_TO_CENTRAL_BUFFER_SIZE],
 
         #[characteristic(uuid = "38668033-1c59-4877-8841-8eecf6d521f7", write_without_response)]
-        message_to_peripheral: [u8; 7],
+        message_to_peripheral: [u8; MESSAGE_TO_PERIPHERAL_BUFFER_SIZE],
     }
 
     #[nrf_softdevice::gatt_server]
@@ -368,7 +374,7 @@ pub mod peripheral {
                 loop {
                     let message = BLE_MESSAGES_TO_CENTRAL.receive().await;
 
-                    let mut buf = [0; 7];
+                    let mut buf = [0; MESSAGE_TO_CENTRAL_BUFFER_SIZE];
                     postcard::to_slice_cobs(&message, &mut buf).unwrap();
 
                     debug!(

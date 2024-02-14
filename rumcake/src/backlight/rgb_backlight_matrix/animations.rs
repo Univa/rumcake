@@ -45,7 +45,7 @@ impl Default for BacklightConfig {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, MaxSize)]
 pub enum BacklightCommand {
     Toggle,
     TurnOn,

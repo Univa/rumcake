@@ -43,7 +43,7 @@ impl Default for UnderglowConfig {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, MaxSize)]
 pub enum UnderglowCommand {
     Toggle,
     TurnOn,

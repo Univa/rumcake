@@ -1,6 +1,7 @@
 //! Split keyboard features.
 
 use keyberon::layout::Event;
+use postcard::experimental::max_size::MaxSize;
 use serde::{Deserialize, Serialize};
 
 pub mod drivers;
@@ -11,7 +12,7 @@ pub mod central;
 #[cfg(feature = "split-peripheral")]
 pub mod peripheral;
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, MaxSize)]
 /// Possible messages that can be sent to a central device.
 pub enum MessageToCentral {
     /// Key press in the form of (row, col).
@@ -19,6 +20,9 @@ pub enum MessageToCentral {
     /// Key release in the form of (row, col).
     KeyRelease(u8, u8),
 }
+
+/// Size of buffer used when sending messages to a central device
+pub const MESSAGE_TO_CENTRAL_BUFFER_SIZE: usize = MessageToCentral::POSTCARD_MAX_SIZE + 3;
 
 impl From<Event> for MessageToCentral {
     fn from(event: Event) -> Self {
@@ -40,7 +44,7 @@ impl TryFrom<MessageToCentral> for Event {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, MaxSize)]
 /// Possible messages that can be sent to a peripheral device.
 pub enum MessageToPeripheral {
     #[cfg(feature = "simple-backlight")]
@@ -64,3 +68,6 @@ pub enum MessageToPeripheral {
     /// An [`UnderglowCommand`](crate::underglow::animations::UnderglowCommand) to be processed by the peripheral's backlight animator.
     Underglow(crate::underglow::animations::UnderglowCommand),
 }
+
+/// Size of buffer used when sending messages to a peripheral device
+pub const MESSAGE_TO_PERIPHERAL_BUFFER_SIZE: usize = MessageToPeripheral::POSTCARD_MAX_SIZE + 3;
