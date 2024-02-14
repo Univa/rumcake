@@ -29,20 +29,24 @@ trait Cycle {
     fn decrement(&mut self);
 }
 
+/// Data structure that allows you to notify listeners about any changes to the data being managed.
+/// This can be useful when you want a task to react to changes to certain data.
 pub struct State<'a, T: Clone + PartialEq> {
     data: Mutex<ThreadModeRawMutex, T>,
     listeners: &'a [&'a Signal<ThreadModeRawMutex, ()>],
 }
 
 impl<'a, T: Clone + PartialEq> State<'a, T> {
-    const fn new(data: T, listeners: &'a [&'a Signal<ThreadModeRawMutex, ()>]) -> State<'a, T> {
+    /// Create some new state, with the specified listeners.
+    pub const fn new(data: T, listeners: &'a [&'a Signal<ThreadModeRawMutex, ()>]) -> State<'a, T> {
         Self {
             data: Mutex::new(data),
             listeners,
         }
     }
 
-    async fn get(&self) -> T {
+    /// Obtain the state's current value.
+    pub async fn get(&self) -> T {
         self.data.lock().await.clone()
     }
 
@@ -54,14 +58,14 @@ impl<'a, T: Clone + PartialEq> State<'a, T> {
     }
 
     /// Update state and notify listeners
-    async fn set(&self, value: T) {
+    pub async fn set(&self, value: T) {
         if self.set_inner(value).await {
             self.notify_listeners();
         }
     }
 
     /// Update state without notifying listeners
-    async fn quiet_set(&self, value: T) {
+    pub async fn quiet_set(&self, value: T) {
         self.set_inner(value).await;
     }
 
@@ -76,7 +80,7 @@ impl<'a, T: Clone + PartialEq> State<'a, T> {
     }
 
     /// Update state using a function, and notify listeners
-    async fn update<R>(
+    pub async fn update<R>(
         &self,
         updater: impl FnOnce(&mut MutexGuard<'_, ThreadModeRawMutex, T>) -> R,
     ) -> R {
@@ -89,8 +93,8 @@ impl<'a, T: Clone + PartialEq> State<'a, T> {
         update_result
     }
 
-    /// Update state using a function without notify listeners
-    async fn quiet_update<R>(
+    /// Update state using a function without notifying listeners
+    pub async fn quiet_update<R>(
         &self,
         updater: impl FnOnce(&mut MutexGuard<'_, ThreadModeRawMutex, T>) -> R,
     ) -> R {
