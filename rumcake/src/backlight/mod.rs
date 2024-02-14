@@ -20,6 +20,8 @@ use bitflags::bitflags;
 
 pub mod drivers;
 
+pub use rumcake_macros::{led_flags, led_layout, setup_backlight_matrix};
+
 /// A trait that keyboards must implement to use backlight features.
 pub trait BacklightDevice {
     /// How fast the LEDs refresh to display a new animation frame.
@@ -96,41 +98,6 @@ impl crate::backlight::BacklightMatrixDevice for EmptyBacklightMatrix {
     }
 }
 
-#[macro_export]
-macro_rules! setup_backlight_matrix {
-    ($rows:literal, $cols:literal, ({$($led_layout:tt)*} {$($led_flags:tt)*})) => {
-        fn get_backlight_matrix(
-        ) -> $crate::backlight::BacklightMatrix<{ Self::LIGHTING_COLS }, { Self::LIGHTING_ROWS }>
-        {
-            const BACKLIGHT_MATRIX: $crate::backlight::BacklightMatrix<$cols, $rows> =
-                $crate::backlight::BacklightMatrix::new($crate::led_layout!($($led_layout)*), $crate::led_flags!($($led_flags)*));
-            BACKLIGHT_MATRIX
-        }
-    };
-    // We count the number of keys in the first row to determine the number of columns
-    ($rows:literal, ({[$($first_row_leds:tt)*] $([$($led:tt)*])*} $led_flags:tt)) => {
-        const LIGHTING_COLS: usize = ${count(first_row_leds)};
-        setup_backlight_matrix!($rows, ${count(first_row_leds)}, ({[$($first_row_leds)*] $([$($led)*])*} $led_flags));
-    };
-    // Count the number of "[]" inside the "{}" to determine the number of rows
-    ({$($rows:tt)*} $led_flags:tt) => {
-        const LIGHTING_ROWS: usize = ${count(rows)};
-        setup_backlight_matrix!(${count(rows)}, ({$($rows)*} $led_flags));
-    };
-}
-
-#[macro_export]
-macro_rules! led_layout {
-    ($([$($no1:ident)* $(($x:literal, $y:literal) $($no2:ident)*)* ])*) => {
-        [
-            $([
-                $(${ignore(no1)} None,)*
-                $(Some(($x, $y)), $(${ignore(no2)} None,)*)*
-            ]),*
-        ]
-    };
-}
-
 #[derive(Debug)]
 struct LayoutBounds {
     max: (u8, u8),
@@ -172,26 +139,6 @@ where
     bounds.mid.1 = (bounds.max.1 - bounds.min.1) / 2 + bounds.min.1;
 
     bounds
-}
-
-#[macro_export]
-macro_rules! led_flags {
-    ([] -> [$($body:tt)*]) => {
-        [$($body)*]
-    };
-    ([No $($rest:tt)*] -> [$($body:tt)*]) => {
-        $crate::led_flags!([$($rest)*] -> [$($body)* $crate::backlight::LEDFlags::NONE,])
-    };
-    ([$($flag:ident)|+ $($rest:tt)*] -> [$($body:tt)*]) => {
-        $crate::led_flags!([$($rest)*] -> [$($body)* $($crate::backlight::LEDFlags::$flag)|+,])
-    };
-    ($([$($flags:tt)*])*) => {
-        [
-            $(
-                $crate::led_flags!([$($flags)*] -> [])
-            ),*
-        ];
-    };
 }
 
 bitflags! {

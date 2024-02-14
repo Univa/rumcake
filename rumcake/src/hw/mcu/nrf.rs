@@ -21,6 +21,8 @@ use static_cell::StaticCell;
 
 use crate::hw::BATTERY_LEVEL_STATE;
 
+pub use rumcake_macros::{input_pin, output_pin, setup_i2c, setup_i2c_blocking};
+
 pub use embassy_nrf;
 
 #[cfg(feature = "nrf-ble")]
@@ -37,35 +39,6 @@ pub fn initialize_rcc() {
     let mut conf = embassy_nrf::config::Config::default();
     conf.time_interrupt_priority = Priority::P2;
     embassy_nrf::init(conf);
-}
-
-#[macro_export]
-macro_rules! input_pin {
-    ($p:ident) => {
-        unsafe {
-            $crate::hw::mcu::embassy_nrf::gpio::Input::new(
-                $crate::hw::mcu::embassy_nrf::gpio::Pin::degrade(
-                    $crate::hw::mcu::embassy_nrf::peripherals::$p::steal(),
-                ),
-                $crate::hw::mcu::embassy_nrf::gpio::Pull::Up,
-            )
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! output_pin {
-    ($p:ident) => {
-        unsafe {
-            $crate::hw::mcu::embassy_nrf::gpio::Output::new(
-                $crate::hw::mcu::embassy_nrf::gpio::Pin::degrade(
-                    $crate::hw::mcu::embassy_nrf::peripherals::$p::steal(),
-                ),
-                $crate::hw::mcu::embassy_nrf::gpio::Level::High,
-                $crate::hw::mcu::embassy_nrf::gpio::OutputDrive::Standard,
-            )
-        }
-    };
 }
 
 #[cfg(feature = "nrf-ble")]
@@ -222,46 +195,6 @@ pub async fn adc_task() {
 
         Timer::after(Duration::from_secs(10)).await;
     }
-}
-
-#[macro_export]
-macro_rules! setup_i2c_inner {
-    ($interrupt:ident, $i2c:ident, $sda:ident, $scl:ident) => {
-        {
-            use $crate::hw::mcu::embassy_nrf::interrupt::InterruptExt;
-            unsafe {
-                $crate::hw::mcu::embassy_nrf::bind_interrupts! {
-                    struct Irqs {
-                        $interrupt => $crate::hw::mcu::embassy_nrf::twim::InterruptHandler<$crate::hw::mcu::embassy_nrf::peripherals::$i2c>;
-                    }
-                };
-                $crate::hw::mcu::embassy_nrf::interrupt::$interrupt.set_priority($crate::hw::mcu::embassy_nrf::interrupt::Priority::P2);
-                let i2c = $crate::hw::mcu::embassy_nrf::peripherals::$i2c::steal();
-                let sda = $crate::hw::mcu::embassy_nrf::peripherals::$sda::steal();
-                let scl = $crate::hw::mcu::embassy_nrf::peripherals::$scl::steal();
-                $crate::hw::mcu::embassy_nrf::twim::Twim::new(i2c, Irqs, sda, scl, Default::default())
-            }
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! setup_i2c {
-    ($interrupt:ident, $i2c:ident, $sda:ident, $scl:ident) => {
-        fn setup_i2c() -> impl $crate::embedded_hal_async::i2c::I2c<Error = impl core::fmt::Debug> {
-            $crate::setup_i2c_inner!($interrupt, $i2c, $sda, $scl)
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! setup_i2c_blocking {
-    ($interrupt:ident, $i2c:ident, $sda:ident, $scl:ident) => {
-        fn setup_i2c(
-        ) -> impl $crate::embedded_hal::blocking::i2c::Write<Error = impl core::fmt::Debug> {
-            $crate::setup_i2c_inner!($interrupt, $i2c, $sda, $scl)
-        }
-    };
 }
 
 #[cfg(feature = "nrf-ble")]

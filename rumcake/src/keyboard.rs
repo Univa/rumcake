@@ -24,31 +24,7 @@ pub use usbd_human_interface_device::page::Consumer;
 
 use crate::hw::CURRENT_OUTPUT_STATE;
 
-#[macro_export]
-macro_rules! remap_matrix {
-    ({$([$(#$no1:tt)* $($og_pos:ident $(#$no2:tt)*)* ])*} {$([$($new_pos:ident)*])*}) => {
-        macro_rules! remap {
-            ($$macro:ident! { $$({$([$($$$new_pos:tt)*])*})* }) => {
-                $$macro! {
-                    $$({
-                        $([
-                            $($no1)*
-                            $($$$og_pos $($no2)*)*
-                        ])*
-                    })*
-                }
-            };
-            ($$macro:ident! { $([$($$$new_pos:tt)*])* }) => {
-                $$macro! {
-                    $([
-                        $($no1)*
-                        $($$$og_pos $($no2)*)*
-                    ])*
-                }
-            };
-        }
-    };
-}
+pub use rumcake_macros::{build_layout, build_matrix, remap_matrix};
 
 /// Basic keyboard trait that must be implemented to use rumcake. Defines basic keyboard information.
 pub trait Keyboard {
@@ -131,40 +107,6 @@ impl<const C: usize, const R: usize, const L: usize> Layout<C, R, L> {
     }
 }
 
-#[macro_export]
-macro_rules! build_layout {
-    // Pass the layers to the keyberon macro
-    ($layers:literal, $rows:literal, $cols:literal, ($($l:tt)*)) => {
-        fn get_original_layout() -> $crate::keyberon::layout::Layers<{ Self::LAYOUT_COLS }, { Self::LAYOUT_ROWS }, { Self::LAYERS }, $crate::keyboard::Keycode> {
-            const LAYERS: $crate::keyberon::layout::Layers<$cols, $rows, $layers, $crate::keyboard::Keycode> = $crate::keyberon::layout::layout! { $($l)* };
-            LAYERS
-        }
-
-        fn get_layout(
-        ) -> &'static rumcake::keyboard::Layout<{ Self::LAYOUT_COLS }, { Self::LAYOUT_ROWS }, { Self::LAYERS }> {
-            static KEYBOARD_LAYOUT: $crate::keyboard::Layout<$cols, $rows, $layers> = $crate::keyboard::Layout::new();
-            static mut LAYERS: $crate::keyberon::layout::Layers<$cols, $rows, $layers, $crate::keyboard::Keycode> = $crate::keyberon::layout::layout! { $($l)* };
-            KEYBOARD_LAYOUT.init(unsafe { &mut LAYERS });
-            &KEYBOARD_LAYOUT
-        }
-    };
-    // We count the number of keys in the first row to determine the number of columns
-    ($layers:literal, $rows:literal, ({[$($first_row_keys:tt)*] $([$($key:tt)*])*} $($rest:tt)*)) => {
-        const LAYOUT_COLS: usize = ${count(first_row_keys)};
-        build_layout!($layers, $rows, ${count(first_row_keys)}, ({[$($first_row_keys)*] $([$($key)*])*} $($rest)*));
-    };
-    // Count the number of "[]" inside the "{}" to determine the number of rows
-    ($layers:literal, ({$($rows:tt)*} $($rest:tt)*)) => {
-        const LAYOUT_ROWS: usize = ${count(rows)};
-        build_layout!($layers, ${count(rows)}, ({$($rows)*} $($rest)*));
-    };
-    // Count the number of "{}" to determine the number of layers
-    ($($layers:tt)*) => {
-        const LAYERS: usize = ${count(layers)};
-        build_layout!(${count(layers)}, ($($layers)*));
-    };
-}
-
 /// A trait that must be implemented for any device that needs to poll a switch matrix.
 pub trait KeyboardMatrix {
     /// Debounce setting.
@@ -200,27 +142,6 @@ pub trait KeyboardMatrix {
     /// of the devices stores the overall keyboard layout.
     fn remap_to_layout(row: u8, col: u8) -> (u8, u8) {
         (row, col)
-    }
-}
-
-#[macro_export]
-macro_rules! build_matrix {
-    ({$($r:ident)*} {$($c:ident)*}) => {
-        const MATRIX_ROWS: usize = ${count(r)};
-        const MATRIX_COLS: usize = ${count(c)};
-
-        fn build_matrix(
-        ) -> Result<$crate::keyberon::matrix::Matrix<impl $crate::embedded_hal::digital::v2::InputPin<Error = core::convert::Infallible>, impl $crate::embedded_hal::digital::v2::OutputPin<Error = core::convert::Infallible>, { Self::MATRIX_COLS }, { Self::MATRIX_ROWS }>, core::convert::Infallible> {
-            $crate::keyberon::matrix::Matrix::new([
-                $(
-                    $crate::input_pin!($c),
-                )*
-            ], [
-                $(
-                    $crate::output_pin!($r),
-                )*
-            ])
-        }
     }
 }
 

@@ -181,6 +181,11 @@ pub mod backlight {
     use crate::backlight::drivers::{RGBBacklightMatrixDriver, SimpleBacklightMatrixDriver};
     use crate::backlight::BacklightMatrixDevice;
 
+    pub use rumcake_macros::{
+        is31fl3731_get_led_from_matrix_coordinates as get_led_from_matrix_coordinates,
+        is31fl3731_get_led_from_rgb_matrix_coordinates as get_led_from_rgb_matrix_coordinates,
+    };
+
     /// A trait that keyboards must implement to use the IS31FL3731 driver for backlighting.
     pub trait IS31FL3731BacklightDriver: BacklightMatrixDevice {
         /// I2C Address for the IS31FL3731. Consult the datasheet for more information.
@@ -195,54 +200,6 @@ pub mod backlight {
         ///
         /// It is recommended to use [`crate::hw::mcu::setup_i2c`] to implement this function.
         fn setup_i2c() -> impl I2c<Error = impl Debug>;
-    }
-
-    #[macro_export]
-    macro_rules! is31fl3731_get_led_from_rgb_matrix_coordinates {
-        ([] -> [$($body:tt)*]) => {
-            [$($body)*]
-        };
-        ([No $($rest:tt)*] -> [$($body:tt)*]) => {
-            is31fl3731_get_led_from_rgb_matrix_coordinates!([$($rest)*] -> [$($body)* 255,])
-        };
-        ([$pos:ident $($rest:tt)*] -> [$($body:tt)*]) => {
-            is31fl3731_get_led_from_rgb_matrix_coordinates!([$($rest)*] -> [$($body)* $crate::drivers::is31fl3731::Position::$pos as u8,])
-        };
-        ({$([$($r_pos:ident)*])*} {$([$($g_pos:ident)*])*} {$([$($b_pos:ident)*])*}) => {
-            fn get_led_from_matrix_coordinates(x: u8, y: u8) -> u8 {
-                let lookup: [[u8; { Self::LIGHTING_COLS * 3 }]; Self::LIGHTING_ROWS] = [
-                    $(
-                        is31fl3731_get_led_from_rgb_matrix_coordinates!([$($r_pos)* $($g_pos)* $($b_pos)*] -> [])
-                    ),*
-                ];
-
-                lookup[y as usize][x as usize] as u8
-            }
-        };
-    }
-
-    #[macro_export]
-    macro_rules! is31fl3731_get_led_from_matrix_coordinates {
-        ([] -> [$($body:tt)*]) => {
-            [$($body)*]
-        };
-        ([No $($rest:tt)*] -> [$($body:tt)*]) => {
-            is31fl3731_get_led_from_matrix_coordinates!([$($rest)*] -> [$($body)* 255,])
-        };
-        ([$pos:ident $($rest:tt)*] -> [$($body:tt)*]) => {
-            is31fl3731_get_led_from_matrix_coordinates!([$($rest)*] -> [$($body)* $crate::drivers::is31fl3731::Position::$pos as u8,])
-        };
-        ($([$($pos:ident)*])*) => {
-            fn get_led_from_matrix_coordinates(x: u8, y: u8) -> u8 {
-                let lookup: [[u8; Self::LIGHTING_COLS]; Self::LIGHTING_ROWS] = [
-                    $(
-                        is31fl3731_get_led_from_matrix_coordinates!([$($pos)*] -> [])
-                    ),*
-                ];
-
-                lookup[y as usize][x as usize] as u8
-            }
-        };
     }
 
     /// Create an instance of the IS31FL3731 driver based on the implementation of [`IS31FL3731BacklightDriver`].

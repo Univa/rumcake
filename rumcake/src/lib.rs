@@ -117,7 +117,7 @@ pub use embedded_hal_async;
 pub use embedded_storage_async;
 pub use keyberon;
 
-pub use rumcake_macros::main as keyboard;
+pub use rumcake_macros::keyboard_main as keyboard;
 
 pub mod keyboard;
 mod math;

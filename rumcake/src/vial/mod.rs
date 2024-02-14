@@ -15,6 +15,8 @@ mod handlers;
 
 pub(crate) mod protocol;
 
+pub use rumcake_macros::enable_vial_rgb;
+
 /// A trait that keyboards must implement to use the Vial protocol.
 pub trait VialKeyboard: ViaKeyboard {
     const VIAL_ENABLED: bool = true;
@@ -53,22 +55,6 @@ pub trait VialKeyboard: ViaKeyboard {
     > {
         None
     }
-}
-
-#[macro_export]
-macro_rules! enable_vial_rgb {
-    () => {
-        const VIALRGB_ENABLE: bool = true;
-        type BacklightMatrixDevice = Self;
-        fn get_backlight_matrix() -> Option<
-            $crate::backlight::BacklightMatrix<
-                { <Self::BacklightMatrixDevice as $crate::backlight::BacklightMatrixDevice>::LIGHTING_COLS },
-                { <Self::BacklightMatrixDevice as $crate::backlight::BacklightMatrixDevice>::LIGHTING_ROWS },
-            >,
-        > {
-            Some(<Self::BacklightMatrixDevice as $crate::backlight::BacklightMatrixDevice>::get_backlight_matrix())
-        }
-    };
 }
 
 /// Channel used to update the frame buffer for the

@@ -12,6 +12,8 @@
 //! [`WS2812BitbangBacklightDriver`](backlight::WS2812BitbangBacklightDriver), depending on what
 //! you want to use the driver for.
 
+pub use rumcake_macros::ws2812_bitbang_pin;
+
 pub mod driver {
     use core::arch::arm::__nop as nop;
 
@@ -19,15 +21,6 @@ pub mod driver {
     use embassy_time::Duration;
     use embedded_hal::digital::v2::OutputPin;
     use smart_leds::RGB8;
-
-    #[macro_export]
-    macro_rules! ws2812_pin {
-        ($p:ident) => {
-            fn ws2812_pin() -> impl ::rumcake::embedded_hal::digital::v2::OutputPin {
-                ::rumcake::output_pin!($p)
-            }
-        };
-    }
 
     // TODO: move driver code below into its own crate?
 
@@ -184,6 +177,8 @@ pub mod backlight {
     use crate::backlight::drivers::{RGBBacklightMatrixDriver, SimpleBacklightMatrixDriver};
     use crate::backlight::BacklightMatrixDevice;
 
+    pub use rumcake_macros::ws2812_get_led_from_matrix_coordinates as get_led_from_matrix_coordinates;
+
     /// A trait that keyboards must implement to use the WS2812 driver for backlighting.
     pub trait WS2812BitbangBacklightDriver: BacklightMatrixDevice {
         /// Setup the GPIO pin used to send data to the WS2812 LEDs.
@@ -195,22 +190,6 @@ pub mod backlight {
         ///
         /// It is recommended to use [`ws2812_get_led_from_matrix_coordinates`] to implement this function.
         fn get_led_from_matrix_coordinates(x: u8, y: u8) -> Option<u8>;
-    }
-
-    #[macro_export]
-    macro_rules! ws2812_get_led_from_matrix_coordinates {
-        ($([$($no1:ident)* $($led:literal $($no2:ident)*)* ])*) => {
-            fn get_led_from_matrix_coordinates(x: u8, y: u8) -> Option<u8> {
-                let lookup: [[Option<u8>; Self::LIGHTING_COLS]; Self::LIGHTING_ROWS] = [
-                    $([
-                        $(${ignore(no1)} None,)*
-                        $(Some($led), $(${ignore(no2)} None,)*)*
-                    ]),*
-                ];
-
-                lookup[y as usize][x as usize]
-            }
-        };
     }
 
     /// Create an instance of the WS2812 bitbang driver based on the implementation of [`WS2812BitbangBacklightDriver`].

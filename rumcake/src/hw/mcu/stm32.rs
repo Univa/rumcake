@@ -20,6 +20,8 @@ use embedded_storage_async::nor_flash::{
 };
 use static_cell::StaticCell;
 
+pub use rumcake_macros::{input_pin, output_pin, setup_i2c};
+
 pub use embassy_stm32;
 
 #[cfg(feature = "stm32f072cb")]
@@ -62,35 +64,6 @@ pub fn initialize_rcc() {
     conf.rcc = rcc_conf;
 
     embassy_stm32::init(conf);
-}
-
-#[macro_export]
-macro_rules! input_pin {
-    ($p:ident) => {
-        unsafe {
-            $crate::hw::mcu::embassy_stm32::gpio::Input::new(
-                $crate::hw::mcu::embassy_stm32::gpio::Pin::degrade(
-                    $crate::hw::mcu::embassy_stm32::peripherals::$p::steal(),
-                ),
-                $crate::hw::mcu::embassy_stm32::gpio::Pull::Up,
-            )
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! output_pin {
-    ($p:ident) => {
-        unsafe {
-            $crate::hw::mcu::embassy_stm32::gpio::Output::new(
-                $crate::hw::mcu::embassy_stm32::gpio::Pin::degrade(
-                    $crate::hw::mcu::embassy_stm32::peripherals::$p::steal(),
-                ),
-                $crate::hw::mcu::embassy_stm32::gpio::Level::High,
-                $crate::hw::mcu::embassy_stm32::gpio::Speed::Low,
-            )
-        }
-    };
 }
 
 #[cfg(feature = "usb")]
@@ -190,29 +163,6 @@ pub fn setup_internal_flash() -> Flash {
     Flash {
         flash: unsafe { HALFlash::new_blocking(FLASH::steal()) },
     }
-}
-
-#[macro_export]
-macro_rules! setup_i2c {
-    ($event_interrupt:ident, $error_interrupt:ident, $i2c:ident, $scl:ident, $sda:ident, $rxdma:ident, $txdma:ident) => {
-        fn setup_i2c() -> impl $crate::embedded_hal_async::i2c::I2c<Error = impl core::fmt::Debug> {
-            unsafe {
-                $crate::hw::mcu::embassy_stm32::bind_interrupts! {
-                    struct Irqs {
-                        $event_interrupt => $crate::hw::mcu::embassy_stm32::i2c::EventInterruptHandler<$crate::hw::mcu::embassy_stm32::peripherals::$i2c>;
-                        $error_interrupt => $crate::hw::mcu::embassy_stm32::i2c::ErrorInterruptHandler<$crate::hw::mcu::embassy_stm32::peripherals::$i2c>;
-                    }
-                };
-                let i2c = $crate::hw::mcu::embassy_stm32::peripherals::$i2c::steal();
-                let scl = $crate::hw::mcu::embassy_stm32::peripherals::$scl::steal();
-                let sda = $crate::hw::mcu::embassy_stm32::peripherals::$sda::steal();
-                let rx_dma = $crate::hw::mcu::embassy_stm32::peripherals::$rxdma::steal();
-                let tx_dma = $crate::hw::mcu::embassy_stm32::peripherals::$txdma::steal();
-                let time = $crate::hw::mcu::embassy_stm32::time::Hertz(100_000);
-                $crate::hw::mcu::embassy_stm32::i2c::I2c::new(i2c, scl, sda, Irqs, tx_dma, rx_dma, time, Default::default())
-            }
-        }
-    };
 }
 
 #[macro_export]

@@ -16,6 +16,8 @@ pub(crate) mod protocol_12;
 
 pub(crate) use protocol_12 as protocol;
 
+pub use rumcake_macros::setup_macro_buffer;
+
 /// Data structure that contains data for macros created by Via. Requires the size of the buffer,
 /// and the number of sequences that can be created to be specified.
 #[derive(Debug)]
@@ -115,24 +117,6 @@ pub trait ViaKeyboard: Keyboard + KeyboardLayout {
     fn handle_custom_value_command(data: &mut [u8], _len: u8) {
         data[0] = protocol::ViaCommandId::Unhandled as u8;
     }
-}
-
-#[macro_export]
-macro_rules! setup_macro_buffer {
-    ($K:literal, $A:literal) => {
-        const DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE: u16 = $K;
-        const DYNAMIC_KEYMAP_MACRO_COUNT: u8 = $A;
-
-        fn get_macro_buffer() -> &'static mut $crate::via::MacroBuffer<
-            'static,
-            { Self::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize },
-            { Self::DYNAMIC_KEYMAP_MACRO_COUNT as usize },
-        > {
-            static mut MACRO_BUFFER: $crate::via::MacroBuffer<'static, $K, $A> =
-                $crate::via::MacroBuffer::new();
-            unsafe { &mut MACRO_BUFFER }
-        }
-    };
 }
 
 /// Report descriptor used for Via. Pulled from QMK.
