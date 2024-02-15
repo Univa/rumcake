@@ -14,7 +14,7 @@ implementations in the same entrypoint. If you are using a split keyboard, you c
 implement the `KeyboardMatrix` and `KeyboardLayout` traits, but the placement of the `impl` blocks will depend
 on your split keyboard setup.
 
-See the [split keyboard document](../../features/feature-split/) for more information.
+See the [split keyboard document](../../features/feature-split) for more information.
 :::
 
 # Keyboard Information
@@ -56,8 +56,7 @@ impl Keyboard for MyKeyboard {
     const SERIAL_NUMBER: &'static str = "1";
 }
 
-use rumcake::keyboard::KeyboardMatrix;
-use rumcake::build_matrix;
+use rumcake::keyboard::{build_matrix, KeyboardMatrix};
 impl KeyboardMatrix for MyKeyboard {
     build_matrix! {
         { PB2 PB10 PB11 PA3 } // Rows
@@ -101,7 +100,7 @@ impl Keyboard for MyKeyboard {
     const SERIAL_NUMBER: &'static str = "1";
 }
 
-use rumcake::keyboard::KeyboardMatrix;
+use rumcake::keyboard::{build_matrix, KeyboardMatrix};
 impl KeyboardMatrix for MyKeyboard {
     build_matrix! {
         { PB2 PB10 PB11 PA3 } // Rows
@@ -110,7 +109,7 @@ impl KeyboardMatrix for MyKeyboard {
 }
 
 
-use rumcake::keyboard::KeyboardLayout;
+use rumcake::keyboard::{build_layout, KeyboardLayout};
 impl KeyboardLayout for MyKeyboard {
     build_layout! {
         {
@@ -138,9 +137,12 @@ impl KeyboardLayout for MyKeyboard {
 Congratulations! You have implemented a basic keyboard. You can now move onto building
 and flashing your firmware, or try implementing additional features in the "Features" sidebar.
 
-# Duplex matrix
+# Revisualizing a matrix (e.g. duplex matrix)
 
-Some keyboards use a "duplex matrix" to save MCU pins. This is usually accomplished
+Sometimes, your keyboard might have a complicated matrix scheme that could make it
+hard to read parts of your configuration.
+
+For example, some keyboards use a "duplex matrix" to save MCU pins. This is usually accomplished
 by making an electrical column span two physical columns, and by using two electrical
 rows per physical row.
 
@@ -151,8 +153,8 @@ Here's an example portion of a duplex matrix:
 As you can imagine, this would be hard to track in your firmware code.
 
 So, `rumcake` includes a `remap_matrix` macro to help "re-visualize" your matrix to look
-more like your physical layout. It creates a `remap` macro for you to use in parts of
-the code that require you to configure something that looks like your matrix.
+more readable. It creates a `remap` macro for you to use in parts of the code that require
+you to configure something that would look like your matrix.
 
 This can be useful for your keyboard layout config, or your backlight matrix config:
 
@@ -160,18 +162,18 @@ This can be useful for your keyboard layout config, or your backlight matrix con
 // This creates a `remap!` macro that you can use in other parts of your config.
 remap_matrix! {
     // This has the same number of rows and columns that you specified in `build_matrix!`
-    // Note that `#No` is used to denote an unused matrix position.
+    // Note that `No` is used to denote an unused matrix position.
     {
         [ K00 K01 K02 K03 K04 K05 K06 K07 ]
-        [ K08 K09 K10 K11 K12 K13 K14 #No ]
+        [ K08 K09 K10 K11 K12 K13 K14 No  ]
         [ K15 K16 K17 K18 K19 K20 K21 K22 ]
-        [ K23 K24 K25 K26 K27 K28 K29 #No ]
+        [ K23 K24 K25 K26 K27 K28 K29 No  ]
         [ K30 K31 K32 K33 K34 K35 K36 K37 ]
-        [ K38 K39 K40 K41 K42 K43 K44 #No ]
+        [ K38 K39 K40 K41 K42 K43 K44 No  ]
         [ K45 K46 K47 K48 K49 K50 K51 K52 ]
-        [ K53 K54 K55 K56 K57 K58 K59 #No ]
+        [ K53 K54 K55 K56 K57 K58 K59 No  ]
         [ K60 K61 K62 K63 K64 K65 K66 K67 ]
-        [ #No #No #No #No #No K68 K69 #No ]
+        [ No  No  No  No  No  K68 K69 No  ]
     }
 
     // This can be whatever you want it to be. Make it look like your physical layout!
@@ -196,7 +198,7 @@ impl Keyboard for MyKeyboard {
     const SERIAL_NUMBER: &'static str = "1";
 }
 
-use rumcake::keyboard::KeyboardMatrix;
+use rumcake::keyboard::{build_matrix, KeyboardMatrix};
 impl KeyboardMatrix for MyKeyboard {
     build_matrix! {
         { PB3 PB4 PA15 PB5 PA0 PA1 PB2 PB10 PB11 PA3 } // Rows
@@ -204,7 +206,7 @@ impl KeyboardMatrix for MyKeyboard {
     }
 }
 
-use rumcake::keyboard::KeyboardLayout;
+use rumcake::keyboard::{build_layout, KeyboardLayout};
 impl KeyboardLayout for MyKeyboard {
     build_layout! { // without remap!
         {

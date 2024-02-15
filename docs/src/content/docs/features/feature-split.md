@@ -165,8 +165,10 @@ to implement such a device, you can add `no_matrix` to your `#[keyboard]` macro 
 Doing so will remove the need to implement `KeyboardMatrix`, so you will only have to implement
 `KeyboardLayout`.
 
-```rust ins={3}
+```rust ins={6}
 // dongle.rs
+use rumcake::keyboard;
+
 #[keyboard(
     // somewhere in your keyboard macro invocation ...
     no_matrix,

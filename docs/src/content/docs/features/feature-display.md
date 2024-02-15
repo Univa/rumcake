@@ -44,9 +44,10 @@ impl DisplayDevice for MyKeyboard {
 Lastly, you must also implement the appropriate trait that corresponds to your chosen driver in the `#[keyboard]` macro.
 For example, with `ssd1306`, you must implement `Ssd1306I2cDisplayDriver`:
 
-```rust ins={3-17}
+```rust ins={3-18}
 // later in your file...
 
+use rumcake::hw::mcu::setup_i2c_blocking;
 use rumcake::drivers::ssd1306::driver::size::DisplaySize128x32;
 use rumcake::drivers::ssd1306::display::Ssd1306I2cDisplayDriver;
 impl Ssd1306I2cDisplayDriver for MyKeyboard {

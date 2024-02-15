@@ -23,7 +23,7 @@ Example of usage:
 
 ```rust ins={2} ins="{Custom(Media(VolumeIncrement))}"
 use keyberon::action::Action::*;
-use rumcake::keyboard::{Consumer::*, Keycode::Media};
+use rumcake::keyboard::{build_layout, Consumer::*, Keycode::Media};
 
 /* ... */
 

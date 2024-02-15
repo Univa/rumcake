@@ -95,8 +95,7 @@ impl BacklightDevice for MyKeyboard {
     const FPS: usize = 20;
 }
 
-use rumcake::backlight::BacklightMatrixDevice;
-use rumcake::{led_flags, led_layout};
+use rumcake::backlight::{BacklightMatrixDevice, setup_backlight_matrix};
 impl BacklightMatrixDevice for MyKeyboard {
     setup_backlight_matrix! {
         { // LED layout
@@ -126,11 +125,11 @@ a key at switch matrix position row 0, column 0, will correspond to the LED at r
 
 Lastly, you must also implement the appropriate trait that corresponds to your chosen driver in the `#[keyboard]` macro. For example, with `is31fl3731`, you must implement `IS31FL3731BacklightDriver`:
 
-```rust ins={3-24}
+```rust ins={3-25}
 // later in your file...
 
-use rumcake::{setup_i2c, is31fl3731_get_led_from_matrix_coordinates};
-use rumcake::drivers::is31fl3731::backlight::IS31FL3731BacklightDriver;
+use rumcake::hw::mcu::setup_i2c;
+use rumcake::drivers::is31fl3731::backlight::get_led_from_matrix_coordinates;
 impl IS31FL3731BacklightDriver for MyKeyboard {
     const LED_DRIVER_ADDR: u32 = 0b1110100; // see https://github.com/qmk/qmk_firmware/blob/d9fa80c0b0044bb951694aead215d72e4a51807c/docs/feature_rgb_matrix.md#is31fl3731-idis31fl3731
     setup_i2c! { // Note: The arguments of setup_i2c may change depending on platform. This assumes STM32.
@@ -144,7 +143,7 @@ impl IS31FL3731BacklightDriver for MyKeyboard {
     }
 
     // This must have the same number of rows and columns as specified in your `BacklightMatrixDevice` implementation.
-    is31fl3731_get_led_from_matrix_coordinates! {
+    get_led_from_matrix_coordinates! {
         [ C1_1 C1_2 C1_3 C1_4 C1_5  C1_6  C1_7  C1_8  C1_9  C1_10 C1_11 C1_12 C1_13 C1_14 C1_15 C2_15 ]
         [ C2_1 C2_2 C2_3 C2_4 C2_5  C2_6  C2_7  C2_8  C2_9  C2_10 C2_11 C2_12 C2_13 C2_14 C3_15 ]
         [ C3_1 C3_2 C3_3 C3_4 C3_5  C3_6  C3_7  C3_8  C3_9  C3_10 C3_11 C3_12 C3_13 C3_14 C4_15 ]
@@ -200,7 +199,7 @@ Example of usage:
 ```rust
 use keyberon::action::Action::*;
 use rumcake::backlight::animations::BacklightCommand::*;
-use rumcake::keyboard::{Keyboard, Keycode::*};
+use rumcake::keyboard::{build_layout, Keyboard, Keycode::*};
 
 /* ... */
 

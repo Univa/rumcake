@@ -78,9 +78,9 @@ Lastly, you must also implement the appropriate trait that corresponds to your c
 ```rust ins={3-6}
 // later in your file...
 
-use rumcake::drivers::ws2812_bitbang::underglow::WS2812BitbangUnderglowDriver;
+use rumcake::drivers::ws2812_bitbang::{underglow::WS2812BitbangUnderglowDriver, ws2812_bitbang_pin};
 impl WS2812BitbangUnderglowDriver for MyKeyboard {
-    ws2812_pin! { PA10 }
+    ws2812_bitbang_pin! { PA10 }
 }
 ```
 
@@ -116,7 +116,7 @@ Example of usage:
 ```rust
 use keyberon::action::Action::*;
 use rumcake::underglow::animations::UnderglowCommand::*;
-use rumcake::keyboard::{Keyboard, Keycode::*};
+use rumcake::keyboard::{build_layout, Keyboard, Keycode::*};
 
 /* ... */
 

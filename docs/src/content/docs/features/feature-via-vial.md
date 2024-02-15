@@ -58,13 +58,13 @@ use rumcake::keyboard;
 struct MyKeyboard;
 
 // Via setup
-use rumcake::via::{BacklightType, ViaKeyboard};
+use rumcake::via::{BacklightType, setup_macro_buffer, ViaKeyboard};
 impl ViaKeyboard for MyKeyboard {
     // OPTIONAL, this example assumes you are using simple-backlight-matrix.
     const BACKLIGHT_TYPE: Option<BacklightType> = Some(BacklightType::SimpleBacklightMatrix)
 
     // OPTIONAL, include this if you want to create macros using the Via app.
-    rumcake::setup_macro_buffer!(512, 16) // Max number of bytes that can be taken up by macros, followed by the max number of macros that can be created.
+    setup_macro_buffer!(512, 16) // Max number of bytes that can be taken up by macros, followed by the max number of macros that can be created.
 }
 ```
 
@@ -115,13 +115,13 @@ struct MyKeyboard;
 // ...
 
 // Via setup
-use rumcake::via::ViaKeyboard;
+use rumcake::via::{setup_macro_buffer, ViaKeyboard};
 impl ViaKeyboard for MyKeyboard {
     // OPTIONAL, this example assumes you are using simple-backlight-matrix.
     const BACKLIGHT_TYPE: Option<BacklightType> = Some(BacklightType::SimpleBacklightMatrix)
 
     // OPTIONAL, include this if you want to create macros using the Via app.
-    rumcake::setup_macro_buffer!(512, 16) // Max number of bytes that can be taken up by macros, followed by the max number of macros that can be created.
+    setup_macro_buffer!(512, 16) // Max number of bytes that can be taken up by macros, followed by the max number of macros that can be created.
 }
 
 use rumcake::vial::VialKeyboard;
