@@ -1,6 +1,5 @@
 #![no_std]
 #![feature(stdsimd)]
-#![feature(macro_metavar_expr)]
 #![feature(generic_const_exprs)]
 #![feature(type_alias_impl_trait)]
 #![feature(associated_type_defaults)]
