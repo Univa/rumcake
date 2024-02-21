@@ -34,7 +34,7 @@ embedded-hal = "0.2.7"
 embedded-hal-async = "1.0.0-rc.2"
 embedded-storage = "0.3.0"
 embedded-storage-async = "0.4.0"
-embedded-io-async = "0.5.0"
+embedded-io-async = "0.6.0"
 embedded-graphics = { version = "0.8.1", features = ["defmt"] }
 embedded-layout = "0.3.2"
 embedded-text = "0.6.2"
