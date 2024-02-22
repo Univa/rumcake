@@ -12,7 +12,7 @@ use embassy_futures::select::{select, Either};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 
-use crate::keyboard::{KeyboardLayout, POLLED_EVENTS_CHANNEL};
+use crate::keyboard::POLLED_EVENTS_CHANNEL;
 use crate::split::MessageToCentral;
 
 use super::drivers::CentralDeviceDriver;
@@ -27,7 +27,7 @@ pub static MESSAGE_TO_PERIPHERALS: Channel<ThreadModeRawMutex, MessageToPeripher
     Channel::new();
 
 #[rumcake_macros::task]
-pub async fn central_task<K: KeyboardLayout>(_k: K, mut driver: impl CentralDeviceDriver) {
+pub async fn central_task(mut driver: impl CentralDeviceDriver) {
     loop {
         match select(
             driver.receive_message_from_peripherals(),

@@ -368,8 +368,8 @@ pub(crate) fn keyboard_main(
                     initialization.extend(driver_setup);
                     spawning.extend(driver_spawns);
                     spawning.extend(quote! {
-                    spawner.spawn(::rumcake::peripheral_task!(#kb_name, split_peripheral_driver)).unwrap();
-                });
+                        spawner.spawn(::rumcake::peripheral_task!(split_peripheral_driver)).unwrap();
+                    });
                 }
                 None => {
                     initialization.extend(quote_spanned! {
@@ -391,8 +391,8 @@ pub(crate) fn keyboard_main(
                     initialization.extend(driver_setup);
                     spawning.extend(driver_spawns);
                     spawning.extend(quote! {
-                    spawner.spawn(::rumcake::central_task!(#kb_name, split_central_driver)).unwrap();
-                });
+                        spawner.spawn(::rumcake::central_task!(split_central_driver)).unwrap();
+                    });
                 }
                 None => {
                     initialization.extend(quote_spanned! {
