@@ -113,6 +113,7 @@ impl<'a, T: Clone + PartialEq> State<'a, T> {
 
 pub use embedded_hal;
 pub use embedded_hal_async;
+pub use embedded_io_async;
 pub use embedded_storage_async;
 pub use keyberon;
 

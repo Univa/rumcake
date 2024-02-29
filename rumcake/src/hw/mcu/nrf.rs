@@ -21,7 +21,9 @@ use static_cell::StaticCell;
 
 use crate::hw::BATTERY_LEVEL_STATE;
 
-pub use rumcake_macros::{input_pin, output_pin, setup_i2c, setup_i2c_blocking};
+pub use rumcake_macros::{
+    input_pin, output_pin, setup_buffered_uarte, setup_i2c, setup_i2c_blocking,
+};
 
 pub use embassy_nrf;
 

@@ -7,11 +7,12 @@
 //! [`SimpleBacklightMatrixDriver`](`crate::backlight::drivers::SimpleBacklightMatrixDriver`), and
 //! [`RGBBacklightMatrixDriver`](`crate::backlight::drivers::RGBBacklightMatrixDriver`)
 //!
-//! To use this driver for the underglow feature, keyboards must implement
-//! [`WS2812BitbangUnderglowDriver`](underglow::WS2812BitbangUnderglowDriver), or
-//! [`WS2812BitbangBacklightDriver`](backlight::WS2812BitbangBacklightDriver), depending on what
-//! you want to use the driver for.
+//! To use this driver, pass the result of [`setup_driver`] to an underglow task, or backlight
+//! task. If you want to use this driver as a backlight matrix, you will need to implement
+//! [`WS2812BitbangBacklightDriver`](backlight::WS2812BitbangBacklightDriver).
 
+use driver::Ws2812;
+use embedded_hal::digital::v2::OutputPin;
 pub use rumcake_macros::ws2812_bitbang_pin;
 
 pub mod driver {
@@ -109,6 +110,11 @@ pub mod driver {
     }
 }
 
+/// Create an instance of the WS2812 bitbang driver with the provided output pin.
+pub fn setup_driver(output_pin: impl OutputPin) -> Ws2812<impl OutputPin> {
+    Ws2812::new(output_pin)
+}
+
 #[cfg(feature = "underglow")]
 /// WS2812 underglow driver implementations
 pub mod underglow {
@@ -119,20 +125,6 @@ pub mod underglow {
     use super::driver::Ws2812;
     use crate::underglow::drivers::UnderglowDriver;
     use crate::underglow::UnderglowDevice;
-
-    /// A trait that keyboards must implement to use the WS2812 driver for underglow.
-    pub trait WS2812BitbangUnderglowDriver: UnderglowDevice {
-        /// Setup the GPIO pin used to send data to the WS2812 LEDs.
-        ///
-        /// It is recommended to use [`ws2812_pin`] to implement this function.
-        fn ws2812_pin() -> impl OutputPin;
-    }
-
-    /// Create an instance of the WS2812 bitbang driver based on the implementation of [`WS2812BitbangUnderglowDriver`].
-    pub async fn setup_underglow_driver<K: WS2812BitbangUnderglowDriver>() -> Ws2812<impl OutputPin>
-    {
-        Ws2812::new(K::ws2812_pin())
-    }
 
     impl<P: OutputPin, K: UnderglowDevice> UnderglowDriver<K> for Ws2812<P>
     where
@@ -181,21 +173,10 @@ pub mod backlight {
 
     /// A trait that keyboards must implement to use the WS2812 driver for backlighting.
     pub trait WS2812BitbangBacklightDriver: BacklightMatrixDevice {
-        /// Setup the GPIO pin used to send data to the WS2812 LEDs.
-        ///
-        /// It is recommended to use [`ws2812_pin`] to implement this function.
-        fn ws2812_pin() -> impl OutputPin;
-
         /// Convert matrix coordinates in the form of (col, row) to a WS2812 LED index.
         ///
         /// It is recommended to use [`ws2812_get_led_from_matrix_coordinates`] to implement this function.
         fn get_led_from_matrix_coordinates(x: u8, y: u8) -> Option<u8>;
-    }
-
-    /// Create an instance of the WS2812 bitbang driver based on the implementation of [`WS2812BitbangBacklightDriver`].
-    pub async fn setup_backlight_driver<K: WS2812BitbangBacklightDriver>() -> Ws2812<impl OutputPin>
-    {
-        Ws2812::new(K::ws2812_pin())
     }
 
     impl<P: OutputPin, K: WS2812BitbangBacklightDriver> SimpleBacklightDriver<K> for Ws2812<P>

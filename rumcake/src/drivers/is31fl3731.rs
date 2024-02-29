@@ -5,7 +5,9 @@
 //! [`SimpleBacklightMatrixDriver`](`crate::backlight::drivers::SimpleBacklightMatrixDriver`), and
 //! [`RGBBacklightMatrixDriver`](`crate::backlight::drivers::RGBBacklightMatrixDriver`)
 //!
-//! To use this driver for backlighting, keyboards must implement [`IS31FL3731BacklightDriver`](backlight::IS31FL3731BacklightDriver).
+//! To use this driver for backlighting, keyboards must implement
+//! [`IS31FL3731BacklightDriver`](backlight::IS31FL3731BacklightDriver). The result of
+//! [`setup_driver`] should be passed to a backlight task.
 
 pub use is31fl3731 as driver;
 
@@ -167,13 +169,32 @@ pub enum Position {
     C9_16,
 }
 
+use core::fmt::Debug;
+use embassy_time::Delay;
+use embedded_hal_async::i2c::I2c;
+use is31fl3731::IS31FL3731;
+
+/// Create an instance of the IS31FL3731 driver with the provided I2C peripheral, and address.
+pub async fn setup_driver(
+    i2c: impl I2c<Error = impl Debug>,
+    addr: u8,
+    cols: u8,
+    rows: u8,
+    calc_pixel: fn(u8, u8) -> u8,
+) -> IS31FL3731<impl I2c<Error = impl Debug>> {
+    let mut driver = IS31FL3731::new(i2c, addr, cols, rows, calc_pixel);
+
+    driver.setup(&mut Delay).await.unwrap();
+
+    driver
+}
+
 #[cfg(feature = "_backlight")]
 /// IS31FL3731 backlight driver implementations
 pub mod backlight {
     use is31fl3731::{gamma, Error, IS31FL3731};
 
     use core::fmt::Debug;
-    use embassy_time::Delay;
     use embedded_hal_async::i2c::I2c;
     use smart_leds::RGB8;
 
@@ -188,34 +209,10 @@ pub mod backlight {
 
     /// A trait that keyboards must implement to use the IS31FL3731 driver for backlighting.
     pub trait IS31FL3731BacklightDriver: BacklightMatrixDevice {
-        /// I2C Address for the IS31FL3731. Consult the datasheet for more information.
-        const LED_DRIVER_ADDR: u32;
-
         /// Convert matrix coordinates in the form of (col, row) to an IS31FL3731 [`Position`](super::Position).
         ///
         /// It is recommended to use [`is31fl3731_get_led_from_matrix_coordinates`] to implement this function.
         fn get_led_from_matrix_coordinates(x: u8, y: u8) -> u8;
-
-        /// Setup the I2C peripheral to communicate with the IS31FL3731 chip.
-        ///
-        /// It is recommended to use [`crate::hw::mcu::setup_i2c`] to implement this function.
-        fn setup_i2c() -> impl I2c<Error = impl Debug>;
-    }
-
-    /// Create an instance of the IS31FL3731 driver based on the implementation of [`IS31FL3731BacklightDriver`].
-    pub async fn setup_backlight_driver<K: IS31FL3731BacklightDriver>(
-    ) -> IS31FL3731<impl I2c<Error = impl Debug>> {
-        let mut driver = IS31FL3731::new(
-            K::setup_i2c(),
-            K::LED_DRIVER_ADDR as u8,
-            K::LIGHTING_COLS as u8,
-            K::LIGHTING_ROWS as u8,
-            K::get_led_from_matrix_coordinates,
-        );
-
-        driver.setup(&mut Delay).await.unwrap();
-
-        driver
     }
 
     impl<I2CError: Debug, I2C: I2c<Error = I2CError>, K: IS31FL3731BacklightDriver>

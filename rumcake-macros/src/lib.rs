@@ -237,6 +237,13 @@ pub fn setup_i2c_blocking(input: proc_macro::TokenStream) -> proc_macro::TokenSt
     hw::setup_i2c_blocking(ident).into()
 }
 
+#[cfg(feature = "nrf")]
+#[proc_macro]
+pub fn setup_buffered_uarte(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let ident = parse_macro_input!(input with Punctuated<Ident, Token![,]>::parse_terminated);
+    hw::setup_buffered_uarte(ident).into()
+}
+
 mod via;
 
 #[proc_macro]

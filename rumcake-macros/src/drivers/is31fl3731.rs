@@ -76,3 +76,18 @@ pub fn get_led_from_rgb_matrix_coordinates(input: LayoutLike<OptionalItem<Ident>
         }
     }
 }
+
+pub fn driver_trait() -> TokenStream {
+    quote! {
+        /// A trait that must be implemented to set up the IS31FL3731 driver.
+        pub(crate) trait IS31FL3731DriverSettings {
+            /// I2C Address for the IS31FL3731 driver. Consult the datasheet for more information.
+            const LED_DRIVER_ADDR: u8;
+
+            /// Setup the I2C peripheral to communicate with the IS31FL3731 chip.
+            ///
+            /// It is recommended to use [`rumcake::hw::mcu::setup_i2c`] to implement this function.
+            fn setup_i2c() -> impl ::rumcake::embedded_hal_async::i2c::I2c<Error = impl core::fmt::Debug>;
+        }
+    }
+}

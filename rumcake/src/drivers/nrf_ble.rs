@@ -4,9 +4,11 @@
 //! [`CentralDeviceDriver`](`crate::split::drivers::CentralDeviceDriver`), and
 //! [`PeripheralDeviceDriver`](`crate::split::drivers::PeripheralDeviceDriver`).
 //!
-//! To use this driver for split keyboards, central devices must implement
-//! [`NRFBLECentralDevice`](central::NRFBLECentralDevice), and peripheral devices must implement
-//! [`NRFBLEPeripheralDevice`](peripheral::NRFBLEPeripheralDevice).
+//! To use this driver for split keyboards, central devices must pass the Bluetooth addresses of
+//! the peripherals to [`nrf_ble_central_task`], and peripheral devices must implement pass the
+//! Bluetooth address of the central device to [`nrf_ble_peripheral_task`].
+//! [`central::NRFBLECentralDriver`] and [`peripheral::NRFBLEPeripheralDriver`] then need to be
+//! passed to the [`central_task`] and [`peripheral_task`] respectively.
 
 #[cfg(feature = "split-central")]
 /// nrf-softdevice central device driver implementations
@@ -33,12 +35,6 @@ pub mod central {
         publisher: Publisher<'a, ThreadModeRawMutex, MessageToPeripheral, 4, 4, 1>,
     }
 
-    /// A trait that nRF-based keyboards must implement to use bluetooth to drive central devices in a split keyboard setup.
-    pub trait NRFBLECentralDevice {
-        /// A list of "Random Static" bluetooth addresses that this central device can connect to.
-        const PERIPHERAL_ADDRESSES: &'static [[u8; 6]];
-    }
-
     pub static BLE_MESSAGES_FROM_PERIPHERALS: Channel<ThreadModeRawMutex, MessageToCentral, 4> =
         Channel::new();
 
@@ -52,10 +48,8 @@ pub mod central {
 
     pub static BLUETOOTH_CONNECTION_MUTEX: Mutex<ThreadModeRawMutex, ()> = Mutex::new(());
 
-    /// Create an instance of the nRF bluetooth central device driver based on the implementation of [`NRFBLECentralDevice`].
-    pub fn setup_split_central_driver<K: NRFBLECentralDevice>(
-        _k: K,
-    ) -> NRFBLECentralDriver<'static> {
+    /// Create an instance of the nRF bluetooth central device driver.
+    pub fn setup_driver() -> NRFBLECentralDriver<'static> {
         NRFBLECentralDriver {
             publisher: BLE_MESSAGES_TO_PERIPHERALS.publisher().unwrap(),
         }
@@ -92,21 +86,18 @@ pub mod central {
     }
 
     #[rumcake_macros::task]
-    pub async fn nrf_ble_central_task<K: NRFBLECentralDevice>(_k: K, sd: &'static Softdevice)
-    where
-        [(); K::PERIPHERAL_ADDRESSES.len()]:,
-    {
+    pub async fn nrf_ble_central_task(peripheral_addresses: &[[u8; 6]], sd: &'static Softdevice) {
         assert!(
-            K::PERIPHERAL_ADDRESSES.len() <= 4,
+            peripheral_addresses.len() <= 4,
             "You can not have more than 4 peripherals."
         );
 
         info!("[SPLIT_BT_DRIVER] Bluetooth services started");
 
-        let peripheral_fut = |peripheral_addr: &'static [u8; 6]| {
-            async {
+        let peripheral_fut = |peripheral_addr: [u8; 6]| {
+            async move {
                 loop {
-                    let whitelist = [&Address::new(AddressType::RandomStatic, *peripheral_addr)];
+                    let whitelist = [&Address::new(AddressType::RandomStatic, peripheral_addr)];
                     let mut subscriber = BLE_MESSAGES_TO_PERIPHERALS.subscriber().unwrap();
 
                     let mut config = central::ConnectConfig::default();
@@ -220,10 +211,10 @@ pub mod central {
         };
 
         select_slice(
-            &mut K::PERIPHERAL_ADDRESSES
+            &mut peripheral_addresses
                 .iter()
-                .map(|addr| peripheral_fut(addr))
-                .collect::<Vec<_, { K::PERIPHERAL_ADDRESSES.len() }>>(),
+                .map(|addr| peripheral_fut(*addr))
+                .collect::<Vec<_, 4>>(),
         )
         .await;
 
@@ -252,12 +243,6 @@ pub mod peripheral {
         MESSAGE_TO_PERIPHERAL_BUFFER_SIZE,
     };
 
-    /// A trait that nRF-based keyboards must implement to use bluetooth to drive peripheral devices in a split keyboard setup.
-    pub trait NRFBLEPeripheralDevice {
-        /// A "Random Static" bluetooth address of the central device that this peripheral will connect to.
-        const CENTRAL_ADDRESS: [u8; 6];
-    }
-
     pub struct NRFBLEPeripheralDriver {}
 
     pub static BLE_MESSAGES_TO_CENTRAL: Channel<ThreadModeRawMutex, MessageToCentral, 4> =
@@ -267,7 +252,7 @@ pub mod peripheral {
         Channel::new();
 
     /// Create an instance of the nRF bluetooth central device driver.
-    pub fn setup_split_peripheral_driver<K: NRFBLEPeripheralDevice>() -> NRFBLEPeripheralDriver {
+    pub fn setup_driver() -> NRFBLEPeripheralDriver {
         NRFBLEPeripheralDriver {}
     }
 
@@ -307,8 +292,8 @@ pub mod peripheral {
     }
 
     #[rumcake_macros::task]
-    pub async fn nrf_ble_peripheral_task<K: NRFBLEPeripheralDevice>(
-        _k: K,
+    pub async fn nrf_ble_peripheral_task(
+        central_address: [u8; 6],
         sd: &'static Softdevice,
         server: PeripheralDeviceServer,
     ) {
@@ -316,7 +301,7 @@ pub mod peripheral {
 
         loop {
             let advertisement = ConnectableAdvertisement::NonscannableDirected {
-                peer: Address::new(AddressType::RandomStatic, K::CENTRAL_ADDRESS),
+                peer: Address::new(AddressType::RandomStatic, central_address),
             };
             let connection = {
                 let _lock = BLUETOOTH_ADVERTISING_MUTEX.lock().await;

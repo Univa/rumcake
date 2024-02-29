@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use darling::util::Override;
 use darling::FromMeta;
 use proc_macro2::{Ident, TokenStream, TokenTree};
@@ -62,42 +64,88 @@ enum SplitRole {
 }
 
 fn setup_split_driver(
+    initialization: &mut TokenStream,
+    spawning: &mut TokenStream,
+    traits: &mut HashMap<String, TokenStream>,
     kb_name: &Ident,
-    driver: &str,
+    driver: String,
     role: SplitRole,
-) -> Option<(TokenStream, TokenStream)> {
-    match driver {
-        #[cfg(feature = "nrf")]
-        "ble" => match role {
-            SplitRole::Central => Some((
-                quote! {
-                    let split_central_driver = ::rumcake::drivers::nrf_ble::central::setup_split_central_driver(#kb_name);
-                },
-                quote! {
-                    spawner.spawn(::rumcake::nrf_ble_central_task!(#kb_name, sd)).unwrap();
-                },
-            )),
-            SplitRole::Peripheral => Some((
-                quote! {
-                    let peripheral_server = ::rumcake::drivers::nrf_ble::peripheral::PeripheralDeviceServer::new(sd).unwrap();
-                    let split_peripheral_driver = ::rumcake::drivers::nrf_ble::peripheral::setup_split_peripheral_driver::<#kb_name>();
-                },
-                quote! {
-                    spawner.spawn(::rumcake::nrf_ble_peripheral_task!(#kb_name, sd, peripheral_server)).unwrap();
-                },
-            )),
-        },
-        _ => None,
+) {
+    match driver.as_str() {
+        "ble" => {
+            if cfg!(feature = "nrf") {
+                return match role {
+                    SplitRole::Central => {
+                        traits.insert(driver, crate::drivers::nrf_ble::central_driver_trait());
+                        initialization.extend(quote! {
+                            let split_central_driver = ::rumcake::drivers::nrf_ble::central::setup_driver();
+                        });
+                        spawning.extend(quote! {
+                            spawner.spawn(::rumcake::nrf_ble_central_task!(<#kb_name as NRFBLECentralDriverSettings>::PERIPHERAL_ADDRESSES, sd)).unwrap();
+                        });
+                    }
+                    SplitRole::Peripheral => {
+                        traits.insert(driver, crate::drivers::nrf_ble::peripheral_driver_trait());
+                        initialization.extend(quote! {
+                            let peripheral_server = ::rumcake::drivers::nrf_ble::peripheral::PeripheralDeviceServer::new(sd).unwrap();
+                            let split_peripheral_driver = ::rumcake::drivers::nrf_ble::peripheral::setup_driver();
+                        });
+                        spawning.extend(quote! {
+                            spawner.spawn(::rumcake::nrf_ble_peripheral_task!(<#kb_name as NRFBLEPeripheralDriverSettings>::CENTRAL_ADDRESS, sd, peripheral_server)).unwrap();
+                        });
+                    }
+                };
+            }
+        }
+        "serial" => {
+            if cfg!(feature = "nrf") {
+                return {
+                    traits.insert(driver, crate::drivers::serial_driver_trait());
+                    match role {
+                        SplitRole::Central => initialization.extend(quote! {
+                            let split_central_driver = ::rumcake::split::drivers::SerialSplitDriver { serial: <#kb_name as SerialDriverSettings>::setup_serial() };
+                        }),
+                        SplitRole::Peripheral => initialization.extend(quote! {
+                            let split_peripheral_driver = ::rumcake::split::drivers::SerialSplitDriver { serial: <#kb_name as SerialDriverSettings>::setup_serial() };
+                        }),
+                    }
+                };
+            }
+        }
+        _ => (),
+    }
+
+    match role {
+        SplitRole::Central => initialization.extend(quote_spanned! {
+            driver.span() => compile_error!("Unknown split central device driver.");
+        }),
+        SplitRole::Peripheral => initialization.extend(quote_spanned! {
+            driver.span() => compile_error!("Unknown split peripheral device driver.");
+        }),
     }
 }
 
-fn setup_underglow_driver(kb_name: &Ident, driver: &str) -> Option<TokenStream> {
-    match driver {
-        "ws2812_bitbang" => Some(quote! {
-            let underglow_driver = rumcake::drivers::ws2812_bitbang::underglow::setup_underglow_driver::<#kb_name>().await;
-        }),
-        _ => None,
+fn setup_underglow_driver(
+    initialization: &mut TokenStream,
+    traits: &mut HashMap<String, TokenStream>,
+    kb_name: &Ident,
+    driver: String,
+) {
+    match driver.as_str() {
+        "ws2812_bitbang" => {
+            return {
+                traits.insert(driver, crate::drivers::ws2812::bitbang::driver_trait());
+                initialization.extend(quote! {
+                    let underglow_driver = ::rumcake::drivers::ws2812_bitbang::setup_driver(<#kb_name as WS2812BitbangDriverSettings>::ws2812_pin());
+                });
+            }
+        }
+        _ => (),
     }
+
+    initialization.extend(quote_spanned! {
+        driver.span() => compile_error!("Unknown underglow driver.");
+    });
 }
 
 enum BacklightType {
@@ -107,35 +155,79 @@ enum BacklightType {
 }
 
 fn setup_backlight_driver(
+    initialization: &mut TokenStream,
+    traits: &mut HashMap<String, TokenStream>,
     kb_name: &Ident,
     backlight_type: BacklightType,
-    driver: &str,
-) -> Option<TokenStream> {
-    match driver {
-        "is31fl3731" => Some(quote! {
-            let backlight_driver = ::rumcake::drivers::is31fl3731::backlight::setup_backlight_driver::<#kb_name>().await;
+    driver: String,
+) {
+    match driver.as_str() {
+        "is31fl3731" => {
+            return {
+                traits.insert(driver, crate::drivers::is31fl3731::driver_trait());
+                initialization.extend(quote! {
+                    let backlight_driver = ::rumcake::drivers::is31fl3731::setup_driver(
+                        <#kb_name as IS31FL3731DriverSettings>::setup_i2c(),
+                        <#kb_name as IS31FL3731DriverSettings>::LED_DRIVER_ADDR,
+                        <#kb_name as ::rumcake::backlight::BacklightMatrixDevice>::LIGHTING_COLS as u8,
+                        <#kb_name as ::rumcake::backlight::BacklightMatrixDevice>::LIGHTING_ROWS as u8,
+                        <#kb_name as ::rumcake::drivers::is31fl3731::backlight::IS31FL3731BacklightDriver>::get_led_from_matrix_coordinates
+                    ).await;
+                });
+            }
+        }
+        "ws2812_bitbang" => {
+            return {
+                traits.insert(driver, crate::drivers::ws2812::bitbang::driver_trait());
+                initialization.extend(quote! {
+                    let backlight_driver = ::rumcake::drivers::ws2812_bitbang::setup_driver(<#kb_name as WS2812BitbangDriverSettings>::ws2812_pin());
+                });
+            }
+        }
+        _ => (),
+    }
+
+    match backlight_type {
+        BacklightType::SimpleBacklight => initialization.extend(quote_spanned! {
+            driver.span() => compile_error!("Unknown simple backlight driver.");
         }),
-        "ws2812_bitbang" => Some(quote! {
-            let backlight_driver = ::rumcake::drivers::ws2812_bitbang::backlight::setup_backlight_driver::<#kb_name>().await;
+        BacklightType::SimpleBacklightMatrix => initialization.extend(quote_spanned! {
+            driver.span() => compile_error!("Unknown simple backlight matrix driver.");
         }),
-        _ => None,
+        BacklightType::RGBBacklightMatrix => initialization.extend(quote_spanned! {
+            driver.span() => compile_error!("Unknown RGB backlight matrix driver.");
+        }),
     }
 }
 
-fn setup_display_driver(kb_name: &Ident, driver: &str) -> Option<TokenStream> {
-    match driver {
-        "ssd1306" => Some(quote! {
-            let display_driver = ::rumcake::drivers::ssd1306::display::setup_display_driver(#kb_name).await;
-        }),
-        _ => None,
+fn setup_display_driver(
+    initialization: &mut TokenStream,
+    traits: &mut HashMap<String, TokenStream>,
+    kb_name: &Ident,
+    driver: String,
+) {
+    match driver.as_str() {
+        "ssd1306" => {
+            return {
+                traits.insert(driver, crate::drivers::ssd1306::driver_trait());
+                initialization.extend(quote! {
+                    let display_driver = ::rumcake::drivers::ssd1306::setup_driver(<#kb_name as Ssd1306I2cDriverSettings>::setup_i2c(), <#kb_name as Ssd1306I2cDriverSettings>::SIZE, <#kb_name as Ssd1306I2cDriverSettings>::ROTATION);
+                });
+            }
+        }
+        _ => (),
     }
+
+    initialization.extend(quote_spanned! {
+        driver.span() => compile_error!("Unknown display driver.");
+    });
 }
 
-fn setup_storage_driver(driver: &str, uses_bluetooth: bool) -> Option<TokenStream> {
-    match driver {
+fn setup_storage_driver(initialization: &mut TokenStream, driver: String, uses_bluetooth: bool) {
+    match driver.as_str() {
         "internal" => {
-            if cfg!(feature = "nrf") && uses_bluetooth {
-                Some(quote! {
+            return if cfg!(feature = "nrf") && uses_bluetooth {
+                initialization.extend(quote! {
                     use ::rumcake::embedded_storage_async::nor_flash::NorFlash;
                     let flash = ::rumcake::hw::mcu::setup_internal_softdevice_flash(sd);
                     let config_start = unsafe { &::rumcake::hw::__config_start as *const u32 as usize };
@@ -146,7 +238,7 @@ fn setup_storage_driver(driver: &str, uses_bluetooth: bool) -> Option<TokenStrea
                     unsafe { DATABASE.setup(flash, config_start, config_end, &mut read_buf, &mut op_buf).await; }
                 })
             } else {
-                Some(quote! {
+                initialization.extend(quote! {
                     use ::rumcake::embedded_storage_async::nor_flash::NorFlash;
                     let flash = ::rumcake::hw::mcu::setup_internal_flash();
                     let config_start = unsafe { &::rumcake::hw::__config_start as *const u32 as usize };
@@ -158,8 +250,12 @@ fn setup_storage_driver(driver: &str, uses_bluetooth: bool) -> Option<TokenStrea
                 })
             }
         }
-        _ => None,
-    }
+        _ => (),
+    };
+
+    initialization.extend(quote_spanned! {
+        driver.span() => compile_error!("Unknown storage driver.");
+    });
 }
 
 pub(crate) fn keyboard_main(
@@ -169,6 +265,7 @@ pub(crate) fn keyboard_main(
 ) -> TokenStream {
     let mut initialization = TokenStream::new();
     let mut spawning = TokenStream::new();
+    let mut traits: HashMap<String, TokenStream> = HashMap::new();
 
     let uses_bluetooth = keyboard.bluetooth
         || keyboard
@@ -221,16 +318,7 @@ pub(crate) fn keyboard_main(
                 keyboard.storage.span() => compile_error!("Storage driver was specified, but rumcake's `storage` feature flag is not enabled. Please enable the feature.");
             });
         } else {
-            match setup_storage_driver(driver.as_str(), uses_bluetooth) {
-                Some(driver_setup) => {
-                    initialization.extend(driver_setup);
-                }
-                None => {
-                    initialization.extend(quote_spanned! {
-                        driver.span() => compile_error!("Unknown storage driver.");
-                    });
-                }
-            };
+            setup_storage_driver(&mut initialization, driver.clone(), uses_bluetooth);
         }
     };
 
@@ -357,49 +445,43 @@ pub(crate) fn keyboard_main(
         initialization.extend(quote_spanned! {
             str.span() => compile_error!("A split peripheral must have a matrix. Please remove `no_matrix` or `split_peripheral`.");
         });
-    } else if let Some(ref args) = keyboard.split_peripheral {
+    } else if let Some(args) = keyboard.split_peripheral {
         if args.driver.is_empty() {
             initialization.extend(quote_spanned! {
                 args.driver.span() => compile_error!("You must specify a peripheral device driver.");
             })
         } else {
-            match setup_split_driver(&kb_name, args.driver.as_str(), SplitRole::Peripheral) {
-                Some((driver_setup, driver_spawns)) => {
-                    initialization.extend(driver_setup);
-                    spawning.extend(driver_spawns);
-                    spawning.extend(quote! {
-                        spawner.spawn(::rumcake::peripheral_task!(split_peripheral_driver)).unwrap();
-                    });
-                }
-                None => {
-                    initialization.extend(quote_spanned! {
-                    args.driver.span() => compile_error!("Unknown split peripheral device driver.");
-                });
-                }
-            }
+            setup_split_driver(
+                &mut initialization,
+                &mut spawning,
+                &mut traits,
+                &kb_name,
+                args.driver,
+                SplitRole::Peripheral,
+            );
+            spawning.extend(quote! {
+                spawner.spawn(::rumcake::peripheral_task!(split_peripheral_driver)).unwrap();
+            });
         }
     }
 
-    if let Some(ref args) = keyboard.split_central {
+    if let Some(args) = keyboard.split_central {
         if args.driver.is_empty() {
             initialization.extend(quote_spanned! {
                 args.driver.span() => compile_error!("You must specify a central device driver.");
             })
         } else {
-            match setup_split_driver(&kb_name, args.driver.as_str(), SplitRole::Central) {
-                Some((driver_setup, driver_spawns)) => {
-                    initialization.extend(driver_setup);
-                    spawning.extend(driver_spawns);
-                    spawning.extend(quote! {
-                        spawner.spawn(::rumcake::central_task!(split_central_driver)).unwrap();
-                    });
-                }
-                None => {
-                    initialization.extend(quote_spanned! {
-                    args.driver.span() => compile_error!("Unknown split central device driver.");
-                });
-                }
-            }
+            setup_split_driver(
+                &mut initialization,
+                &mut spawning,
+                &mut traits,
+                &kb_name,
+                args.driver,
+                SplitRole::Central,
+            );
+            spawning.extend(quote! {
+                spawner.spawn(::rumcake::central_task!(split_central_driver)).unwrap();
+            });
         }
     }
 
@@ -414,26 +496,15 @@ pub(crate) fn keyboard_main(
                 args.driver.span() => compile_error!("Underglow uses storage but no `storage` driver was specified. Either specify a `storage` driver, or remove `use_storage` from your underglow settings.");
             });
         } else {
-            match setup_underglow_driver(&kb_name, args.driver.as_str()) {
-                Some(driver_setup) => {
-                    initialization.extend(driver_setup);
-
-                    if args.use_storage {
-                        spawning.extend(quote! {
-                            spawner.spawn(::rumcake::underglow_storage_task!(#kb_name, &DATABASE)).unwrap();
-                        });
-                    }
-
-                    spawning.extend(quote! {
-                        spawner.spawn(::rumcake::underglow_task!(#kb_name, underglow_driver)).unwrap();
-                    });
-                }
-                None => {
-                    initialization.extend(quote_spanned! {
-                        args.driver.span() => compile_error!("Unknown underglow driver.");
-                    });
-                }
+            setup_underglow_driver(&mut initialization, &mut traits, &kb_name, args.driver);
+            if args.use_storage {
+                spawning.extend(quote! {
+                    spawner.spawn(::rumcake::underglow_storage_task!(#kb_name, &DATABASE)).unwrap();
+                });
             }
+            spawning.extend(quote! {
+                spawner.spawn(::rumcake::underglow_task!(#kb_name, underglow_driver)).unwrap();
+            });
         }
     }
 
@@ -448,30 +519,21 @@ pub(crate) fn keyboard_main(
                 args.driver.span() => compile_error!("Simple backlighting uses storage but no `storage` driver was specified. Either specify a `storage` driver, or remove `use_storage` from your simple backlight settings.");
             });
         } else {
-            match setup_backlight_driver(
+            setup_backlight_driver(
+                &mut initialization,
+                &mut traits,
                 &kb_name,
                 BacklightType::SimpleBacklight,
-                args.driver.as_str(),
-            ) {
-                Some(driver_setup) => {
-                    initialization.extend(driver_setup);
-
-                    if args.use_storage {
-                        spawning.extend(quote! {
-                            spawner.spawn(::rumcake::simple_backlight_storage_task!(#kb_name, &DATABASE)).unwrap();
-                        });
-                    }
-
-                    spawning.extend(quote! {
-                        spawner.spawn(::rumcake::simple_backlight_task!(#kb_name, backlight_driver)).unwrap();
-                    });
-                }
-                None => {
-                    initialization.extend(quote_spanned! {
-                        args.driver.span() => compile_error!("Unknown simple backlight driver.");
-                    });
-                }
+                args.driver,
+            );
+            if args.use_storage {
+                spawning.extend(quote! {
+                    spawner.spawn(::rumcake::simple_backlight_storage_task!(#kb_name, &DATABASE)).unwrap();
+                });
             }
+            spawning.extend(quote! {
+                spawner.spawn(::rumcake::simple_backlight_task!(#kb_name, backlight_driver)).unwrap();
+            });
         }
     }
 
@@ -485,30 +547,21 @@ pub(crate) fn keyboard_main(
                 args.driver.span() => compile_error!("Simple backlight matrix uses storage but no `storage` driver was specified. Either specify a `storage` driver, or remove `use_storage` from your simple backlight matrix settings.");
             });
         } else {
-            match setup_backlight_driver(
+            setup_backlight_driver(
+                &mut initialization,
+                &mut traits,
                 &kb_name,
                 BacklightType::SimpleBacklightMatrix,
-                args.driver.as_str(),
-            ) {
-                Some(driver_setup) => {
-                    initialization.extend(driver_setup);
-
-                    if args.use_storage {
-                        spawning.extend(quote! {
-                            spawner.spawn(::rumcake::simple_backlight_matrix_storage_task!(#kb_name, &DATABASE)).unwrap();
-                        });
-                    }
-
-                    spawning.extend(quote! {
-                        spawner.spawn(::rumcake::simple_backlight_matrix_task!(#kb_name, backlight_driver)).unwrap();
-                    });
-                }
-                None => {
-                    initialization.extend(quote_spanned! {
-                        args.driver.span() => compile_error!("Unknown simple backlight matrix driver.");
-                    });
-                }
+                args.driver,
+            );
+            if args.use_storage {
+                spawning.extend(quote! {
+                    spawner.spawn(::rumcake::simple_backlight_matrix_storage_task!(#kb_name, &DATABASE)).unwrap();
+                });
             }
+            spawning.extend(quote! {
+                spawner.spawn(::rumcake::simple_backlight_matrix_task!(#kb_name, backlight_driver)).unwrap();
+            });
         }
     }
 
@@ -522,55 +575,39 @@ pub(crate) fn keyboard_main(
                 args.driver.span() => compile_error!("RGB backlight matrix uses storage but no `storage` driver was specified. Either specify a `storage` driver, or remove `use_storage` from your RGB backlight matrix settings.");
             });
         } else {
-            match setup_backlight_driver(
+            setup_backlight_driver(
+                &mut initialization,
+                &mut traits,
                 &kb_name,
                 BacklightType::RGBBacklightMatrix,
-                args.driver.as_str(),
-            ) {
-                Some(driver_setup) => {
-                    initialization.extend(driver_setup);
-
-                    if args.use_storage {
-                        spawning.extend(quote! {
-                            spawner.spawn(::rumcake::rgb_backlight_matrix_storage_task!(#kb_name, &DATABASE)).unwrap();
-                        });
-                    }
-
-                    spawning.extend(quote! {
-                        spawner.spawn(::rumcake::rgb_backlight_matrix_task!(#kb_name, backlight_driver)).unwrap();
-                    });
-                }
-                None => {
-                    initialization.extend(quote_spanned! {
-                        args.driver.span() => compile_error!("Unknown RGB backlight matrix driver.");
-                    });
-                }
+                args.driver,
+            );
+            if args.use_storage {
+                spawning.extend(quote! {
+                    spawner.spawn(::rumcake::rgb_backlight_matrix_storage_task!(#kb_name, &DATABASE)).unwrap();
+                });
             }
+            spawning.extend(quote! {
+                spawner.spawn(::rumcake::rgb_backlight_matrix_task!(#kb_name, backlight_driver)).unwrap();
+            });
         }
     }
 
     // Display setup
-    if let Some(ref args) = keyboard.display {
+    if let Some(args) = keyboard.display {
         if args.driver.is_empty() {
             initialization.extend(quote_spanned! {
                 args.driver.span() => compile_error!("You must specify a display driver.");
             })
         } else {
-            match setup_display_driver(&kb_name, args.driver.as_str()) {
-                Some(driver_setup) => {
-                    initialization.extend(driver_setup);
-                    spawning.extend(quote! {
-                        spawner.spawn(::rumcake::display_task!(#kb_name, display_driver)).unwrap();
-                    });
-                }
-                None => {
-                    initialization.extend(quote_spanned! {
-                        args.driver.span() => compile_error!("Unknown display driver.");
-                    });
-                }
-            }
+            setup_display_driver(&mut initialization, &mut traits, &kb_name, args.driver);
+            spawning.extend(quote! {
+                spawner.spawn(::rumcake::display_task!(#kb_name, display_driver)).unwrap();
+            });
         }
     }
+
+    let final_traits = traits.values();
 
     quote! {
         #[::embassy_executor::main]
@@ -578,6 +615,8 @@ pub(crate) fn keyboard_main(
             #initialization
             #spawning
         }
+
+        #(#final_traits)*
 
         #str
     }
