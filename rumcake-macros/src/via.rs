@@ -18,14 +18,16 @@ pub fn setup_macro_buffer(args: Punctuated<Literal, Token![,]>) -> TokenStream {
         const DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE: u16 = #buffer_size;
         const DYNAMIC_KEYMAP_MACRO_COUNT: u8 = #macro_count;
 
-        fn get_macro_buffer() -> &'static mut ::rumcake::via::MacroBuffer<
-            'static,
-            { Self::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize },
-            { Self::DYNAMIC_KEYMAP_MACRO_COUNT as usize },
+        fn get_macro_buffer() -> Option<
+            &'static mut ::rumcake::via::MacroBuffer<
+                'static,
+                { Self::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize },
+                { Self::DYNAMIC_KEYMAP_MACRO_COUNT as usize },
+            >,
         > {
             static mut MACRO_BUFFER: ::rumcake::via::MacroBuffer<'static, #buffer_size, #macro_count> =
                 ::rumcake::via::MacroBuffer::new();
-            unsafe { &mut MACRO_BUFFER }
+            Some(unsafe { &mut MACRO_BUFFER })
         }
     }
 }

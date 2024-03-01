@@ -92,7 +92,9 @@ where
     [(); K::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize]:,
     [(); K::DYNAMIC_KEYMAP_MACRO_COUNT as usize]:,
 {
-    K::get_macro_buffer().buffer.fill(0);
+    if let Some(macro_data) = K::get_macro_buffer() {
+        macro_data.buffer.fill(0)
+    };
 }
 
 pub fn dynamic_keymap_macro_get_buffer_size<K: ViaKeyboard>(data: &mut [u8]) {
@@ -113,9 +115,9 @@ pub async fn dynamic_keymap_macro_get_buffer<K: ViaKeyboard + 'static>(
         size as usize
     };
 
-    let buf = K::get_macro_buffer().buffer;
-
-    data[..len].copy_from_slice(&buf[(offset as usize)..(offset as usize + len)]);
+    if let Some(macro_data) = K::get_macro_buffer() {
+        data[..len].copy_from_slice(&macro_data.buffer[(offset as usize)..(offset as usize + len)]);
+    };
 }
 
 pub async fn dynamic_keymap_macro_set_buffer<K: ViaKeyboard + 'static>(
@@ -132,7 +134,9 @@ pub async fn dynamic_keymap_macro_set_buffer<K: ViaKeyboard + 'static>(
         size as usize
     };
 
-    K::get_macro_buffer().update_buffer(offset as usize, &data[..len]);
+    if let Some(macro_data) = K::get_macro_buffer() {
+        macro_data.update_buffer(offset as usize, &data[..len]);
+    }
 
     #[cfg(feature = "storage")]
     super::storage::update_data(

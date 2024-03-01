@@ -75,23 +75,31 @@ pub trait ViaKeyboard: Keyboard + KeyboardLayout {
     // const DYNAMIC_KEYMAP_LAYER_COUNT: usize = 4; // This is the default if this variable isn't defined in QMK
 
     /// The number of macros that your keyboard can store. You should use [`setup_macro_buffer`] to
-    /// implement this.
+    /// implement this. If you plan on using macros, this should be non-zero.
     const DYNAMIC_KEYMAP_MACRO_COUNT: u8 = 0; // This is the default if this variable isn't defined in QMK
 
-    /// The total amount of bytes that can be used to store macros assigned by Via.
-    const DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE: u16;
+    /// The total amount of bytes that can be used to store macros assigned by Via. You should use
+    /// [`setup_macro_buffer`] to implement this. If you plan on using macros, this should be
+    /// non-zero.
+    const DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE: u16 = 0;
 
     /// Determines how QK_BACKLIGHT keycodes should be converted to a [`crate::keyboard::Keycode`]
     /// and vice versa. If this is `None`, then backlighting keycodes will not be converted.
     const BACKLIGHT_TYPE: Option<BacklightType> = None;
 
     /// Obtain a reference to macro data created by Via. You should use [`setup_macro_buffer`] to
-    /// implement this.
-    fn get_macro_buffer() -> &'static mut MacroBuffer<
-        'static,
-        { Self::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize },
-        { Self::DYNAMIC_KEYMAP_MACRO_COUNT as usize },
-    >;
+    /// implement this. If this returns `Some`, then [`ViaKeyboard::DYNAMIC_KEYMAP_MACRO_COUNT`]
+    /// and [`ViaKeyboard::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE`] should be non-zero. Otherwise,
+    /// [`ViaKeyboard::DYNAMIC_KEYMAP_MACRO_COUNT`] should be 0.
+    fn get_macro_buffer() -> Option<
+        &'static mut MacroBuffer<
+            'static,
+            { Self::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize },
+            { Self::DYNAMIC_KEYMAP_MACRO_COUNT as usize },
+        >,
+    > {
+        None
+    }
 
     /// Override for handling a Via/Vial protocol packet.
     ///
@@ -162,6 +170,21 @@ where
 {
     assert!(K::DYNAMIC_KEYMAP_LAYER_COUNT <= K::LAYERS);
     assert!(K::DYNAMIC_KEYMAP_LAYER_COUNT <= 16);
+    if K::get_macro_buffer().is_some() {
+        assert!(
+            K::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE > 0,
+            "Macro buffer size must be greater than 0 if you are using Via macros."
+        );
+        assert!(
+            K::DYNAMIC_KEYMAP_MACRO_COUNT > 0,
+            "Macro count must be greater than 0 if you are using Via macros."
+        );
+    } else {
+        assert!(
+            K::DYNAMIC_KEYMAP_MACRO_COUNT == 0,
+            "Macro count should be 0 if you are not using Via macros."
+        );
+    }
 
     let via_state: Mutex<ThreadModeRawMutex, protocol::ViaState<K>> =
         Mutex::new(Default::default());
@@ -368,7 +391,9 @@ pub mod storage {
                 )
                 .await
             {
-                K::get_macro_buffer().update_buffer(0, &stored_data[..stored_len])
+                if let Some(macro_data) = K::get_macro_buffer() {
+                    macro_data.update_buffer(0, &stored_data[..stored_len])
+                }
             };
         }
 

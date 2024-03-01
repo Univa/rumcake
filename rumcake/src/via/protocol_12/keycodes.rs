@@ -953,17 +953,15 @@ where
                 UNKNOWN_KEYCODE
             }
         }
-        Action::Sequence(sequence) => {
-            if let Some(macro_number) = K::get_macro_buffer()
+        Action::Sequence(sequence) => K::get_macro_buffer().map_or(UNKNOWN_KEYCODE, |macro_data| {
+            macro_data
                 .sequences
                 .iter()
                 .position(|s| core::ptr::eq(s as *const _, sequence as *const _))
-            {
-                QMKKeycodeRanges::QK_MACRO as u16 + macro_number as u16
-            } else {
-                UNKNOWN_KEYCODE
-            }
-        }
+                .map_or(UNKNOWN_KEYCODE, |macro_number| {
+                    QMKKeycodeRanges::QK_MACRO as u16 + macro_number as u16
+                })
+        }),
         Action::Custom(key) => match key {
             Keycode::Custom(id) => {
                 if id as u16 <= 31 {
@@ -1432,10 +1430,12 @@ where
         && keycode <= QMKKeycodeRanges::QK_MACRO_MAX as u16
     {
         let sequence_number = (keycode - QMKKeycodeRanges::QK_MACRO as u16) as usize;
-        return K::get_macro_buffer()
-            .sequences
-            .get(sequence_number)
-            .map(Action::Sequence);
+        return K::get_macro_buffer().and_then(|macro_data| {
+            macro_data
+                .sequences
+                .get(sequence_number)
+                .map(Action::Sequence)
+        });
     }
 
     if QMKKeycodeRanges::QK_LIGHTING as u16 <= keycode

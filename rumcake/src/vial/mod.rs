@@ -3,6 +3,7 @@
 //! To use Vial, you will need to implement [`ViaKeyboard`] and [`VialKeyboard`].
 
 use crate::backlight::{BacklightMatrixDevice, EmptyBacklightMatrix};
+use defmt::assert;
 use embassy_futures::join;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
@@ -77,6 +78,21 @@ where
     assert!(K::DYNAMIC_KEYMAP_LAYER_COUNT <= K::LAYERS);
     assert!(K::DYNAMIC_KEYMAP_LAYER_COUNT <= 16);
     assert!(K::VIAL_UNLOCK_COMBO.len() < 15);
+    if K::get_macro_buffer().is_some() {
+        assert!(
+            K::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE > 0,
+            "Macro buffer size must be greater than 0 if you are using Via macros."
+        );
+        assert!(
+            K::DYNAMIC_KEYMAP_MACRO_COUNT > 0,
+            "Macro count must be greater than 0 if you are using Via macros."
+        );
+    } else {
+        assert!(
+            K::DYNAMIC_KEYMAP_MACRO_COUNT == 0,
+            "Macro count should be 0 if you are not using Via macros."
+        );
+    }
 
     let vial_state: Mutex<ThreadModeRawMutex, protocol::VialState> = Mutex::new(Default::default());
     let via_state: Mutex<ThreadModeRawMutex, protocol::via::ViaState<K>> =
