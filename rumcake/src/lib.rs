@@ -1,7 +1,6 @@
 #![no_std]
 #![feature(stdsimd)]
 #![feature(generic_const_exprs)]
-#![feature(type_alias_impl_trait)]
 #![feature(associated_type_defaults)]
 #![warn(missing_docs)]
 #![doc = include_str!("../../README.md")]
