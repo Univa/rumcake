@@ -193,10 +193,10 @@ struct MyKeyboardDongle;
 
 # Available Drivers
 
-| Name             | Feature Flag               | `keyboard` Macro Driver String | Required Traits                                                                                                                                                                        |
-| ---------------- | -------------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Serial[^1]       | N/A (available by default) | `"serial"`                     | `SerialDriverSettings`[^2]                                                                                                                                                             |
-| nRF Bluetooth LE | `nrf-ble`                  | `"ble"`                        | [`BluetoothDevice`](rumcake/hw/mcu/trait.BluetoothDevice.html), `NRFBLECentralDriverSettings`[^2] (central device only), `NRFBLEPeripheralDriverSettings`[^2] (peripheral device only) |
+| Name             | Feature Flag               | `keyboard` Macro Driver String | Required Traits                                                                                                                                                                                              |
+| ---------------- | -------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Serial[^1]       | N/A (available by default) | `"serial"`                     | `SerialDriverSettings`[^2]                                                                                                                                                                                   |
+| nRF Bluetooth LE | `nrf-ble`                  | `"ble"`                        | [`BluetoothDevice`](/rumcake/api/nrf52840/rumcake/hw/mcu/trait.BluetoothDevice.html), `NRFBLECentralDriverSettings`[^2] (central device only), `NRFBLEPeripheralDriverSettings`[^2] (peripheral device only) |
 
 [^1]:
     Compatible with any type that implements both `embedded_io_async::Read` and `embedded_io_async::Write`.
