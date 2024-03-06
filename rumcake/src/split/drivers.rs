@@ -4,11 +4,10 @@
 use core::fmt::Debug;
 
 use embedded_io_async::ReadExactError;
-use embedded_io_async::{Read, Write};
 use postcard::Error;
 
-use super::{MessageToCentral, MESSAGE_TO_CENTRAL_BUFFER_SIZE};
-use super::{MessageToPeripheral, MESSAGE_TO_PERIPHERAL_BUFFER_SIZE};
+use super::MessageToCentral;
+use super::MessageToPeripheral;
 
 /// A trait that a driver must implement to allow a central device to send and receive messages from peripherals.
 pub trait CentralDeviceDriver {
@@ -25,39 +24,6 @@ pub trait CentralDeviceDriver {
         &mut self,
         message: MessageToPeripheral,
     ) -> Result<(), CentralDeviceError<Self::DriverError>>;
-}
-
-/// Struct that allows you to use a serial driver (implementor of both [`embedded_io_async::Read`]
-/// and [`embedded_io_async::Write`]) with rumcake's split keyboard tasks.
-pub struct SerialSplitDriver<D: Write + Read> {
-    /// A serial driver that implements the [`embedded_io_async::Read`] and
-    /// [`embedded_io_async::Write`] traits.
-    pub serial: D,
-}
-
-impl<D: Write + Read> CentralDeviceDriver for SerialSplitDriver<D> {
-    type DriverError = D::Error;
-
-    async fn receive_message_from_peripherals(
-        &mut self,
-    ) -> Result<MessageToCentral, CentralDeviceError<Self::DriverError>> {
-        let mut buffer = [0; MESSAGE_TO_CENTRAL_BUFFER_SIZE];
-        self.serial.read_exact(&mut buffer).await?;
-        postcard::from_bytes_cobs(&mut buffer).map_err(CentralDeviceError::DeserializationError)
-    }
-
-    async fn broadcast_message_to_peripherals(
-        &mut self,
-        message: MessageToPeripheral,
-    ) -> Result<(), CentralDeviceError<Self::DriverError>> {
-        let mut buffer = [0; MESSAGE_TO_PERIPHERAL_BUFFER_SIZE];
-        postcard::to_slice_cobs(&message, &mut buffer)
-            .map_err(CentralDeviceError::SerializationError)?;
-        self.serial
-            .write_all(&buffer)
-            .await
-            .map_err(CentralDeviceError::DriverError)
-    }
 }
 
 #[derive(Debug)]
@@ -100,31 +66,6 @@ pub trait PeripheralDeviceDriver {
     async fn receive_message_from_central(
         &mut self,
     ) -> Result<MessageToPeripheral, PeripheralDeviceError<Self::DriverError>>;
-}
-
-impl<D: Write + Read> PeripheralDeviceDriver for SerialSplitDriver<D> {
-    type DriverError = D::Error;
-
-    async fn send_message_to_central(
-        &mut self,
-        event: MessageToCentral,
-    ) -> Result<(), PeripheralDeviceError<Self::DriverError>> {
-        let mut buffer = [0; MESSAGE_TO_CENTRAL_BUFFER_SIZE];
-        postcard::to_slice_cobs(&event, &mut buffer)
-            .map_err(PeripheralDeviceError::SerializationError)?;
-        self.serial
-            .write_all(&buffer)
-            .await
-            .map_err(PeripheralDeviceError::DriverError)
-    }
-
-    async fn receive_message_from_central(
-        &mut self,
-    ) -> Result<MessageToPeripheral, PeripheralDeviceError<Self::DriverError>> {
-        let mut buffer = [0; MESSAGE_TO_PERIPHERAL_BUFFER_SIZE];
-        self.serial.read_exact(&mut buffer).await?;
-        postcard::from_bytes_cobs(&mut buffer).map_err(PeripheralDeviceError::DeserializationError)
-    }
 }
 
 #[derive(Debug)]

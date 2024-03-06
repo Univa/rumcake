@@ -150,7 +150,6 @@ pub mod display;
 
 pub mod hw;
 
-#[cfg(feature = "drivers")]
 pub mod drivers;
 
 pub mod tasks {
@@ -212,8 +211,8 @@ pub mod tasks {
     #[cfg(all(feature = "nrf", feature = "bluetooth"))]
     pub use crate::bluetooth::nrf_ble::__nrf_ble_task;
 
-    #[cfg(all(feature = "drivers", feature = "nrf-ble", feature = "split-central"))]
+    #[cfg(all(feature = "nrf-ble", feature = "split-central"))]
     pub use crate::drivers::nrf_ble::central::__nrf_ble_central_task;
-    #[cfg(all(feature = "drivers", feature = "nrf-ble", feature = "split-peripheral"))]
+    #[cfg(all(feature = "nrf-ble", feature = "split-peripheral"))]
     pub use crate::drivers::nrf_ble::peripheral::__nrf_ble_peripheral_task;
 }

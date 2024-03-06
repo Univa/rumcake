@@ -7,7 +7,6 @@ edition = "2021"
 # Metadata for generating docs using ../docs/scripts/gen_api_docs.js
 # API doc generation is inspired by they way embassy-rs generates their docs: https://github.com/embassy-rs/docserver
 features = [
-  "drivers",
   "storage",
   "simple-backlight",
   "simple-backlight-matrix",
@@ -18,7 +17,10 @@ features = [
   "display",
   "split-peripheral",
   "split-central",
-  "media-keycodes"
+  "media-keycodes",
+  "ws2812-bitbang",
+  "is31fl3731",
+  "ssd1306"
 ]
 
 flavours = [
@@ -69,11 +71,9 @@ postcard = { version = "1.0.7", features = ["experimental-derive"] }
 # third party utilities for dealing with rgb values
 smart-leds = "0.3.0"
 
-# third party drivers for backlight
-is31fl3731 = { git = "https://github.com/Univa/is31fl3731", features = ["async"] }
-
-# third party drivers for display
-ssd1306 = "0.8.2"
+# third party drivers 
+is31fl3731 = { git = "https://github.com/Univa/is31fl3731", features = ["async"], optional = true }
+ssd1306 = { version = "0.8.2", optional = true }
 
 rumcake-macros = { path = "../rumcake-macros" }
 
@@ -124,4 +124,12 @@ display = []
 
 split-peripheral = ["nrf-softdevice?/ble-peripheral", "nrf-softdevice?/ble-gatt-server"]
 split-central = ["nrf-softdevice?/ble-central", "nrf-softdevice?/ble-gatt-client"]
+
+#
+# Drivers
+#
+
+ws2812-bitbang = []
+is31fl3731 = ["dep:is31fl3731"]
+ssd1306 = ["dep:ssd1306"]
 
