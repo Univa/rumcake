@@ -244,6 +244,13 @@ pub fn setup_buffered_uarte(input: proc_macro::TokenStream) -> proc_macro::Token
     hw::setup_buffered_uarte(ident).into()
 }
 
+#[cfg(feature = "stm32")]
+#[proc_macro]
+pub fn setup_buffered_uart(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let ident = parse_macro_input!(input with Punctuated<Ident, Token![,]>::parse_terminated);
+    hw::setup_buffered_uart(ident).into()
+}
+
 mod via;
 
 #[proc_macro]

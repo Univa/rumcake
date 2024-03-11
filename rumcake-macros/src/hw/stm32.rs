@@ -97,3 +97,49 @@ pub fn setup_i2c(args: Punctuated<Ident, Token![,]>) -> TokenStream {
         }
     }
 }
+
+fn setup_buffered_uart_inner(args: Punctuated<Ident, Token![,]>) -> TokenStream {
+    let mut args = args.iter();
+
+    let interrupt = args.next().expect_or_abort("Missing interrupt argument.");
+    let uart = args
+        .next()
+        .expect_or_abort("Missing UART peripheral argument.");
+    let rx_pin = args.next().expect_or_abort("Missing RX pin argument.");
+    let tx_pin = args.next().expect_or_abort("Missing TX pin argument.");
+
+    quote! {
+        unsafe {
+            static mut RBUF: [u8; 64] = [0; 64];
+            static mut TBUF: [u8; 64] = [0; 64];
+            ::rumcake::hw::mcu::embassy_stm32::bind_interrupts! {
+                struct Irqs {
+                    #interrupt => ::rumcake::hw::mcu::embassy_stm32::usart::BufferedInterruptHandler<::rumcake::hw::mcu::embassy_stm32::peripherals::#uart>;
+                }
+            };
+            let uart = ::rumcake::hw::mcu::embassy_stm32::peripherals::#uart::steal();
+            let rx = ::rumcake::hw::mcu::embassy_stm32::peripherals::#rx_pin::steal();
+            let tx = ::rumcake::hw::mcu::embassy_stm32::peripherals::#tx_pin::steal();
+            ::rumcake::hw::mcu::embassy_stm32::usart::BufferedUart::new(
+                uart,
+                Irqs,
+                rx,
+                tx,
+                &mut TBUF,
+                &mut RBUF,
+                Default::default(),
+            ).unwrap()
+        }
+    }
+}
+
+pub fn setup_buffered_uart(args: Punctuated<Ident, Token![,]>) -> TokenStream {
+    let inner = setup_buffered_uart_inner(args);
+
+    quote! {
+        fn setup_serial(
+        ) -> impl ::rumcake::embedded_io_async::Write + ::rumcake::embedded_io_async::Read {
+            #inner
+        }
+    }
+}

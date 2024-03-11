@@ -98,19 +98,17 @@ fn setup_split_driver(
             }
         }
         "serial" => {
-            if cfg!(feature = "nrf") {
-                return {
-                    traits.insert(driver, crate::drivers::serial_driver_trait());
-                    match role {
-                        SplitRole::Central => initialization.extend(quote! {
-                            let split_central_driver = ::rumcake::drivers::SerialSplitDriver { serial: <#kb_name as SerialDriverSettings>::setup_serial() };
-                        }),
-                        SplitRole::Peripheral => initialization.extend(quote! {
-                            let split_peripheral_driver = ::rumcake::drivers::SerialSplitDriver { serial: <#kb_name as SerialDriverSettings>::setup_serial() };
-                        }),
-                    }
-                };
-            }
+            return {
+                traits.insert(driver, crate::drivers::serial_driver_trait());
+                match role {
+                    SplitRole::Central => initialization.extend(quote! {
+                        let split_central_driver = ::rumcake::drivers::SerialSplitDriver { serial: <#kb_name as SerialDriverSettings>::setup_serial() };
+                    }),
+                    SplitRole::Peripheral => initialization.extend(quote! {
+                        let split_peripheral_driver = ::rumcake::drivers::SerialSplitDriver { serial: <#kb_name as SerialDriverSettings>::setup_serial() };
+                    }),
+                }
+            };
         }
         _ => (),
     }

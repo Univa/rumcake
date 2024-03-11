@@ -20,7 +20,7 @@ use embedded_storage_async::nor_flash::{
 };
 use static_cell::StaticCell;
 
-pub use rumcake_macros::{input_pin, output_pin, setup_i2c};
+pub use rumcake_macros::{input_pin, output_pin, setup_buffered_uart, setup_i2c};
 
 pub use embassy_stm32;
 
@@ -163,43 +163,4 @@ pub fn setup_internal_flash() -> Flash {
     Flash {
         flash: unsafe { HALFlash::new_blocking(FLASH::steal()) },
     }
-}
-
-#[macro_export]
-macro_rules! setup_uart_reader {
-    ($interrupt:ident, $uart:ident, $rx:ident, $rxdma:ident) => {
-        fn setup_uart_reader() -> impl $crate::embedded_io_async::Read<Error = impl core::fmt::Debug> {
-            unsafe {
-                $crate::hw::mcu::embassy_stm32::bind_interrupts! {
-                    struct Irqs {
-                        $interrupt => $crate::hw::mcu::embassy_stm32::usart::InterruptHandler<$crate::hw::mcu::embassy_stm32::peripherals::$uart>;
-                    }
-                };
-                let uart = $crate::hw::mcu::embassy_stm32::peripherals::$uart::steal();
-                let rx = $crate::hw::mcu::embassy_stm32::peripherals::$rx::steal();
-                let rx_dma = $crate::hw::mcu::embassy_stm32::peripherals::$rxdma::steal();
-                $crate::hw::mcu::embassy_stm32::usart::UartRx::new(uart, Irqs, rx, rx_dma, Default::default()).into_ring_buffered(&mut [0; 32]);
-            }
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! setup_uart_writer {
-    ($interrupt:ident, $uart:ident, $tx:ident, $txdma:ident) => {
-        fn setup_uart_writer(
-        ) -> impl $crate::embedded_io_async::Write<Error = impl core::fmt::Debug> {
-            unsafe {
-                let uart = $crate::hw::mcu::embassy_stm32::peripherals::$uart::steal();
-                let tx = $crate::hw::mcu::embassy_stm32::peripherals::$tx::steal();
-                let tx_dma = $crate::hw::mcu::embassy_stm32::peripherals::$txdma::steal();
-                $crate::hw::mcu::embassy_stm32::usart::UartTx::new(
-                    uart,
-                    tx,
-                    tx_dma,
-                    Default::default(),
-                )
-            }
-        }
-    };
 }
