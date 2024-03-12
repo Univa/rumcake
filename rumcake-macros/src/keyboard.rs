@@ -225,15 +225,16 @@ fn setup_storage_driver(initialization: &mut TokenStream, driver: String, uses_b
     match driver.as_str() {
         "internal" => {
             return if cfg!(feature = "nrf") && uses_bluetooth {
+                // TODO: Fix storage on nrf-ble targets
                 initialization.extend(quote! {
                     use ::rumcake::storage::FlashStorage;
                     let flash = ::rumcake::hw::mcu::setup_internal_softdevice_flash(sd);
                     let config_start = unsafe { &::rumcake::hw::__config_start as *const u32 as usize };
                     let config_end = unsafe { &::rumcake::hw::__config_end as *const u32 as usize };
-                    static mut READ_BUF: [u8; ::rumcake::hw::mcu::nrf_softdevice::ERASE_SIZE] = [0; ::rumcake::hw::mcu::nrf_softdevice::ERASE_SIZE];
-                    static mut OP_BUF: [u8; ::rumcake::hw::mcu::nrf_softdevice::ERASE_SIZE] = [0; ::rumcake::hw::mcu::nrf_softdevice::ERASE_SIZE];
-                    static DATABASE: ::rumcake::storage::StorageService<'static, ::rumcake::hw::nrf_softdevice::Flash> = ::rumcake::storage::Database::new();
-                    unsafe { DATABASE.setup(flash, config_start, config_end, &mut read_buf, &mut op_buf).await; }
+                    static mut READ_BUF: [u8; ::rumcake::hw::mcu::nrf_softdevice::Flash::ERASE_SIZE] = [0; ::rumcake::hw::mcu::nrf_softdevice::Flash::ERASE_SIZE];
+                    static mut OP_BUF: [u8; ::rumcake::hw::mcu::nrf_softdevice::Flash::ERASE_SIZE] = [0; ::rumcake::hw::mcu::nrf_softdevice::Flash::ERASE_SIZE];
+                    static DATABASE: ::rumcake::storage::StorageService<'static, ::rumcake::hw::mcu::nrf_softdevice::Flash> = ::rumcake::storage::StorageService::new();
+                    unsafe { DATABASE.setup(flash, config_start, config_end, &mut READ_BUF, &mut OP_BUF).await; }
                 })
             } else {
                 initialization.extend(quote! {
