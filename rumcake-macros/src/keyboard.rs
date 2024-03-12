@@ -226,7 +226,7 @@ fn setup_storage_driver(initialization: &mut TokenStream, driver: String, uses_b
         "internal" => {
             return if cfg!(feature = "nrf") && uses_bluetooth {
                 initialization.extend(quote! {
-                    use ::rumcake::embedded_storage_async::nor_flash::NorFlash;
+                    use ::rumcake::storage::FlashStorage;
                     let flash = ::rumcake::hw::mcu::setup_internal_softdevice_flash(sd);
                     let config_start = unsafe { &::rumcake::hw::__config_start as *const u32 as usize };
                     let config_end = unsafe { &::rumcake::hw::__config_end as *const u32 as usize };
@@ -237,7 +237,7 @@ fn setup_storage_driver(initialization: &mut TokenStream, driver: String, uses_b
                 })
             } else {
                 initialization.extend(quote! {
-                    use ::rumcake::embedded_storage_async::nor_flash::NorFlash;
+                    use ::rumcake::storage::FlashStorage;
                     let flash = ::rumcake::hw::mcu::setup_internal_flash();
                     let config_start = unsafe { &::rumcake::hw::__config_start as *const u32 as usize };
                     let config_end = unsafe { &::rumcake::hw::__config_end as *const u32 as usize };

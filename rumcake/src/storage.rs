@@ -9,13 +9,17 @@
 //! `feature-storage.md` doc for more information.
 
 use core::cell::{Cell, RefCell};
+use core::fmt::Debug;
 use core::hash::{Hash, Hasher, SipHasher};
 
 use defmt::{assert, debug};
 use defmt::{error, info, warn, Debug2Format};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::{Mutex, MutexGuard};
-use embedded_storage_async::nor_flash::NorFlash;
+use embedded_storage::nor_flash::ReadNorFlash;
+use embedded_storage_async::nor_flash::{
+    ErrorType, NorFlash as AsyncNorFlash, ReadNorFlash as AsyncReadNorFlash,
+};
 use num_derive::FromPrimitive;
 use once_cell::sync::OnceCell;
 use serde::de::DeserializeOwned;
@@ -67,7 +71,7 @@ enum StorageKeyType {
 
 /// A wrapper around a TicKV instance which allows you to receive requests to read, write or delete
 /// data from a storage peripheral.
-pub struct StorageService<'a, F: NorFlash>
+pub struct StorageService<'a, F: FlashStorage>
 where
     [(); F::ERASE_SIZE]:,
 {
@@ -75,7 +79,7 @@ where
         OnceCell<Mutex<ThreadModeRawMutex, AsyncTicKV<'a, FlashDevice<'a, F>, { F::ERASE_SIZE }>>>,
 }
 
-impl<'a, F: NorFlash> StorageService<'a, F>
+impl<'a, F: FlashStorage> StorageService<'a, F>
 where
     [(); F::ERASE_SIZE]:,
 {
@@ -374,7 +378,7 @@ where
     }
 }
 
-async fn perform_pending_flash_op<'a, F: NorFlash>(
+async fn perform_pending_flash_op<'a, F: FlashStorage>(
     database: &mut AsyncTicKV<'a, FlashDevice<'a, F>, { F::ERASE_SIZE }>,
 ) -> Result<(), ErrorCode> {
     let operation = database.tickv.controller.pending.get();
@@ -418,7 +422,7 @@ async fn perform_pending_flash_op<'a, F: NorFlash>(
     Ok(())
 }
 
-async fn continue_to_completion<'a, F: NorFlash>(
+async fn continue_to_completion<'a, F: FlashStorage>(
     database: &mut AsyncTicKV<'a, FlashDevice<'a, F>, { F::ERASE_SIZE }>,
 ) -> (
     Result<SuccessCode, ErrorCode>,
@@ -449,7 +453,7 @@ async fn continue_to_completion<'a, F: NorFlash>(
     ret
 }
 
-async fn initialise<'a, F: NorFlash>(
+async fn initialise<'a, F: FlashStorage>(
     database: &mut AsyncTicKV<'a, FlashDevice<'a, F>, { F::ERASE_SIZE }>,
 ) -> Result<SuccessCode, ErrorCode> {
     let mut ret = database.initialise(get_hashed_key(MAIN_KEY));
@@ -459,7 +463,7 @@ async fn initialise<'a, F: NorFlash>(
     ret
 }
 
-async fn append_key<'a, F: NorFlash>(
+async fn append_key<'a, F: FlashStorage>(
     database: &mut AsyncTicKV<'a, FlashDevice<'a, F>, { F::ERASE_SIZE }>,
     key: &[u8],
     value: &'static mut [u8],
@@ -476,7 +480,7 @@ async fn append_key<'a, F: NorFlash>(
     }
 }
 
-async fn get_key<'a, F: NorFlash>(
+async fn get_key<'a, F: FlashStorage>(
     database: &mut AsyncTicKV<'a, FlashDevice<'a, F>, { F::ERASE_SIZE }>,
     key: &[u8],
     buf: &'static mut [u8],
@@ -492,7 +496,7 @@ async fn get_key<'a, F: NorFlash>(
     }
 }
 
-async fn invalidate_key<'a, F: NorFlash>(
+async fn invalidate_key<'a, F: FlashStorage>(
     database: &mut AsyncTicKV<'a, FlashDevice<'a, F>, { F::ERASE_SIZE }>,
     key: &[u8],
 ) -> (
@@ -507,7 +511,7 @@ async fn invalidate_key<'a, F: NorFlash>(
     }
 }
 
-async fn garbage_collect<'a, F: NorFlash>(
+async fn garbage_collect<'a, F: FlashStorage>(
     database: &mut AsyncTicKV<'a, FlashDevice<'a, F>, { F::ERASE_SIZE }>,
 ) -> (
     Result<SuccessCode, ErrorCode>,
@@ -544,24 +548,79 @@ enum PendingOperation {
     Delete(usize),
 }
 
-/// Data structure that wraps around an implementor of
-/// [`embedded_storage_async::nor_flash::NorFlash`]. This struct is only `pub` in order to set up
-/// the storage task, which uses [`tickv`]. If you want to read, write or delete existing data
-/// (like [`crate::underglow::animations::UnderglowConfig`]), see
-/// [`crate::storage::StorageClient`]. Reading, writing or deleting *custom* data using the same
-/// storage peripheral used for the storage task is not yet supported.
-struct FlashDevice<'a, F: NorFlash>
+/// A trait that allows a flash peripheral to be used as a [`StorageService`].
+pub trait FlashStorage {
+    /// Type that describes errors that can occur during a read, write or erase operation.
+    type Error: Debug;
+
+    /// Erase size of the flash device. This may also be called "region size" or "page size".
+    const ERASE_SIZE: usize;
+
+    /// Equivalent to [`embedded_storage_async::nor_flash::NorFlash::erase`].
+    ///
+    /// Erase data between the given addresses (inclusive). The implementor does not necessarily
+    /// have to perform an erase operation in an asynchronous/non-blocking manner.
+    async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error>;
+
+    /// Equivalent to [`embedded_storage_async::nor_flash::NorFlash::write`].
+    ///
+    /// Write data to the given address. The amount of data written depends on the size of the
+    /// provided data buffer. The implementor does not necessarily have to perform an write
+    /// operation in a asynchronous/non-blocking manner.
+    async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error>;
+
+    /// Equivalent to [`embedded_storage_async::nor_flash::ReadNorFlash::read`].
+    ///
+    /// Read data to the given address. The amount of data read from the flash peripheral depends
+    /// on the size of the provided data buffer. The implementor does not necessarily have to
+    /// perform a read operation in an asynchronous/non-blocking manner.
+    async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error>;
+
+    /// Equivalent to [`embedded_storage::nor_flash::ReadNorFlash::read`].
+    ///
+    /// Read data to the given address. The amount of data read from the flash peripheral depends
+    /// on the size of the provided data buffer.
+    fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error>;
+}
+
+impl<F: ReadNorFlash + AsyncNorFlash> FlashStorage for F {
+    type Error = <Self as ErrorType>::Error;
+
+    const ERASE_SIZE: usize = Self::ERASE_SIZE;
+
+    async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+        self.erase(from, to).await
+    }
+
+    async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
+        self.write(offset, bytes).await
+    }
+
+    async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
+        AsyncReadNorFlash::read(self, offset, bytes).await
+    }
+
+    fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
+        ReadNorFlash::read(self, offset, bytes)
+    }
+}
+
+/// Data structure that wraps around an implementor of [`FlashStorage`]. If you want to read, write
+/// or delete existing data (like [`crate::underglow::animations::UnderglowConfig`]), see
+/// [`StorageService`]. Reading, writing or deleting *custom* data using the same storage
+/// peripheral used for the storage task is not yet supported.
+struct FlashDevice<'a, F: FlashStorage>
 where
     [(); F::ERASE_SIZE]:,
 {
-    flash: F,
+    flash: RefCell<F>,
     start: usize,
     end: usize,
     pending: Cell<Option<PendingOperation>>,
     op_buf: RefCell<&'a mut [u8; F::ERASE_SIZE]>,
 }
 
-impl<'a, F: NorFlash> FlashDevice<'a, F>
+impl<'a, F: FlashStorage> FlashDevice<'a, F>
 where
     [(); F::ERASE_SIZE]:,
 {
@@ -588,7 +647,7 @@ where
         );
 
         FlashDevice {
-            flash: driver,
+            flash: RefCell::new(driver),
             start: config_start,
             end: config_end,
             pending: Cell::new(None),
@@ -607,6 +666,7 @@ where
 
         if let Err(err) = self
             .flash
+            .borrow_mut()
             .read(
                 (self.start + address) as u32,
                 self.op_buf.borrow_mut().as_mut(),
@@ -635,50 +695,14 @@ where
             &self.op_buf.borrow()[..len]
         );
 
-        // In the `write` method in the FlashController trait implementation, we wrote the data to
-        // op_buf in the same location as its intended position in the flash page. Now, we read the
-        // contents of that page into `op_buf` without overwriting the data that we want to write.
-        // This allows us to avoid creating another buffer with a size of F::ERASE_SIZE to store
-        // the read results of the page that we're writing to. This is good for MCUs that don't
-        // have a lot of RAM (e.g. STM32F072CB).
-
-        // This is the index of the data we're writing in `op_buf`
-        let offset = address % F::ERASE_SIZE;
-
-        // Read the existing flash data preceding the write data in op_buf
-        if let Err(err) = self
-            .flash
-            .read(
-                (self.start + address - address % F::ERASE_SIZE) as u32,
-                &mut self.op_buf.borrow_mut()[..offset],
-            )
-            .await
-        {
-            error!(
-                "[STORAGE_DRIVER] Failed to read page data before writing (preceding write data): {}",
-                defmt::Debug2Format(&err),
-            );
-            return Err(err);
-        };
-
-        // Read the existing flash data succeeding the write data in op_buf
-        if let Err(err) = self
-            .flash
-            .read(
-                (self.start + address + len) as u32,
-                &mut self.op_buf.borrow_mut()[(offset + len)..],
-            )
-            .await
-        {
-            error!(
-                "[STORAGE_DRIVER] Failed to read page data before writing (succeeding write data): {}",
-                defmt::Debug2Format(&err),
-            );
-            return Err(err);
-        };
+        // In the `write` method in the FlashController trait implementation, copied the existing
+        // page data and wrote the new data on top of it. This allows us to avoid creating another
+        // buffer with a size of F::ERASE_SIZE to store the read results of the page that we're
+        // writing to. This is good for MCUs that don't have a lot of RAM (e.g. STM32F072CB).
 
         if let Err(err) = self
             .flash
+            .borrow_mut()
             .erase(
                 (self.start + address - address % F::ERASE_SIZE) as u32,
                 (self.start + address - address % F::ERASE_SIZE + F::ERASE_SIZE) as u32,
@@ -697,6 +721,7 @@ where
         for start in (0..F::ERASE_SIZE).step_by(512) {
             if let Err(err) = self
                 .flash
+                .borrow_mut()
                 .write(
                     (self.start + ((address / F::ERASE_SIZE) * F::ERASE_SIZE) + start) as u32,
                     &self.op_buf.borrow()[start..(start + 512)],
@@ -725,7 +750,12 @@ where
             end
         );
 
-        if let Err(err) = self.flash.erase(start as u32, end as u32).await {
+        if let Err(err) = self
+            .flash
+            .borrow_mut()
+            .erase(start as u32, end as u32)
+            .await
+        {
             error!(
                 "[STORAGE_DRIVER] Failed to erase: {}",
                 defmt::Debug2Format(&err)
@@ -737,7 +767,7 @@ where
     }
 }
 
-impl<'a, F: NorFlash> FlashController<{ F::ERASE_SIZE }> for FlashDevice<'a, F> {
+impl<'a, F: FlashStorage> FlashController<{ F::ERASE_SIZE }> for FlashDevice<'a, F> {
     fn read_region(
         &self,
         region_number: usize,
@@ -752,7 +782,12 @@ impl<'a, F: NorFlash> FlashController<{ F::ERASE_SIZE }> for FlashDevice<'a, F> 
     fn write(&self, address: usize, buf: &[u8]) -> Result<(), tickv::ErrorCode> {
         // Write the data to op_buf where the data should be in the page.
         let offset = address % F::ERASE_SIZE;
-        self.op_buf.borrow_mut()[offset..(offset + buf.len())].copy_from_slice(buf);
+        let mut op_buf = self.op_buf.borrow_mut();
+        self.flash
+            .borrow_mut()
+            .blocking_read((self.start + address - offset) as u32, op_buf.as_mut())
+            .map_err(|_| tickv::ErrorCode::WriteFail)?;
+        op_buf[offset..(offset + buf.len())].copy_from_slice(buf);
         self.pending
             .set(Some(PendingOperation::Write(address, buf.len())));
         Err(tickv::ErrorCode::WriteNotReady(address))

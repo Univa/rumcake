@@ -13,10 +13,6 @@ use embassy_nrf::usb::Driver;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Timer};
-use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
-use embedded_storage_async::nor_flash::{
-    NorFlash as AsyncNorFlash, ReadNorFlash as AsyncReadNorFlash,
-};
 use static_cell::StaticCell;
 
 use crate::hw::BATTERY_LEVEL_STATE;
@@ -116,33 +112,30 @@ pub struct Flash {
     flash: Nvmc<'static>,
 }
 
-impl ErrorType for Flash {
+#[cfg(feature = "storage")]
+impl crate::storage::FlashStorage for Flash {
     type Error = embassy_nrf::nvmc::Error;
-}
-
-impl AsyncReadNorFlash for Flash {
-    const READ_SIZE: usize = <Nvmc as ReadNorFlash>::READ_SIZE;
-
-    async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
-        self.flash.read(offset, bytes)
-    }
-
-    fn capacity(&self) -> usize {
-        self.flash.capacity()
-    }
-}
-
-impl AsyncNorFlash for Flash {
-    const WRITE_SIZE: usize = <Nvmc as embedded_storage::nor_flash::NorFlash>::WRITE_SIZE;
 
     const ERASE_SIZE: usize = <Nvmc as embedded_storage::nor_flash::NorFlash>::ERASE_SIZE;
 
     async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+        use embedded_storage::nor_flash::NorFlash;
         self.flash.erase(from, to)
     }
 
     async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
+        use embedded_storage::nor_flash::NorFlash;
         self.flash.write(offset, bytes)
+    }
+
+    async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
+        use embedded_storage::nor_flash::ReadNorFlash;
+        self.flash.read(offset, bytes)
+    }
+
+    fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
+        use embedded_storage::nor_flash::ReadNorFlash;
+        self.flash.read(offset, bytes)
     }
 }
 

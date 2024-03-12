@@ -173,9 +173,8 @@ pub mod storage {
     use embassy_sync::signal::Signal;
     use embassy_time::Duration;
     use embassy_time::Timer;
-    use embedded_storage_async::nor_flash::NorFlash;
 
-    use crate::storage::StorageDevice;
+    use crate::storage::{FlashStorage, StorageDevice};
 
     use super::UnderglowConfig;
     use super::UNDERGLOW_CONFIG_STATE;
@@ -186,7 +185,7 @@ pub mod storage {
     pub(super) static UNDERGLOW_SAVE_SIGNAL: Signal<ThreadModeRawMutex, ()> = Signal::new();
 
     #[rumcake_macros::task]
-    pub async fn underglow_storage_task<K: StorageDevice, F: NorFlash>(
+    pub async fn underglow_storage_task<K: StorageDevice, F: FlashStorage>(
         _k: K,
         database: &crate::storage::StorageService<'static, F>,
     ) where

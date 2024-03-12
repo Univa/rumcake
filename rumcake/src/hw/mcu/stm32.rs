@@ -9,10 +9,6 @@ use embassy_stm32::flash::{Blocking, Flash as HALFlash};
 use embassy_stm32::peripherals::{FLASH, PA11, PA12, USB};
 use embassy_stm32::rcc::{APBPrescaler, Hse, Pll, PllMul, PllPreDiv, PllSource, Sysclk, HSI_FREQ};
 use embassy_stm32::usb::Driver;
-use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
-use embedded_storage_async::nor_flash::{
-    NorFlash as AsyncNorFlash, ReadNorFlash as AsyncReadNorFlash,
-};
 use static_cell::StaticCell;
 
 pub use rumcake_macros::{input_pin, output_pin, setup_buffered_uart, setup_i2c};
@@ -146,33 +142,30 @@ pub struct Flash {
     flash: HALFlash<'static, Blocking>,
 }
 
-impl ErrorType for Flash {
+#[cfg(feature = "storage")]
+impl crate::storage::FlashStorage for Flash {
     type Error = embassy_stm32::flash::Error;
-}
-
-impl AsyncReadNorFlash for Flash {
-    const READ_SIZE: usize = <HALFlash as ReadNorFlash>::READ_SIZE;
-
-    async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
-        self.flash.read(offset, bytes)
-    }
-
-    fn capacity(&self) -> usize {
-        self.flash.capacity()
-    }
-}
-
-impl AsyncNorFlash for Flash {
-    const WRITE_SIZE: usize = <HALFlash as embedded_storage::nor_flash::NorFlash>::WRITE_SIZE;
 
     const ERASE_SIZE: usize = <HALFlash as embedded_storage::nor_flash::NorFlash>::ERASE_SIZE;
 
     async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+        use embedded_storage::nor_flash::NorFlash;
         self.flash.erase(from, to)
     }
 
     async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
+        use embedded_storage::nor_flash::NorFlash;
         self.flash.write(offset, bytes)
+    }
+
+    async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
+        use embedded_storage::nor_flash::ReadNorFlash;
+        self.flash.read(offset, bytes)
+    }
+
+    fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
+        use embedded_storage::nor_flash::ReadNorFlash;
+        self.flash.read(offset, bytes)
     }
 }
 

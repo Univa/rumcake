@@ -316,9 +316,8 @@ macro_rules! storage_module {
         use embassy_sync::signal::Signal;
         use embassy_time::Duration;
         use embassy_time::Timer;
-        use embedded_storage_async::nor_flash::NorFlash;
 
-        use crate::storage::StorageDevice;
+        use crate::storage::{FlashStorage, StorageDevice};
 
         use super::BacklightConfig;
         use super::BACKLIGHT_CONFIG_STATE;
@@ -333,7 +332,7 @@ macro_rules! storage_module {
 macro_rules! storage_task_fn {
     ($name:tt, $key:ident) => {
         #[rumcake_macros::task]
-        pub async fn $name<K: StorageDevice, F: NorFlash>(
+        pub async fn $name<K: StorageDevice, F: FlashStorage>(
             _k: K,
             database: &crate::storage::StorageService<'static, F>,
         ) where

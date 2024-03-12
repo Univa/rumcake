@@ -213,9 +213,8 @@ pub mod storage {
     use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
     use embassy_sync::channel::Channel;
     use embassy_sync::signal::Signal;
-    use embedded_storage_async::nor_flash::NorFlash;
 
-    use crate::storage::{StorageDevice, StorageKey};
+    use crate::storage::{FlashStorage, StorageDevice, StorageKey};
 
     use super::ViaKeyboard;
 
@@ -272,7 +271,7 @@ pub mod storage {
     pub(super) static VIA_LAYOUT_OPTIONS: Signal<ThreadModeRawMutex, u32> = Signal::new();
 
     #[rumcake_macros::task]
-    pub async fn via_storage_task<K: StorageDevice + ViaKeyboard + 'static, F: NorFlash>(
+    pub async fn via_storage_task<K: StorageDevice + ViaKeyboard + 'static, F: FlashStorage>(
         _k: K,
         database: &crate::storage::StorageService<'_, F>,
     ) where
