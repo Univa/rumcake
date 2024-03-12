@@ -4,16 +4,11 @@
 //! of other versions of the `mcu` module. This is the case so that parts of `rumcake` can remain
 //! hardware-agnostic.
 
-use core::fmt::Debug;
 use embassy_stm32::bind_interrupts;
-use embassy_stm32::dma::NoDma;
-use embassy_stm32::flash::{Bank1Region, Blocking, Flash as HALFlash};
-use embassy_stm32::i2c::I2c;
+use embassy_stm32::flash::{Blocking, Flash as HALFlash};
 use embassy_stm32::peripherals::{FLASH, PA11, PA12, USB};
-use embassy_stm32::time::Hertz;
+use embassy_stm32::rcc::{APBPrescaler, Hse, Pll, PllMul, PllPreDiv, PllSource, Sysclk, HSI_FREQ};
 use embassy_stm32::usb::Driver;
-use embedded_hal::blocking::i2c::Write;
-use embedded_hal_async::i2c::I2c as AsyncI2c;
 use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
 use embedded_storage_async::nor_flash::{
     NorFlash as AsyncNorFlash, ReadNorFlash as AsyncReadNorFlash,
@@ -43,6 +38,14 @@ pub fn jump_to_bootloader() {
     };
 }
 
+const fn gcd(a: u32, b: u32) -> u32 {
+    if b == 0 {
+        a
+    } else {
+        gcd(b, a % b)
+    }
+}
+
 /// Initialize the MCU's internal clocks.
 pub fn initialize_rcc() {
     let mut conf = embassy_stm32::Config::default();
@@ -50,15 +53,31 @@ pub fn initialize_rcc() {
 
     #[cfg(feature = "stm32f072cb")]
     {
-        rcc_conf.sys_ck = Some(embassy_stm32::time::Hertz(SYSCLK));
+        rcc_conf.pll = Some(Pll {
+            src: PllSource::HSI,
+            prediv: PllPreDiv::DIV2,
+            mul: PllMul::from(((2 * 2 * SYSCLK + HSI_FREQ.0) / HSI_FREQ.0 / 2) as u8 - 2),
+        });
+        rcc_conf.sys = Sysclk::PLL1_P;
     }
 
     #[cfg(feature = "stm32f303cb")]
     {
-        rcc_conf.sysclk = Some(embassy_stm32::time::Hertz(SYSCLK));
-        rcc_conf.hse = Some(embassy_stm32::time::Hertz(8_000_000));
-        rcc_conf.pclk1 = Some(embassy_stm32::time::Hertz(24_000_000));
-        rcc_conf.pclk2 = Some(embassy_stm32::time::Hertz(24_000_000));
+        let hse = embassy_stm32::time::mhz(8);
+        let div = gcd(SYSCLK, hse.0);
+
+        rcc_conf.hse = Some(Hse {
+            freq: hse,
+            mode: embassy_stm32::rcc::HseMode::Oscillator,
+        });
+        rcc_conf.pll = Some(Pll {
+            src: PllSource::HSE,
+            prediv: PllPreDiv::from((hse.0 / div) as u8 - 1),
+            mul: PllMul::from((SYSCLK / div) as u8 - 2),
+        });
+        rcc_conf.apb1_pre = APBPrescaler::DIV2;
+        rcc_conf.apb2_pre = APBPrescaler::DIV2;
+        rcc_conf.sys = Sysclk::PLL1_P;
     }
 
     conf.rcc = rcc_conf;
