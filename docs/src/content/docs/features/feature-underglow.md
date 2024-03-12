@@ -57,16 +57,9 @@ use rumcake::keyboard;
         driver = "ws2812_bitbang", // TODO: change this to your desired underglow driver, and implement the appropriate trait (info below)
         use_storage // Optional, if you want to save underglow configuration
     )
-    storage = "internal" // You need to specify a storage driver if you specified `use_storage`. See feature-storage.md for more information.
+    storage(driver = "internal") // You need to specify a storage driver if you specified `use_storage`. See feature-storage.md for more information.
 )]
 struct MyKeyboard;
-
-// Underglow configuration
-use rumcake::underglow::UnderglowDevice;
-impl UnderglowDevice for MyKeyboard {
-    // Mandatory: set number of LEDs
-    const NUM_LEDS: usize = 20
-}
 ```
 
 You will need to do additional setup for your selected storage driver as well.

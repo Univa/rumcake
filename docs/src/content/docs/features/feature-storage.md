@@ -66,7 +66,7 @@ __config_end = __config_start + LENGTH(CONFIG); /* add this */
 - The value of `__config_start` and `__config_end` must be **relative to the start address of the FLASH section**.
   - Note that in the above example, we subtract `ORIGIN(FLASH)` for this reason.
 
-Finally, you can add `storage = "internal"` to your `#[keyboard]` macro invocation, and make sure to implement
+Finally, you can add `storage(driver = "internal")` to your `#[keyboard]` macro invocation, and make sure to implement
 `StorageDevice` for your keyboard:
 
 ```rust ins={5,7,11-12}
@@ -75,8 +75,8 @@ Finally, you can add `storage = "internal"` to your `#[keyboard]` macro invocati
     underglow(
         driver = "ws2812_bitbang",
         use_storage // This underglow feature uses storage
-    )
-    storage = "internal" // Add this
+    ),
+    storage(driver = "internal")
 )]
 struct MyKeyboard;
 

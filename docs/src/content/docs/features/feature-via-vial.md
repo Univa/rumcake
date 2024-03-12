@@ -83,7 +83,7 @@ use rumcake::keyboard;
     via(
         use_storage // Optional, if you want to save Via configuration
     ),
-    storage = "internal" // You need to specify a storage driver if you specified `use_storage`. See feature-storage.md for more information.
+    storage(driver = "internal") // You need to specify a storage driver if you specified `use_storage`. See feature-storage.md for more information.
 )]
 struct MyKeyboard;
 ```

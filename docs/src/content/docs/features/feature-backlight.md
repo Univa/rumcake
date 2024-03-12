@@ -66,7 +66,7 @@ use rumcake::keyboard;
         driver = "is31fl3731", // TODO: change this to your desired backlight driver, and implement the appropriate trait (info below)
         use_storage // Optional, if you want to save backlight configuration
     ),
-    storage = "internal" // You need to specify a storage driver if you enabled `use_storage`. See feature-storage.md for more information.
+    storage(driver = "internal") // You need to specify a storage driver if you enabled `use_storage`. See feature-storage.md for more information.
 )]
 struct MyKeyboard;
 ```
