@@ -62,6 +62,7 @@ pub(crate) struct ViaSettings {
 #[darling(default)]
 pub(crate) struct StorageSettings {
     driver: String,
+    flash_size: usize,
 }
 
 enum SplitSettings<'a> {
@@ -256,6 +257,8 @@ fn setup_display_driver(
 
 fn setup_storage_driver(
     initialization: &mut TokenStream,
+    traits: &mut HashMap<String, TokenStream>,
+    kb_name: &Ident,
     config: &StorageSettings,
     uses_bluetooth: bool,
 ) {
@@ -273,7 +276,7 @@ fn setup_storage_driver(
                     static DATABASE: ::rumcake::storage::StorageService<'static, ::rumcake::hw::mcu::nrf_softdevice::Flash> = ::rumcake::storage::StorageService::new();
                     unsafe { DATABASE.setup(flash, config_start, config_end, &mut READ_BUF, &mut OP_BUF).await; }
                 })
-            } else {
+            } else if cfg!(any(feature = "stm32", feature = "nrf")) {
                 initialization.extend(quote! {
                     use ::rumcake::storage::FlashStorage;
                     let flash = ::rumcake::hw::mcu::setup_internal_flash();
@@ -284,6 +287,30 @@ fn setup_storage_driver(
                     static DATABASE: ::rumcake::storage::StorageService<'static, ::rumcake::hw::mcu::Flash> = ::rumcake::storage::StorageService::new();
                     unsafe { DATABASE.setup(flash, config_start, config_end, &mut READ_BUF, &mut OP_BUF).await; }
                 })
+            } else if cfg!(feature = "rp") {
+                #[cfg(feature = "rp")]
+                traits.insert(config.driver.clone(), crate::hw::internal_storage_trait());
+                if config.flash_size == 0 {
+                    initialization.extend(quote_spanned! {
+                        config.driver.span() => compile_error!("You must specify a non-zero size for your flash chip.");
+                    });
+                } else {
+                    let size = config.flash_size;
+                    initialization.extend(quote! {
+                        use ::rumcake::storage::FlashStorage;
+                        let flash = ::rumcake::hw::mcu::setup_internal_flash::<#size>(<#kb_name as RP2040FlashSettings>::setup_dma_channel());
+                        let config_start = unsafe { &::rumcake::hw::__config_start as *const u32 as usize };
+                        let config_end = unsafe { &::rumcake::hw::__config_end as *const u32 as usize };
+                        static mut READ_BUF: [u8; ::rumcake::hw::mcu::embassy_rp::flash::ERASE_SIZE] = [0; ::rumcake::hw::mcu::embassy_rp::flash::ERASE_SIZE];
+                        static mut OP_BUF: [u8; ::rumcake::hw::mcu::embassy_rp::flash::ERASE_SIZE] = [0; ::rumcake::hw::mcu::embassy_rp::flash::ERASE_SIZE];
+                        static DATABASE: ::rumcake::storage::StorageService<'static, ::rumcake::hw::mcu::Flash<#size>> = ::rumcake::storage::StorageService::new();
+                        unsafe { DATABASE.setup(flash, config_start, config_end, &mut READ_BUF, &mut OP_BUF).await; }
+                    })
+                }
+            } else {
+                initialization.extend(quote_spanned! {
+                    config.driver.span() => compile_error!("Internal storage driver is not available for your platform.");
+                });
             };
         }
         _ => (),
@@ -354,7 +381,13 @@ pub(crate) fn keyboard_main(
                 driver.driver.span() => compile_error!("Storage driver was specified, but rumcake's `storage` feature flag is not enabled. Please enable the feature.");
             });
         } else {
-            setup_storage_driver(&mut initialization, driver, uses_bluetooth);
+            setup_storage_driver(
+                &mut initialization,
+                &mut traits,
+                &kb_name,
+                driver,
+                uses_bluetooth,
+            );
         }
     };
 

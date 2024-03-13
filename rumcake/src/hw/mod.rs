@@ -1,13 +1,18 @@
 //! Utilities for interfacing with hardware.
 
-#[cfg(all(not(feature = "stm32"), not(feature = "nrf")))]
+#[cfg(all(not(feature = "stm32"), not(feature = "nrf"), not(feature = "rp")))]
 compile_error!("Please enable the appropriate feature flag for the chip you're using.");
 
-#[cfg(all(feature = "stm32", feature = "nrf"))]
+#[cfg(any(
+    all(feature = "stm32", feature = "nrf"),
+    all(feature = "nrf", feature = "rp"),
+    all(feature = "rp", feature = "stm32")
+))]
 compile_error!("Please enable only one chip feature flag.");
 
 #[cfg_attr(feature = "stm32", path = "mcu/stm32.rs")]
 #[cfg_attr(feature = "nrf", path = "mcu/nrf.rs")]
+#[cfg_attr(feature = "rp", path = "mcu/rp.rs")]
 pub mod mcu;
 
 use crate::State;

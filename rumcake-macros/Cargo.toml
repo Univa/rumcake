@@ -21,6 +21,7 @@ embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", features = ["de
 [features]
 stm32 = []
 nrf = []
+rp = []
 
 storage = []
 

@@ -210,6 +210,7 @@ pub fn is31fl3731_get_led_from_rgb_matrix_coordinates(
 
 #[cfg_attr(feature = "stm32", path = "hw/stm32.rs")]
 #[cfg_attr(feature = "nrf", path = "hw/nrf.rs")]
+#[cfg_attr(feature = "rp", path = "hw/rp.rs")]
 mod hw;
 
 #[proc_macro]
@@ -244,11 +245,18 @@ pub fn setup_buffered_uarte(input: proc_macro::TokenStream) -> proc_macro::Token
     hw::setup_buffered_uarte(ident).into()
 }
 
-#[cfg(feature = "stm32")]
+#[cfg(any(feature = "stm32", feature = "rp"))]
 #[proc_macro]
 pub fn setup_buffered_uart(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ident = parse_macro_input!(input with Punctuated<Ident, Token![,]>::parse_terminated);
     hw::setup_buffered_uart(ident).into()
+}
+
+#[cfg(feature = "rp")]
+#[proc_macro]
+pub fn setup_dma_channel(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let args = parse_macro_input!(input as Ident);
+    hw::setup_dma_channel(args).into()
 }
 
 mod via;

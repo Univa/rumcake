@@ -25,6 +25,7 @@ features = [
 
 flavours = [
   { feature = "nrf52840", triple = "thumbv7em-none-eabihf", extra_features = ["nrf-ble", "bluetooth"] },
+  { feature = "rp2040", triple = "thumbv6m-none-eabi", extra_features = [] },
   { feature = "stm32f072cb", triple = "thumbv6m-none-eabi", extra_features = [] },
   { feature = "stm32f303cb", triple = "thumbv7em-none-eabihf", extra_features = [] },
 ]
@@ -45,6 +46,7 @@ embassy-futures = { git = "https://github.com/embassy-rs/embassy", rev = "b8be12
 embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "b8be126", features = ["defmt", "integrated-timers", "executor-thread"] }
 embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "b8be126", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-usb = { git = "https://github.com/embassy-rs/embassy", rev = "b8be126", features = ["defmt"] }
+embassy-rp = { git = "https://github.com/embassy-rs/embassy", rev = "b8be126", features = ["defmt", "unstable-pac"], optional = true }
 embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", rev = "b8be126", features = ["defmt", "unstable-pac"], optional = true }
 embassy-nrf = { git = "https://github.com/embassy-rs/embassy", rev = "b8be126", features = ["defmt", "nfc-pins-as-gpio", "time-driver-rtc1"], optional = true }
 nrf-softdevice = { git = "https://github.com/embassy-rs/nrf-softdevice", rev = "487f98e", optional = true }
@@ -85,6 +87,10 @@ drivers = []
 #
 # Chips
 #
+
+# RP
+rp = ["dep:cortex-m", "embassy-executor/arch-cortex-m", "dep:embassy-rp", "rumcake-macros/rp"]
+rp2040 = ["rp", "embassy-rp/time-driver"]
 
 # STM32
 stm32 = ["dep:cortex-m", "embassy-executor/arch-cortex-m", "dep:embassy-stm32", "rumcake-macros/stm32"]

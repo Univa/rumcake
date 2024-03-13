@@ -45,10 +45,7 @@ and flashing instructions for some common setups.
 - STM32F072CBx
 - STM32F303CBx
 - nRF52840 (tested with nice!nano v2)
-
-## Planned MCUs for the future
-
-- RP-based chips (I don't have access to an RP-based keyboard at the moment)
+- RP2040
 
 # Features
 
