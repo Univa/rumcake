@@ -278,12 +278,12 @@ macro_rules! backlight_module {
         use crate::keyboard::MATRIX_EVENTS;
         use crate::{LEDEffect, State};
         use embassy_futures::select;
-        use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
         use embassy_sync::channel::Channel;
         use embassy_time::{Duration, Ticker};
 
         pub mod animations;
 
+        use crate::hw::mcu::RawMutex;
         use animations::{BacklightAnimator, BacklightCommand, BacklightConfig};
 
         /// Channel for sending backlight commands.
@@ -291,7 +291,7 @@ macro_rules! backlight_module {
         /// Channel messages should be consumed by the [`backlight_task`], so user-level
         /// level code should **not** attempt to receive messages from the channel, otherwise
         /// commands may not be processed appropriately. You should only send to this channel.
-        pub static BACKLIGHT_COMMAND_CHANNEL: Channel<ThreadModeRawMutex, BacklightCommand, 2> =
+        pub static BACKLIGHT_COMMAND_CHANNEL: Channel<RawMutex, BacklightCommand, 2> =
             Channel::new();
 
         /// State that contains the current configuration for the backlight animator.
@@ -312,20 +312,19 @@ macro_rules! storage_module {
         use defmt::{info, warn, Debug2Format};
         use embassy_futures::select;
         use embassy_futures::select::Either;
-        use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
         use embassy_sync::signal::Signal;
         use embassy_time::Duration;
         use embassy_time::Timer;
 
+        use crate::hw::mcu::RawMutex;
         use crate::storage::{FlashStorage, StorageDevice};
 
         use super::BacklightConfig;
         use super::BACKLIGHT_CONFIG_STATE;
 
-        pub(super) static BACKLIGHT_CONFIG_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> =
-            Signal::new();
+        pub(super) static BACKLIGHT_CONFIG_STATE_LISTENER: Signal<RawMutex, ()> = Signal::new();
 
-        pub(super) static BACKLIGHT_SAVE_SIGNAL: Signal<ThreadModeRawMutex, ()> = Signal::new();
+        pub(super) static BACKLIGHT_SAVE_SIGNAL: Signal<RawMutex, ()> = Signal::new();
     };
 }
 

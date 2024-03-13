@@ -15,7 +15,6 @@
 pub mod central {
     use defmt::{assert, debug, error, info, warn, Debug2Format};
     use embassy_futures::select::{select, select_slice, Either};
-    use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
     use embassy_sync::channel::Channel;
     use embassy_sync::mutex::Mutex;
     use embassy_sync::pubsub::{PubSubChannel, Publisher};
@@ -25,6 +24,7 @@ pub mod central {
     use nrf_softdevice::ble::{central, Address, AddressType};
     use nrf_softdevice::{RawError, Softdevice};
 
+    use crate::hw::mcu::RawMutex;
     use crate::split::drivers::{CentralDeviceDriver, CentralDeviceError};
     use crate::split::{
         MessageToCentral, MessageToPeripheral, MESSAGE_TO_CENTRAL_BUFFER_SIZE,
@@ -32,21 +32,16 @@ pub mod central {
     };
 
     pub struct NRFBLECentralDriver<'a> {
-        publisher: Publisher<'a, ThreadModeRawMutex, MessageToPeripheral, 4, 4, 1>,
+        publisher: Publisher<'a, RawMutex, MessageToPeripheral, 4, 4, 1>,
     }
 
-    pub static BLE_MESSAGES_FROM_PERIPHERALS: Channel<ThreadModeRawMutex, MessageToCentral, 4> =
+    pub static BLE_MESSAGES_FROM_PERIPHERALS: Channel<RawMutex, MessageToCentral, 4> =
         Channel::new();
 
-    pub static BLE_MESSAGES_TO_PERIPHERALS: PubSubChannel<
-        ThreadModeRawMutex,
-        MessageToPeripheral,
-        4,
-        4,
-        1,
-    > = PubSubChannel::new();
+    pub static BLE_MESSAGES_TO_PERIPHERALS: PubSubChannel<RawMutex, MessageToPeripheral, 4, 4, 1> =
+        PubSubChannel::new();
 
-    pub static BLUETOOTH_CONNECTION_MUTEX: Mutex<ThreadModeRawMutex, ()> = Mutex::new(());
+    pub static BLUETOOTH_CONNECTION_MUTEX: Mutex<RawMutex, ()> = Mutex::new(());
 
     /// Create an instance of the nRF bluetooth central device driver.
     pub fn setup_driver() -> NRFBLECentralDriver<'static> {
@@ -229,14 +224,13 @@ pub mod central {
 pub mod peripheral {
     use defmt::{debug, error, info, warn, Debug2Format};
     use embassy_futures::select::{select, Either};
-    use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
     use embassy_sync::channel::Channel;
     use nrf_softdevice::ble::gatt_server::{run, set_sys_attrs};
     use nrf_softdevice::ble::peripheral::{advertise_connectable, ConnectableAdvertisement};
     use nrf_softdevice::ble::{Address, AddressType};
     use nrf_softdevice::Softdevice;
 
-    use crate::hw::mcu::BLUETOOTH_ADVERTISING_MUTEX;
+    use crate::hw::mcu::{RawMutex, BLUETOOTH_ADVERTISING_MUTEX};
     use crate::split::drivers::{PeripheralDeviceDriver, PeripheralDeviceError};
     use crate::split::{
         MessageToCentral, MessageToPeripheral, MESSAGE_TO_CENTRAL_BUFFER_SIZE,
@@ -245,10 +239,9 @@ pub mod peripheral {
 
     pub struct NRFBLEPeripheralDriver {}
 
-    pub static BLE_MESSAGES_TO_CENTRAL: Channel<ThreadModeRawMutex, MessageToCentral, 4> =
-        Channel::new();
+    pub static BLE_MESSAGES_TO_CENTRAL: Channel<RawMutex, MessageToCentral, 4> = Channel::new();
 
-    pub static BLE_MESSAGES_FROM_CENTRAL: Channel<ThreadModeRawMutex, MessageToPeripheral, 4> =
+    pub static BLE_MESSAGES_FROM_CENTRAL: Channel<RawMutex, MessageToPeripheral, 4> =
         Channel::new();
 
     /// Create an instance of the nRF bluetooth central device driver.

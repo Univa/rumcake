@@ -5,11 +5,11 @@
 use crate::backlight::{BacklightMatrixDevice, EmptyBacklightMatrix};
 use defmt::assert;
 use embassy_futures::join;
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use smart_leds::RGB8;
 
+use crate::hw::mcu::RawMutex;
 use crate::via::{ViaKeyboard, VIA_REPORT_HID_RECEIVE_CHANNEL, VIA_REPORT_HID_SEND_CHANNEL};
 
 mod handlers;
@@ -60,8 +60,7 @@ pub trait VialKeyboard: ViaKeyboard {
 
 /// Channel used to update the frame buffer for the
 /// [`crate::backlight::rgb_backlight_matrix::animations::BacklightEffect::DirectSet`] effect.
-pub(crate) static VIAL_DIRECT_SET_CHANNEL: Channel<ThreadModeRawMutex, (u8, RGB8), 4> =
-    Channel::new();
+pub(crate) static VIAL_DIRECT_SET_CHANNEL: Channel<RawMutex, (u8, RGB8), 4> = Channel::new();
 
 #[rumcake_macros::task]
 pub async fn vial_process_task<K: VialKeyboard + 'static>(_k: K)
@@ -94,9 +93,8 @@ where
         );
     }
 
-    let vial_state: Mutex<ThreadModeRawMutex, protocol::VialState> = Mutex::new(Default::default());
-    let via_state: Mutex<ThreadModeRawMutex, protocol::via::ViaState<K>> =
-        Mutex::new(Default::default());
+    let vial_state: Mutex<RawMutex, protocol::VialState> = Mutex::new(Default::default());
+    let via_state: Mutex<RawMutex, protocol::via::ViaState<K>> = Mutex::new(Default::default());
 
     if K::VIAL_INSECURE {
         vial_state.lock().await.unlocked = true;
@@ -128,10 +126,10 @@ where
 
 #[cfg(feature = "storage")]
 pub mod storage {
-    use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
     use embassy_sync::channel::Channel;
     use embassy_sync::signal::Signal;
 
+    use crate::hw::mcu::RawMutex;
     use crate::storage::{FlashStorage, StorageDevice, StorageKey};
 
     use super::VialKeyboard;
@@ -178,8 +176,8 @@ pub mod storage {
         OPERATION_COMPLETE.wait().await
     }
 
-    static OPERATION_COMPLETE: Signal<ThreadModeRawMutex, ()> = Signal::new();
-    static OPERATION_CHANNEL: Channel<ThreadModeRawMutex, Operation, 1> = Channel::new();
+    static OPERATION_COMPLETE: Signal<RawMutex, ()> = Signal::new();
+    static OPERATION_CHANNEL: Channel<RawMutex, Operation, 1> = Channel::new();
 
     #[rumcake_macros::task]
     pub async fn vial_storage_task<K: StorageDevice + VialKeyboard + 'static, F: FlashStorage>(

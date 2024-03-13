@@ -12,8 +12,9 @@ pub mod mcu;
 
 use crate::State;
 use embassy_futures::select;
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::signal::Signal;
+
+use mcu::RawMutex;
 
 /// State that contains the current battery level. `rumcake` may or may not use this
 /// static internally, depending on what MCU is being used. The contents of this state
@@ -75,10 +76,9 @@ pub static CURRENT_OUTPUT_STATE: State<Option<HIDOutput>> = State::new(
     ],
 );
 
-pub(crate) static OUTPUT_MODE_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();
-pub(crate) static USB_RUNNING_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();
-pub(crate) static BLUETOOTH_CONNECTED_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> =
-    Signal::new();
+pub(crate) static OUTPUT_MODE_STATE_LISTENER: Signal<RawMutex, ()> = Signal::new();
+pub(crate) static USB_RUNNING_STATE_LISTENER: Signal<RawMutex, ()> = Signal::new();
+pub(crate) static BLUETOOTH_CONNECTED_STATE_LISTENER: Signal<RawMutex, ()> = Signal::new();
 
 #[rumcake_macros::task]
 pub async fn output_switcher() {

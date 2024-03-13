@@ -7,9 +7,10 @@
 use crate::keyboard::{Keyboard, KeyboardLayout};
 use defmt::assert;
 use embassy_futures::join;
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
+
+use crate::hw::mcu::RawMutex;
 
 pub(crate) mod handlers;
 pub(crate) mod protocol_12;
@@ -152,11 +153,10 @@ pub(crate) const VIA_REPORT_DESCRIPTOR: &[u8] = &[
 /// Channel used to receive reports from the Via app to be processed. Reports that are sent to this
 /// channel will be processed by the Via task, and call the appropriate command handler, depending
 /// on the report contents.
-pub static VIA_REPORT_HID_RECEIVE_CHANNEL: Channel<ThreadModeRawMutex, [u8; 32], 1> =
-    Channel::new();
+pub static VIA_REPORT_HID_RECEIVE_CHANNEL: Channel<RawMutex, [u8; 32], 1> = Channel::new();
 
 /// Channel used to send Via reports back to the Via host.
-pub static VIA_REPORT_HID_SEND_CHANNEL: Channel<ThreadModeRawMutex, [u8; 32], 1> = Channel::new();
+pub static VIA_REPORT_HID_SEND_CHANNEL: Channel<RawMutex, [u8; 32], 1> = Channel::new();
 
 #[rumcake_macros::task]
 pub async fn via_process_task<K: ViaKeyboard + 'static>(_k: K)
@@ -186,8 +186,7 @@ where
         );
     }
 
-    let via_state: Mutex<ThreadModeRawMutex, protocol::ViaState<K>> =
-        Mutex::new(Default::default());
+    let via_state: Mutex<RawMutex, protocol::ViaState<K>> = Mutex::new(Default::default());
 
     let report_fut = async {
         loop {
@@ -210,10 +209,10 @@ where
 #[cfg(feature = "storage")]
 pub mod storage {
     use defmt::warn;
-    use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
     use embassy_sync::channel::Channel;
     use embassy_sync::signal::Signal;
 
+    use crate::hw::mcu::RawMutex;
     use crate::storage::{FlashStorage, StorageDevice, StorageKey};
 
     use super::ViaKeyboard;
@@ -265,10 +264,10 @@ pub mod storage {
         OPERATION_COMPLETE.wait().await;
     }
 
-    static OPERATION_CHANNEL: Channel<ThreadModeRawMutex, Operation, 1> = Channel::new();
-    static OPERATION_COMPLETE: Signal<ThreadModeRawMutex, ()> = Signal::new();
+    static OPERATION_CHANNEL: Channel<RawMutex, Operation, 1> = Channel::new();
+    static OPERATION_COMPLETE: Signal<RawMutex, ()> = Signal::new();
 
-    pub(super) static VIA_LAYOUT_OPTIONS: Signal<ThreadModeRawMutex, u32> = Signal::new();
+    pub(super) static VIA_LAYOUT_OPTIONS: Signal<RawMutex, u32> = Signal::new();
 
     #[rumcake_macros::task]
     pub async fn via_storage_task<K: StorageDevice + ViaKeyboard + 'static, F: FlashStorage>(

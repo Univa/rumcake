@@ -5,9 +5,9 @@
 
 use core::convert::Infallible;
 use defmt::{debug, info, warn, Debug2Format};
+use embassy_sync::channel::Channel;
 use embassy_sync::mutex::{Mutex, MutexGuard};
 use embassy_sync::pubsub::{PubSubBehavior, PubSubChannel};
-use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel};
 use embassy_time::{Duration, Ticker, Timer};
 use embedded_hal::digital::v2::{InputPin, OutputPin};
 use heapless::Vec;
@@ -22,6 +22,7 @@ use usbd_human_interface_device::{
 #[cfg(feature = "media-keycodes")]
 pub use usbd_human_interface_device::page::Consumer;
 
+use crate::hw::mcu::RawMutex;
 use crate::hw::CURRENT_OUTPUT_STATE;
 
 pub use rumcake_macros::{build_layout, build_matrix, remap_matrix};
@@ -87,7 +88,7 @@ pub trait KeyboardLayout {
 /// A mutex-guaraded [`keyberon::layout::Layout`]. This also stores the original layout, so that it
 /// can be reset to it's initial state if modifications are made to it.
 pub struct Layout<const C: usize, const R: usize, const L: usize> {
-    layout: once_cell::sync::OnceCell<Mutex<ThreadModeRawMutex, KeyberonLayout<C, R, L, Keycode>>>,
+    layout: once_cell::sync::OnceCell<Mutex<RawMutex, KeyberonLayout<C, R, L, Keycode>>>,
 }
 
 impl<const C: usize, const R: usize, const L: usize> Layout<C, R, L> {
@@ -102,7 +103,7 @@ impl<const C: usize, const R: usize, const L: usize> Layout<C, R, L> {
             .get_or_init(|| Mutex::new(KeyberonLayout::new(layers)));
     }
 
-    pub async fn lock(&self) -> MutexGuard<ThreadModeRawMutex, KeyberonLayout<C, R, L, Keycode>> {
+    pub async fn lock(&self) -> MutexGuard<RawMutex, KeyberonLayout<C, R, L, Keycode>> {
         self.layout.get().unwrap().lock().await
     }
 }
@@ -206,7 +207,7 @@ pub enum Keycode {
 ///
 /// The coordinates received will be remapped according to the implementation of
 /// [`KeyboardMatrix::remap_to_layout`].
-pub(crate) static POLLED_EVENTS_CHANNEL: Channel<ThreadModeRawMutex, Event, 1> = Channel::new();
+pub(crate) static POLLED_EVENTS_CHANNEL: Channel<RawMutex, Event, 1> = Channel::new();
 
 #[rumcake_macros::task]
 pub async fn matrix_poll<K: KeyboardMatrix>(
@@ -258,29 +259,23 @@ pub async fn matrix_poll<K: KeyboardMatrix>(
 /// There can be a maximum of 4 subscribers, and the number of subscribers actually used
 /// depend on what features you have enabled. With underglow and backlight enabled, 2 subscriber
 /// slots will be used.
-pub static MATRIX_EVENTS: PubSubChannel<ThreadModeRawMutex, Event, 4, 4, 1> = PubSubChannel::new();
+pub static MATRIX_EVENTS: PubSubChannel<RawMutex, Event, 4, 4, 1> = PubSubChannel::new();
 
 /// Channel for sending NKRO HID keyboard reports.
 ///
 /// Channel messages should be consumed by the bluetooth task or USB task, so user-level code
 /// should **not** attempt to receive messages from the channel, otherwise commands may not be
 /// processed appropriately. You should only send to this channel.
-pub static KEYBOARD_REPORT_HID_SEND_CHANNEL: Channel<
-    ThreadModeRawMutex,
-    NKROBootKeyboardReport,
-    1,
-> = Channel::new();
+pub static KEYBOARD_REPORT_HID_SEND_CHANNEL: Channel<RawMutex, NKROBootKeyboardReport, 1> =
+    Channel::new();
 
 /// Channel for sending consumer HID reports.
 ///
 /// Channel messages should be consumed by the bluetooth task or USB task, so user-level code
 /// should **not** attempt to receive messages from the channel, otherwise commands may not be
 /// processed appropriately. You should only send to this channel.
-pub static CONSUMER_REPORT_HID_SEND_CHANNEL: Channel<
-    ThreadModeRawMutex,
-    MultipleConsumerReport,
-    1,
-> = Channel::new();
+pub static CONSUMER_REPORT_HID_SEND_CHANNEL: Channel<RawMutex, MultipleConsumerReport, 1> =
+    Channel::new();
 
 #[rumcake_macros::task]
 pub async fn layout_collect<K: KeyboardLayout + 'static>(_k: K)

@@ -14,7 +14,6 @@ use core::hash::{Hash, Hasher, SipHasher};
 
 use defmt::{assert, debug};
 use defmt::{error, info, warn, Debug2Format};
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::{Mutex, MutexGuard};
 use embedded_storage::nor_flash::ReadNorFlash;
 use embedded_storage_async::nor_flash::{
@@ -26,6 +25,8 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use tickv::success_codes::SuccessCode;
 use tickv::{AsyncTicKV, ErrorCode, FlashController, MAIN_KEY};
+
+use crate::hw::mcu::RawMutex;
 
 fn get_hashed_key(key: &[u8]) -> u64 {
     let mut hasher = SipHasher::new();
@@ -75,8 +76,7 @@ pub struct StorageService<'a, F: FlashStorage>
 where
     [(); F::ERASE_SIZE]:,
 {
-    database:
-        OnceCell<Mutex<ThreadModeRawMutex, AsyncTicKV<'a, FlashDevice<'a, F>, { F::ERASE_SIZE }>>>,
+    database: OnceCell<Mutex<RawMutex, AsyncTicKV<'a, FlashDevice<'a, F>, { F::ERASE_SIZE }>>>,
 }
 
 impl<'a, F: FlashStorage> StorageService<'a, F>
@@ -93,7 +93,7 @@ where
 
     async fn get_database(
         &self,
-    ) -> MutexGuard<ThreadModeRawMutex, AsyncTicKV<'a, FlashDevice<'a, F>, { F::ERASE_SIZE }>> {
+    ) -> MutexGuard<RawMutex, AsyncTicKV<'a, FlashDevice<'a, F>, { F::ERASE_SIZE }>> {
         let mutex = self
             .database
             .get()

@@ -9,6 +9,7 @@ use embassy_stm32::flash::{Blocking, Flash as HALFlash};
 use embassy_stm32::peripherals::{FLASH, PA11, PA12, USB};
 use embassy_stm32::rcc::{APBPrescaler, Hse, Pll, PllMul, PllPreDiv, PllSource, Sysclk, HSI_FREQ};
 use embassy_stm32::usb::Driver;
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use static_cell::StaticCell;
 
 pub use rumcake_macros::{input_pin, output_pin, setup_buffered_uart, setup_i2c};
@@ -20,6 +21,8 @@ pub const SYSCLK: u32 = 48_000_000;
 
 #[cfg(feature = "stm32f303cb")]
 pub const SYSCLK: u32 = 72_000_000;
+
+pub type RawMutex = ThreadModeRawMutex;
 
 /// A function that allows you to jump to the bootloader, usually for re-flashing the firmware.
 pub fn jump_to_bootloader() {

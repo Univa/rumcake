@@ -6,10 +6,10 @@
 #[cfg(any(all(feature = "nrf", feature = "bluetooth"), doc))]
 pub mod nrf_ble;
 
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::signal::Signal;
 
+use crate::hw::mcu::RawMutex;
 use crate::keyboard::{Keyboard, KeyboardLayout};
 use crate::State;
 
@@ -54,11 +54,10 @@ pub enum BluetoothCommand {
 /// nRF5x-based keyboards), so user-level code should **not** attempt to receive messages from the
 /// channel, otherwise commands may not be processed appropriately. You should only send to this
 /// channel.
-pub static BLUETOOTH_COMMAND_CHANNEL: Channel<ThreadModeRawMutex, BluetoothCommand, 2> =
-    Channel::new();
+pub static BLUETOOTH_COMMAND_CHANNEL: Channel<RawMutex, BluetoothCommand, 2> = Channel::new();
 
 pub(crate) static BLUETOOTH_CONNECTED_STATE: State<bool> =
     State::new(false, &[&crate::hw::BLUETOOTH_CONNECTED_STATE_LISTENER]);
 
-pub(crate) static CURRENT_OUTPUT_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();
-pub(crate) static BATTERY_LEVEL_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();
+pub(crate) static CURRENT_OUTPUT_STATE_LISTENER: Signal<RawMutex, ()> = Signal::new();
+pub(crate) static BATTERY_LEVEL_LISTENER: Signal<RawMutex, ()> = Signal::new();

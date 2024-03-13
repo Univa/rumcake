@@ -3,9 +3,10 @@ use crate::keyboard::MATRIX_EVENTS;
 use crate::via::handlers::*;
 use defmt::{info, warn, Debug2Format};
 use embassy_futures::select;
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
 use num_derive::FromPrimitive;
+
+use crate::hw::mcu::RawMutex;
 
 pub(crate) mod keycodes;
 
@@ -569,9 +570,8 @@ pub(crate) async fn process_via_command<K: ViaKeyboard + 'static>(
     }
 }
 
-pub(crate) async fn background_task<K: ViaKeyboard>(
-    via_state: &Mutex<ThreadModeRawMutex, ViaState<K>>,
-) where
+pub(crate) async fn background_task<K: ViaKeyboard>(via_state: &Mutex<RawMutex, ViaState<K>>)
+where
     [(); (K::LAYOUT_COLS + u8::BITS as usize - 1) / u8::BITS as usize * K::LAYOUT_ROWS]:,
 {
     // Update the layout_state. Used for SwitchMatrixState

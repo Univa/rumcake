@@ -29,6 +29,8 @@ pub use nrf_softdevice;
 #[cfg(feature = "nrf52840")]
 pub const SYSCLK: u32 = 48_000_000;
 
+pub type RawMutex = ThreadModeRawMutex;
+
 pub fn jump_to_bootloader() {
     // TODO
 }
@@ -196,7 +198,7 @@ pub async fn adc_task() {
 /// A mutex that is locked when the softdevice is advertising. This is mainly to prevent
 /// [`nrf_softdevice::ble::peripheral::ADV_PORTAL`] from being opened by more than one task at the
 /// same time.
-pub static BLUETOOTH_ADVERTISING_MUTEX: Mutex<ThreadModeRawMutex, ()> = Mutex::new(());
+pub static BLUETOOTH_ADVERTISING_MUTEX: Mutex<RawMutex, ()> = Mutex::new(());
 
 #[cfg(feature = "nrf-ble")]
 /// A basic trait that all nRF5x-based devices that use bluetooth features must implement.

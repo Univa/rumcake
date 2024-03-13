@@ -1,9 +1,9 @@
 use defmt::warn;
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::signal::Signal;
 use keyberon::action::Action;
 use keyberon::key_code::KeyCode;
 
+use crate::hw::mcu::RawMutex;
 use crate::keyboard::Keycode;
 
 use super::ViaKeyboard;
@@ -77,7 +77,7 @@ pub async fn eeprom_reset() {
     super::storage::reset_data().await;
 }
 
-pub(super) static BOOTLOADER_JUMP_SIGNAL: Signal<ThreadModeRawMutex, ()> = Signal::new();
+pub(super) static BOOTLOADER_JUMP_SIGNAL: Signal<RawMutex, ()> = Signal::new();
 
 pub fn bootloader_jump() {
     BOOTLOADER_JUMP_SIGNAL.signal(());

@@ -4,10 +4,10 @@
 //! corresponding to a driver that implements [`drivers::UnderglowDriver`].
 
 use embassy_futures::select::{select, Either};
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_time::{Duration, Ticker};
 
+use crate::hw::mcu::RawMutex;
 use crate::keyboard::MATRIX_EVENTS;
 use crate::{LEDEffect, State};
 
@@ -44,8 +44,7 @@ pub trait UnderglowDevice {
 /// Channel messages should be consumed by the [`underglow_task`], so user-level
 /// level code should **not** attempt to receive messages from the channel, otherwise
 /// commands may not be processed appropriately. You should only send to this channel.
-pub static UNDERGLOW_COMMAND_CHANNEL: Channel<ThreadModeRawMutex, UnderglowCommand, 2> =
-    Channel::new();
+pub static UNDERGLOW_COMMAND_CHANNEL: Channel<RawMutex, UnderglowCommand, 2> = Channel::new();
 
 /// State that contains the current configuration for the underglow animator.
 pub static UNDERGLOW_CONFIG_STATE: State<UnderglowConfig> = State::new(
@@ -169,20 +168,19 @@ pub mod storage {
     use defmt::{info, warn, Debug2Format};
     use embassy_futures::select;
     use embassy_futures::select::Either;
-    use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
     use embassy_sync::signal::Signal;
     use embassy_time::Duration;
     use embassy_time::Timer;
 
+    use crate::hw::mcu::RawMutex;
     use crate::storage::{FlashStorage, StorageDevice};
 
     use super::UnderglowConfig;
     use super::UNDERGLOW_CONFIG_STATE;
 
-    pub(super) static UNDERGLOW_CONFIG_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> =
-        Signal::new();
+    pub(super) static UNDERGLOW_CONFIG_STATE_LISTENER: Signal<RawMutex, ()> = Signal::new();
 
-    pub(super) static UNDERGLOW_SAVE_SIGNAL: Signal<ThreadModeRawMutex, ()> = Signal::new();
+    pub(super) static UNDERGLOW_SAVE_SIGNAL: Signal<RawMutex, ()> = Signal::new();
 
     #[rumcake_macros::task]
     pub async fn underglow_storage_task<K: StorageDevice, F: FlashStorage>(

@@ -4,7 +4,6 @@
 
 use defmt::{error, info, Debug2Format};
 use embassy_futures::select::{self, select};
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_usb::class::hid::{
     Config, HidReader, HidReaderWriter, HidWriter, ReportId, RequestHandler, State as UsbState,
@@ -21,6 +20,7 @@ use usbd_human_interface_device::device::keyboard::{
     NKROBootKeyboardReport, NKRO_BOOT_KEYBOARD_REPORT_DESCRIPTOR,
 };
 
+use crate::hw::mcu::RawMutex;
 use crate::hw::{HIDOutput, CURRENT_OUTPUT_STATE};
 use crate::keyboard::{
     Keyboard, KeyboardLayout, CONSUMER_REPORT_HID_SEND_CHANNEL, KEYBOARD_REPORT_HID_SEND_CHANNEL,
@@ -126,7 +126,7 @@ macro_rules! usb_task_inner {
     };
 }
 
-pub(crate) static KB_CURRENT_OUTPUT_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();
+pub(crate) static KB_CURRENT_OUTPUT_STATE_LISTENER: Signal<RawMutex, ()> = Signal::new();
 
 #[rumcake_macros::task]
 pub async fn usb_hid_kb_write_task(
@@ -145,8 +145,7 @@ pub async fn usb_hid_kb_write_task(
     )
 }
 
-pub(crate) static CONSUMER_CURRENT_OUTPUT_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> =
-    Signal::new();
+pub(crate) static CONSUMER_CURRENT_OUTPUT_STATE_LISTENER: Signal<RawMutex, ()> = Signal::new();
 
 #[rumcake_macros::task]
 pub async fn usb_hid_consumer_write_task(
@@ -224,7 +223,7 @@ pub async fn usb_hid_via_read_task(hid: HidReader<'static, impl Driver<'static>,
 }
 
 #[cfg(feature = "via")]
-pub(crate) static VIA_CURRENT_OUTPUT_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();
+pub(crate) static VIA_CURRENT_OUTPUT_STATE_LISTENER: Signal<RawMutex, ()> = Signal::new();
 
 #[cfg(feature = "via")]
 #[rumcake_macros::task]

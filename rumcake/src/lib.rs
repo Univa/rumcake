@@ -5,9 +5,10 @@
 #![warn(missing_docs)]
 #![doc = include_str!("../../README.md")]
 
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::{Mutex, MutexGuard};
 use embassy_sync::signal::Signal;
+
+use crate::hw::mcu::RawMutex;
 
 pub(crate) trait StaticArray {
     const LEN: usize;
@@ -30,13 +31,13 @@ trait Cycle {
 /// Data structure that allows you to notify listeners about any changes to the data being managed.
 /// This can be useful when you want a task to react to changes to certain data.
 pub struct State<'a, T: Clone + PartialEq> {
-    data: Mutex<ThreadModeRawMutex, T>,
-    listeners: &'a [&'a Signal<ThreadModeRawMutex, ()>],
+    data: Mutex<RawMutex, T>,
+    listeners: &'a [&'a Signal<RawMutex, ()>],
 }
 
 impl<'a, T: Clone + PartialEq> State<'a, T> {
     /// Create some new state, with the specified listeners.
-    pub const fn new(data: T, listeners: &'a [&'a Signal<ThreadModeRawMutex, ()>]) -> State<'a, T> {
+    pub const fn new(data: T, listeners: &'a [&'a Signal<RawMutex, ()>]) -> State<'a, T> {
         Self {
             data: Mutex::new(data),
             listeners,
@@ -69,7 +70,7 @@ impl<'a, T: Clone + PartialEq> State<'a, T> {
 
     async fn update_inner<R>(
         &self,
-        updater: impl FnOnce(&mut MutexGuard<'_, ThreadModeRawMutex, T>) -> R,
+        updater: impl FnOnce(&mut MutexGuard<'_, RawMutex, T>) -> R,
     ) -> (bool, R) {
         let mut data = self.data.lock().await;
         let old = data.clone();
@@ -80,7 +81,7 @@ impl<'a, T: Clone + PartialEq> State<'a, T> {
     /// Update state using a function, and notify listeners
     pub async fn update<R>(
         &self,
-        updater: impl FnOnce(&mut MutexGuard<'_, ThreadModeRawMutex, T>) -> R,
+        updater: impl FnOnce(&mut MutexGuard<'_, RawMutex, T>) -> R,
     ) -> R {
         let (changed, update_result) = self.update_inner(updater).await;
 
@@ -94,7 +95,7 @@ impl<'a, T: Clone + PartialEq> State<'a, T> {
     /// Update state using a function without notifying listeners
     pub async fn quiet_update<R>(
         &self,
-        updater: impl FnOnce(&mut MutexGuard<'_, ThreadModeRawMutex, T>) -> R,
+        updater: impl FnOnce(&mut MutexGuard<'_, RawMutex, T>) -> R,
     ) -> R {
         let (_changed, update_result) = self.update_inner(updater).await;
         update_result

@@ -5,16 +5,16 @@
 //! [`drivers::DisplayDriver`]).
 
 use embassy_futures::select::{select, select_array, Either};
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Ticker, Timer};
 
 pub mod drivers;
 
 use self::drivers::DisplayDriver;
+use crate::hw::mcu::RawMutex;
 
-pub(crate) static OUTPUT_MODE_STATE_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();
-pub(crate) static BATTERY_LEVEL_LISTENER: Signal<ThreadModeRawMutex, ()> = Signal::new();
+pub(crate) static OUTPUT_MODE_STATE_LISTENER: Signal<RawMutex, ()> = Signal::new();
+pub(crate) static BATTERY_LEVEL_LISTENER: Signal<RawMutex, ()> = Signal::new();
 
 /// A trait that keyboards must implement to use a display.
 pub trait DisplayDevice {

@@ -9,9 +9,9 @@
 
 use defmt::{error, Debug2Format};
 use embassy_futures::select::{select, Either};
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 
+use crate::hw::mcu::RawMutex;
 use crate::keyboard::POLLED_EVENTS_CHANNEL;
 use crate::split::MessageToCentral;
 
@@ -23,8 +23,7 @@ use super::MessageToPeripheral;
 /// Channel messages should be consumed by the central task, so user-level code should
 /// **not** attempt to receive messages from the channel, otherwise commands may not be processed
 /// appropriately. You should only send to this channel.
-pub static MESSAGE_TO_PERIPHERALS: Channel<ThreadModeRawMutex, MessageToPeripheral, 4> =
-    Channel::new();
+pub static MESSAGE_TO_PERIPHERALS: Channel<RawMutex, MessageToPeripheral, 4> = Channel::new();
 
 #[rumcake_macros::task]
 pub async fn central_task(mut driver: impl CentralDeviceDriver) {

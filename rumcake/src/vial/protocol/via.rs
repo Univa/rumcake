@@ -7,11 +7,11 @@ use crate::vial::handlers::*;
 use crate::vial::protocol::{lighting, VIALRGB_PROTOCOL_VERSION};
 use crate::vial::VialKeyboard;
 use defmt::{info, warn, Debug2Format};
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
 use num_derive::FromPrimitive;
 
 use super::VialState;
+use crate::hw::mcu::RawMutex;
 use crate::via::protocol::keycodes; // We just use the keycode conversions from the new via protocol
 
 pub(crate) const VIA_PROTOCOL_VERSION: u16 = 0x0009;
@@ -451,9 +451,8 @@ pub(crate) async fn process_via_command<K: VialKeyboard + 'static>(
     }
 }
 
-pub(crate) async fn background_task<K: VialKeyboard>(
-    via_state: &Mutex<ThreadModeRawMutex, ViaState<K>>,
-) where
+pub(crate) async fn background_task<K: VialKeyboard>(via_state: &Mutex<RawMutex, ViaState<K>>)
+where
     [(); (K::LAYOUT_COLS + u8::BITS as usize - 1) / u8::BITS as usize * K::LAYOUT_ROWS]:,
 {
     // Update the layout_state. Used for SwitchMatrixState
