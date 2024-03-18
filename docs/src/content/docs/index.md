@@ -57,7 +57,7 @@ The following features are _working_, but may not be stable or have missing comp
 - Bluetooth host communication (only for nRF-based keyboards)
 - Backlighting
 - Underglow
-- Split keyboards over BLE
+- Split keyboards
 - Displays (e.g. SSD1306)
 - Storage
 - Via/Vial

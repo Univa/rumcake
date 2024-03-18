@@ -13,7 +13,6 @@
   - [Minimum Supported Rust Version](#minimum-supported-rust-version)
 - [MCUs](#mcus)
   - [Tested](#tested)
-  - [Planned MCUs for the future](#planned-mcus-for-the-future)
 - [Features](#features)
   - [Working](#working)
   - [Planned](#planned)
@@ -60,7 +59,7 @@ The following features are _working_, but may not be stable or has missing compo
 - Bluetooth host communication (only for nRF-based keyboards)
 - Backlighting
 - Underglow
-- Split keyboards over BLE
+- Split keyboards
 - Displays (e.g. SSD1306)
 - Storage
 - Via/Vial
