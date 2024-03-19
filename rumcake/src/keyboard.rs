@@ -13,7 +13,7 @@ use embedded_hal::digital::v2::{InputPin, OutputPin};
 use heapless::Vec;
 use keyberon::debounce::Debouncer;
 use keyberon::layout::{CustomEvent, Event, Layers, Layout as KeyberonLayout};
-use keyberon::matrix::Matrix;
+use keyberon::matrix::{DirectPinMatrix, Matrix};
 use usbd_human_interface_device::device::consumer::MultipleConsumerReport;
 use usbd_human_interface_device::{
     device::keyboard::NKROBootKeyboardReport, page::Keyboard as KeyboardKeycode,
@@ -25,7 +25,9 @@ pub use usbd_human_interface_device::page::Consumer;
 use crate::hw::mcu::RawMutex;
 use crate::hw::CURRENT_OUTPUT_STATE;
 
-pub use rumcake_macros::{build_layout, build_matrix, remap_matrix};
+pub use rumcake_macros::{
+    build_direct_pin_matrix, build_layout, build_standard_matrix, remap_matrix,
+};
 
 /// Basic keyboard trait that must be implemented to use rumcake. Defines basic keyboard information.
 pub trait Keyboard {
@@ -115,26 +117,18 @@ pub trait KeyboardMatrix {
 
     /// Number of matrix columns.
     ///
-    /// It is recommended to use [`build_matrix`] to set this constant.
+    /// It is recommended to use one of the `build_*_matrix` macros to set this constant.
     const MATRIX_COLS: usize;
 
     /// Number of matrix rows.
     ///
-    /// It is recommended to use [`build_matrix`] to set this constant.
+    /// It is recommended to use one of the `build_*_matrix` macros to set this constant.
     const MATRIX_ROWS: usize;
 
     /// Create the keyboard matrix by initializing a set of GPIO pins to use for columns and rows.
     ///
-    /// It is recommended to use [`build_matrix`] to implement this function.
-    fn build_matrix() -> Result<
-        Matrix<
-            impl InputPin<Error = Infallible>,
-            impl OutputPin<Error = Infallible>,
-            { Self::MATRIX_COLS },
-            { Self::MATRIX_ROWS },
-        >,
-        Infallible,
-    >;
+    /// It is recommended to use one of the `build_*_matrix` macros to set this constant.
+    fn get_matrix() -> &'static PollableMatrix<impl Pollable>;
 
     /// Optional function to remap a matrix position to a position on the keyboard layout defined
     /// by [`KeyboardLayout::get_layout`].
@@ -146,24 +140,38 @@ pub trait KeyboardMatrix {
     }
 }
 
-pub fn setup_keyboard_matrix<K: KeyboardMatrix>(
-    _k: K,
-) -> (
-    Matrix<
-        impl InputPin<Error = Infallible>,
-        impl OutputPin<Error = Infallible>,
-        { K::MATRIX_COLS },
-        { K::MATRIX_ROWS },
-    >,
-    Debouncer<[[bool; K::MATRIX_COLS]; K::MATRIX_ROWS]>,
-) {
-    let matrix = K::build_matrix().unwrap();
-    let debouncer = Debouncer::new(
-        [[false; K::MATRIX_COLS]; K::MATRIX_ROWS],
-        [[false; K::MATRIX_COLS]; K::MATRIX_ROWS],
-        K::DEBOUNCE_MS,
-    );
-    (matrix, debouncer)
+/// Setup a traditional keyboard matrix with diodes, with a debouncer. The output of this function
+/// can be passed to the matrix polling task directly.
+pub fn setup_standard_keyboard_matrix<
+    E,
+    I: InputPin<Error = E>,
+    O: OutputPin<Error = E>,
+    const CS: usize,
+    const RS: usize,
+>(
+    cols: [I; CS],
+    rows: [O; RS],
+    debounce_ms: u16,
+) -> Result<PollableStandardMatrix<I, O, CS, RS>, E> {
+    let matrix = Matrix::new(cols, rows)?;
+    let debouncer = Debouncer::new([[false; CS]; RS], [[false; CS]; RS], debounce_ms);
+    Ok((matrix, debouncer))
+}
+
+/// Setup a diodeless keyboard matrix, with a debouncer. The output of this function can be passed
+/// to the matrix polling task directly.
+pub fn setup_direct_pin_keyboard_matrix<
+    E,
+    I: InputPin<Error = E>,
+    const CS: usize,
+    const RS: usize,
+>(
+    pins: [[Option<I>; CS]; RS],
+    debounce_ms: u16,
+) -> Result<PollableDirectPinMatrix<I, CS, RS>, E> {
+    let matrix = DirectPinMatrix::new(pins)?;
+    let debouncer = Debouncer::new([[false; CS]; RS], [[false; CS]; RS], debounce_ms);
+    Ok((matrix, debouncer))
 }
 
 /// Custom keycodes used to interact with other rumcake features.
@@ -203,6 +211,66 @@ pub enum Keycode {
     Bluetooth(crate::bluetooth::BluetoothCommand),
 }
 
+pub struct PollableMatrix<T> {
+    matrix: Mutex<RawMutex, T>,
+}
+
+impl<T: Pollable> PollableMatrix<T> {
+    pub const fn new(m: T) -> Self {
+        Self {
+            matrix: Mutex::new(m),
+        }
+    }
+}
+
+/// Trait that allows you to implement matrix polling functionality. This trait is already
+/// implemented for all of the existing [`keyberon::matrix`] structs. You can also implement this
+/// trait for your own types to write custom matrix polling logic that can be used with the matrix
+/// polling task.
+pub trait Pollable {
+    /// Poll the matrix for events
+    fn events(&mut self) -> impl Iterator<Item = Event>;
+}
+
+pub type PollableStandardMatrix<
+    I: InputPin<Error = Infallible>,
+    O: OutputPin<Error = Infallible>,
+    const CS: usize,
+    const RS: usize,
+> = (Matrix<I, O, CS, RS>, Debouncer<[[bool; CS]; RS]>);
+
+impl<
+        I: InputPin<Error = Infallible>,
+        O: OutputPin<Error = Infallible>,
+        const CS: usize,
+        const RS: usize,
+    > Pollable for PollableStandardMatrix<I, O, CS, RS>
+{
+    fn events(&mut self) -> impl Iterator<Item = Event> {
+        self.1.events(
+            self.0
+                .get_with_delay(|| {
+                    embassy_time::block_for(Duration::from_ticks(2));
+                })
+                .unwrap(),
+        )
+    }
+}
+
+pub type PollableDirectPinMatrix<
+    I: InputPin<Error = Infallible>,
+    const CS: usize,
+    const RS: usize,
+> = (DirectPinMatrix<I, CS, RS>, Debouncer<[[bool; CS]; RS]>);
+
+impl<I: InputPin<Error = Infallible>, const CS: usize, const RS: usize> Pollable
+    for PollableDirectPinMatrix<I, CS, RS>
+{
+    fn events(&mut self) -> impl Iterator<Item = Event> {
+        self.1.events(self.0.get().unwrap())
+    }
+}
+
 /// Channel with keyboard events polled from the swtich matrix
 ///
 /// The coordinates received will be remapped according to the implementation of
@@ -210,26 +278,14 @@ pub enum Keycode {
 pub(crate) static POLLED_EVENTS_CHANNEL: Channel<RawMutex, Event, 1> = Channel::new();
 
 #[rumcake_macros::task]
-pub async fn matrix_poll<K: KeyboardMatrix>(
-    _k: K,
-    mut matrix: Matrix<
-        impl InputPin<Error = Infallible>,
-        impl OutputPin<Error = Infallible>,
-        { K::MATRIX_COLS },
-        { K::MATRIX_ROWS },
-    >,
-    mut debouncer: Debouncer<[[bool; K::MATRIX_COLS]; K::MATRIX_ROWS]>,
-) {
+pub async fn matrix_poll<K: KeyboardMatrix + 'static>(_k: K) {
+    let matrix = K::get_matrix();
+
     loop {
         {
             debug!("[KEYBOARD] Scanning matrix");
-            let events = debouncer.events(
-                matrix
-                    .get_with_delay(|| {
-                        embassy_time::block_for(Duration::from_ticks(2));
-                    })
-                    .unwrap(),
-            );
+            let mut matrix = matrix.matrix.lock().await;
+            let events = matrix.events();
             for e in events {
                 let (row, col) = e.coord();
                 let (new_row, new_col) = K::remap_to_layout(row, col);

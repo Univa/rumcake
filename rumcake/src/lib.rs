@@ -116,6 +116,7 @@ pub use embedded_hal_async;
 pub use embedded_io_async;
 pub use embedded_storage_async;
 pub use keyberon;
+pub use once_cell;
 
 pub use rumcake_macros::keyboard_main as keyboard;
 

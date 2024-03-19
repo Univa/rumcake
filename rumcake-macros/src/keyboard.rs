@@ -7,7 +7,7 @@ use proc_macro_error::OptionExt;
 use quote::{quote, quote_spanned, ToTokens};
 use syn::parse::{Parse, Parser};
 use syn::spanned::Spanned;
-use syn::{braced, bracketed, ItemStruct};
+use syn::{braced, bracketed, ItemStruct, PathSegment};
 
 #[derive(Debug, FromMeta, Default)]
 #[darling(default)]
@@ -364,12 +364,9 @@ pub(crate) fn keyboard_main(
 
     // Keyboard setup, and matrix polling task
     if !keyboard.no_matrix {
-        initialization.extend(quote! {
-            let (matrix, debouncer) = ::rumcake::keyboard::setup_keyboard_matrix(#kb_name);
-        });
         spawning.extend(quote! {
             spawner
-                .spawn(::rumcake::matrix_poll!(#kb_name, matrix, debouncer))
+                .spawn(::rumcake::matrix_poll!(#kb_name))
                 .unwrap();
         });
     }
@@ -727,14 +724,14 @@ impl<T: ToTokens> ToTokens for OptionalItem<T> {
 }
 
 #[derive(Debug)]
-pub struct MatrixDefinition<T> {
+pub struct StandardMatrixDefinition {
     pub row_brace: syn::token::Brace,
-    pub rows: Vec<T>,
+    pub rows: Vec<Ident>,
     pub col_brace: syn::token::Brace,
-    pub cols: Vec<T>,
+    pub cols: Vec<Ident>,
 }
 
-impl<T: Parse> syn::parse::Parse for MatrixDefinition<T> {
+impl syn::parse::Parse for StandardMatrixDefinition {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         let row_content;
         let row_brace = braced!(row_content in input);
@@ -771,26 +768,93 @@ impl<T: Parse> syn::parse::Parse for MatrixDefinition<T> {
     }
 }
 
-pub fn build_matrix(input: MatrixDefinition<Ident>) -> TokenStream {
-    let MatrixDefinition { rows, cols, .. } = input;
+pub fn build_standard_matrix(input: StandardMatrixDefinition) -> TokenStream {
+    let StandardMatrixDefinition { rows, cols, .. } = input;
     let row_count = rows.len();
     let col_count = cols.len();
+
+    let hal_name: PathSegment = syn::parse_str(crate::hw::HAL_CRATE).unwrap();
 
     quote! {
         const MATRIX_ROWS: usize = #row_count;
         const MATRIX_COLS: usize = #col_count;
 
-        fn build_matrix(
-        ) -> Result<::rumcake::keyberon::matrix::Matrix<impl ::rumcake::embedded_hal::digital::v2::InputPin<Error = core::convert::Infallible>, impl ::rumcake::embedded_hal::digital::v2::OutputPin<Error = core::convert::Infallible>, { Self::MATRIX_COLS }, { Self::MATRIX_ROWS }>, core::convert::Infallible> {
-            ::rumcake::keyberon::matrix::Matrix::new([
-                #(
-                    ::rumcake::hw::mcu::input_pin!(#cols)
-                ),*
-            ], [
-                #(
-                    ::rumcake::hw::mcu::output_pin!(#rows)
-                ),*
-            ])
+        fn get_matrix() -> &'static ::rumcake::keyboard::PollableMatrix<impl ::rumcake::keyboard::Pollable> {
+            static MATRIX: ::rumcake::once_cell::sync::OnceCell<
+                ::rumcake::keyboard::PollableMatrix<
+                    ::rumcake::keyboard::PollableStandardMatrix<
+                        ::rumcake::hw::mcu::#hal_name::gpio::Input<'static>,
+                        ::rumcake::hw::mcu::#hal_name::gpio::Output<'static>,
+                        #col_count,
+                        #row_count
+                    >
+                >
+            > = ::rumcake::once_cell::sync::OnceCell::new();
+            MATRIX.get_or_init(|| {
+                ::rumcake::keyboard::PollableMatrix::new(
+                    ::rumcake::keyboard::setup_standard_keyboard_matrix(
+                        [
+                            #(
+                                ::rumcake::hw::mcu::input_pin!(#cols)
+                            ),*
+                        ],
+                        [
+                            #(
+                                ::rumcake::hw::mcu::output_pin!(#rows)
+                            ),*
+                        ],
+                        Self::DEBOUNCE_MS
+                    ).unwrap()
+                )
+            })
+        }
+    }
+}
+
+pub fn build_direct_pin_matrix(input: MatrixLike<OptionalItem<Ident>>) -> TokenStream {
+    let values = input.rows.iter().map(|row| {
+        let items = row.cols.iter().map(|item| match item {
+            OptionalItem::None => quote! { None },
+            OptionalItem::Some(pin_ident) => {
+                quote! { Some(::rumcake::hw::mcu::input_pin!(#pin_ident)) }
+            }
+        });
+        quote! { #(#items),* }
+    });
+
+    let row_count = input.rows.len();
+    let col_count = input
+        .rows
+        .first()
+        .expect_or_abort("At least one row is required.")
+        .cols
+        .len();
+
+    let hal_name: PathSegment = syn::parse_str(crate::hw::HAL_CRATE).unwrap();
+
+    quote! {
+        const MATRIX_ROWS: usize = #row_count;
+        const MATRIX_COLS: usize = #col_count;
+        fn get_matrix() -> &'static ::rumcake::keyboard::PollableMatrix<impl ::rumcake::keyboard::Pollable> {
+            static MATRIX: ::rumcake::once_cell::sync::OnceCell<
+                ::rumcake::keyboard::PollableMatrix<
+                    ::rumcake::keyboard::PollableDirectPinMatrix<
+                        ::rumcake::hw::mcu::#hal_name::gpio::Input<'static>,
+                        #col_count,
+                        #row_count
+                    >
+                >
+            > = ::rumcake::once_cell::sync::OnceCell::new();
+            MATRIX.get_or_init(|| {
+                ::rumcake::keyboard::PollableMatrix::new(
+                    ::rumcake::keyboard::setup_direct_pin_keyboard_matrix(
+                        [
+                            #([ #values ]),*
+                        ],
+                        Self::DEBOUNCE_MS
+                    ).unwrap()
+                )
+            })
         }
     }
 }

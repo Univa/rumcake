@@ -41,7 +41,7 @@ impl Keyboard for MyKeyboard {
 
 In the [templates](https://github.com/Univa/rumcake-templates), you will see that
 to implement a keyboard matrix, you need to implement the `KeyboardMatrix` trait
-using the `build_matrix!` macro:
+using one of the `build_<matrix_type>_matrix!` macros:
 
 ```rust ins={13-20}
 use rumcake::keyboard;
@@ -56,17 +56,14 @@ impl Keyboard for MyKeyboard {
     const SERIAL_NUMBER: &'static str = "1";
 }
 
-use rumcake::keyboard::{build_matrix, KeyboardMatrix};
+use rumcake::keyboard::{build_standard_matrix, KeyboardMatrix};
 impl KeyboardMatrix for MyKeyboard {
-    build_matrix! {
+    build_standard_matrix! {
         { PB2 PB10 PB11 PA3 } // Rows
         { PB12 PB1 PB0 PA7 PA6 PA5 PA4 PA2 PB3 PB4 PA15 PB5 } // Columns
     }
 }
 ```
-
-Rows are defined first, followed by the columns. Row and columns are enumerated left-to-right, starting
-from 0. In this example, `PB2` is row 0 and `PA3` is row 3.
 
 The identifiers used for the matrix pins must match the identifiers used by the respective
 HAL (hardware abstraction library) for your MCU. The linked sites below have a dropdown menu at
@@ -77,6 +74,14 @@ the top to allow you to select a chip. Choose your chip to see what pins are ava
 
 After defining your matrix, you can set up your [keyboard layout](#keyboard-layout). If you have
 a duplex matrix, consider [checking that section](#duplex-matrix) before setting up your keyboard layout.
+
+:::note
+The example above assumes a matrix a standard matrix (switches wired in rows and columns, with diodes).
+Rows are defined first, followed by the columns. Row and columns are enumerated left-to-right, starting
+from 0. In this example, `PB2` is row 0 and `PA3` is row 3.
+
+For other matrix types, see the [Other Matrix Types](#other-matrix-types) section.
+:::
 
 # Keyboard Layout
 
@@ -100,9 +105,9 @@ impl Keyboard for MyKeyboard {
     const SERIAL_NUMBER: &'static str = "1";
 }
 
-use rumcake::keyboard::{build_matrix, KeyboardMatrix};
+use rumcake::keyboard::{build_standard_matrix, KeyboardMatrix};
 impl KeyboardMatrix for MyKeyboard {
-    build_matrix! {
+    build_standard_matrix! {
         { PB2 PB10 PB11 PA3 } // Rows
         { PB12 PB1 PB0 PA7 PA6 PA5 PA4 PA2 PB3 PB4 PA15 PB5 } // Columns
     }
@@ -137,6 +142,45 @@ impl KeyboardLayout for MyKeyboard {
 Congratulations! You have implemented a basic keyboard. You can now move onto building
 and flashing your firmware, or try implementing additional features in the "Features" sidebar.
 
+# Other matrix types
+
+## Direct pin matrix (diodeless matrix)
+
+If your MCU pins are connected directly to a switch (as opposed to pins being connected to a row / column of switches),
+then you can use the `build_direct_pin_matrix!` macro instead.
+
+```rust ins={3-9}
+// rest of your config...
+
+use rumcake::keyboard::{build_direct_pin_matrix, KeyboardMatrix};
+impl KeyboardMatrix for MyKeyboard {
+    build_direct_pin_matrix! {
+        [ PB2  PB10 PB11 PA3 ]
+        [ PB12 PB1  PB0  No  ]
+    }
+}
+
+use rumcake::keyboard::{build_layout, KeyboardLayout};
+impl KeyboardLayout for MyKeyboard {
+    build_layout! {
+        {
+            [ Tab    Q  W  E ]
+            [ LCtrl  A  S  D ]
+        }
+        {
+            [ LGui F1 F2 F3 ]
+            [ t    t  t  t  ]
+        }
+    }
+}
+```
+
+Each pin will map directly to a (row, column) position, which determines the key in the layout it corresponds to.
+Each row must have the same number of columns. If there are matrix positions that are unused, you can use `No` to ignore them.
+
+In this example, the switch connected to `PB10` maps to row 0, column 1. Based on the implementation of `KeyboardLayout`, this
+switch will correspond to the `Q`/`F1` key.
+
 # Revisualizing a matrix (e.g. duplex matrix)
 
 Sometimes, your keyboard might have a complicated matrix scheme that could make it
@@ -161,7 +205,7 @@ This can be useful for your keyboard layout config, or your backlight matrix con
 ```rust del={50-63} ins={1-26,64-75}
 // This creates a `remap!` macro that you can use in other parts of your config.
 remap_matrix! {
-    // This has the same number of rows and columns that you specified in `build_matrix!`
+    // This has the same number of rows and columns that you specified in your matrix.
     // Note that `No` is used to denote an unused matrix position.
     {
         [ K00 K01 K02 K03 K04 K05 K06 K07 ]
@@ -198,9 +242,9 @@ impl Keyboard for MyKeyboard {
     const SERIAL_NUMBER: &'static str = "1";
 }
 
-use rumcake::keyboard::{build_matrix, KeyboardMatrix};
+use rumcake::keyboard::{build_standard_matrix, KeyboardMatrix};
 impl KeyboardMatrix for MyKeyboard {
-    build_matrix! {
+    build_standard_matrix! {
         { PB3 PB4 PA15 PB5 PA0 PA1 PB2 PB10 PB11 PA3 } // Rows
         { PB12 PB1 PB0 PA7 PA6 PA5 PA4 PA2 } // Columns
     }

@@ -4,6 +4,8 @@ use quote::quote;
 use syn::punctuated::Punctuated;
 use syn::Token;
 
+pub const HAL_CRATE: &'static str = "embassy_nrf";
+
 pub fn input_pin(ident: Ident) -> TokenStream {
     quote! {
         unsafe {

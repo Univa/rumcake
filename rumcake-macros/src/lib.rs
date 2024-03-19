@@ -132,9 +132,15 @@ pub fn keyboard_main(
 }
 
 #[proc_macro]
-pub fn build_matrix(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let matrix = parse_macro_input!(input as keyboard::MatrixDefinition<Ident>);
-    keyboard::build_matrix(matrix).into()
+pub fn build_standard_matrix(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let matrix = parse_macro_input!(input as keyboard::StandardMatrixDefinition);
+    keyboard::build_standard_matrix(matrix).into()
+}
+
+#[proc_macro]
+pub fn build_direct_pin_matrix(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let matrix = parse_macro_input!(input as keyboard::MatrixLike<keyboard::OptionalItem<Ident>>);
+    keyboard::build_direct_pin_matrix(matrix).into()
 }
 
 #[proc_macro]
