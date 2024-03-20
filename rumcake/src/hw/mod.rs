@@ -135,25 +135,9 @@ pub static BOOTLOADER_MAGIC: u32 = 0xDEADBEEF;
 pub static mut FLAG: GroundedCell<u32> = GroundedCell::uninit();
 
 #[cfg(feature = "bootloader-double-tap-reset")]
-const TIMEOUT: u64 = if let Some(s) = option_env!("BOOTLOADER_DOUBLE_TAP_RESET_TIMEOUT") {
-    // parse environment variable at compile time (https://www.reddit.com/r/rust/comments/10ol38k/comment/j6jrpvd/)
-    let mut bytes = s.as_bytes();
-    let mut val = 0;
-    while let [byte, rest @ ..] = bytes {
-        assert!(b'0' <= *byte && *byte <= b'9', "invalid digit in BOOTLOADER_DOUBLE_TAP_RESET_TIMEOUT");
-        val = val * 10 + (*byte - b'0') as u64;
-        bytes = rest;
-    }
-
-    val
-} else {
-    400
-};
-
-#[cfg(feature = "bootloader-double-tap-reset")]
 #[rumcake_macros::task]
-pub async unsafe fn clear_bootloader_magic_task() {
-    Timer::after_millis(TIMEOUT).await;
+pub async unsafe fn clear_bootloader_magic_task(timeout: u64) {
+    Timer::after_millis(timeout).await;
 
     write_volatile(FLAG.get(), 0);
 }
