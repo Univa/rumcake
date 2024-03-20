@@ -329,6 +329,12 @@ fn setup_bootloader_double_tap_reset(
 ) {
     let timeout = timeout.unwrap_or(200);
 
+    if timeout == 0 {
+        initialization.extend(quote! {
+            compile_error!("The timeout for double tapping the reset button should be > 0");
+        })
+    }
+
     initialization.extend(quote! {
         use core::ptr::read_volatile;
         use core::ptr::write_volatile;

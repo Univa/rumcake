@@ -134,6 +134,7 @@ pub static BOOTLOADER_MAGIC: u32 = 0xDEADBEEF;
 #[link_section = ".uninit"]
 pub static mut FLAG: GroundedCell<u32> = GroundedCell::uninit();
 
+// inspired by https://github.com/qmk/qmk_firmware/blob/master/platforms/chibios/bootloaders/rp2040.c
 #[cfg(feature = "bootloader-double-tap-reset")]
 #[rumcake_macros::task]
 pub async unsafe fn clear_bootloader_magic_task(timeout: u64) {
