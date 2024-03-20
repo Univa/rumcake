@@ -23,6 +23,8 @@ stm32 = []
 nrf = []
 rp = []
 
+bootloader-double-tap-reset = []
+
 storage = []
 
 media-keycodes = []

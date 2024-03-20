@@ -15,9 +15,13 @@ compile_error!("Please enable only one chip feature flag.");
 #[cfg_attr(feature = "rp", path = "mcu/rp.rs")]
 pub mod mcu;
 
+use core::ptr::write_volatile;
+use crate::hw::mcu::jump_to_bootloader;
 use crate::State;
 use embassy_futures::select;
 use embassy_sync::signal::Signal;
+use embassy_time::Timer;
+use grounded::uninit::GroundedCell;
 
 use mcu::RawMutex;
 
@@ -121,6 +125,37 @@ pub async fn output_switcher() {
         )
         .await;
     }
+}
+
+#[cfg(feature = "bootloader-double-tap-reset")]
+pub static BOOTLOADER_MAGIC: u32 = 0xDEADBEEF;
+
+#[cfg(feature = "bootloader-double-tap-reset")]
+#[link_section = ".uninit"]
+pub static mut FLAG: GroundedCell<u32> = GroundedCell::uninit();
+
+#[cfg(feature = "bootloader-double-tap-reset")]
+const TIMEOUT: u64 = if let Some(s) = option_env!("BOOTLOADER_DOUBLE_TAP_RESET_TIMEOUT") {
+    // parse environment variable at compile time (https://www.reddit.com/r/rust/comments/10ol38k/comment/j6jrpvd/)
+    let mut bytes = s.as_bytes();
+    let mut val = 0;
+    while let [byte, rest @ ..] = bytes {
+        assert!(b'0' <= *byte && *byte <= b'9', "invalid digit in BOOTLOADER_DOUBLE_TAP_RESET_TIMEOUT");
+        val = val * 10 + (*byte - b'0') as u64;
+        bytes = rest;
+    }
+
+    val
+} else {
+    400
+};
+
+#[cfg(feature = "bootloader-double-tap-reset")]
+#[rumcake_macros::task]
+pub async unsafe fn clear_bootloader_magic_task() {
+    Timer::after_millis(TIMEOUT).await;
+
+    write_volatile(FLAG.get(), 0);
 }
 
 extern "C" {

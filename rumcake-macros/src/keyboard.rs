@@ -345,6 +345,31 @@ pub(crate) fn keyboard_main(
         ::rumcake::hw::mcu::initialize_rcc();
     });
 
+    #[cfg(feature = "bootloader-double-tap-reset")]
+    initialization.extend(quote! {
+        use core::ptr::read_volatile;
+        use core::ptr::write_volatile;
+        use rumcake::hw::mcu::jump_to_bootloader;
+        use rumcake::hw::BOOTLOADER_MAGIC;
+        use rumcake::hw::FLAG;
+
+        unsafe {
+            if read_volatile(FLAG.get()) == BOOTLOADER_MAGIC {
+                write_volatile(FLAG.get(), 0);
+
+                jump_to_bootloader();
+            }
+
+            write_volatile(FLAG.get(), BOOTLOADER_MAGIC);
+        }
+    });
+
+    // Clear the bootloader magic value
+    #[cfg(feature = "bootloader-double-tap-reset")]
+    spawning.extend(quote! {
+        spawner.spawn(::rumcake::clear_bootloader_magic_task!()).unwrap();
+    });
+
     #[cfg(feature = "nrf")]
     {
         spawning.extend(quote! {

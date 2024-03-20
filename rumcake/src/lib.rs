@@ -217,4 +217,7 @@ pub mod tasks {
     pub use crate::drivers::nrf_ble::central::__nrf_ble_central_task;
     #[cfg(all(feature = "nrf-ble", feature = "split-peripheral"))]
     pub use crate::drivers::nrf_ble::peripheral::__nrf_ble_peripheral_task;
+
+    #[cfg(feature = "bootloader-double-tap-reset")]
+    pub use crate::hw::__clear_bootloader_magic_task;
 }
