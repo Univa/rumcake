@@ -18,6 +18,7 @@ pub mod mcu;
 use core::ptr::read_volatile;
 use core::ptr::write_volatile;
 use core::mem::MaybeUninit;
+use core::cell::UnsafeCell;
 use crate::hw::mcu::jump_to_bootloader;
 use crate::State;
 use embassy_futures::select;
@@ -131,20 +132,20 @@ pub async fn output_switcher() {
 const BOOTLOADER_MAGIC: u32 = 0xDEADBEEF;
 
 #[link_section = ".uninit"]
-static mut FLAG: MaybeUninit<u32> = MaybeUninit::uninit();
+static mut FLAG: UnsafeCell<MaybeUninit<u32>> = UnsafeCell::new(MaybeUninit::uninit());
 
 pub async unsafe fn check_double_tap_bootloader(timeout: u64) {
-    if read_volatile(FLAG.as_ptr()) == BOOTLOADER_MAGIC {
-        write_volatile(FLAG.as_mut_ptr(), 0);
+    if read_volatile(FLAG.get().cast::<u32>()) == BOOTLOADER_MAGIC {
+        write_volatile(FLAG.get().cast(), 0);
 
         jump_to_bootloader();
     }
 
-    write_volatile(FLAG.as_mut_ptr(), BOOTLOADER_MAGIC);
+    write_volatile(FLAG.get().cast(), BOOTLOADER_MAGIC);
 
     Timer::after_millis(timeout).await;
 
-    write_volatile(FLAG.as_mut_ptr(), 0);
+    write_volatile(FLAG.get().cast(), 0);
 }
 
 extern "C" {
