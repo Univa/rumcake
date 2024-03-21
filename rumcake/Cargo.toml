@@ -70,9 +70,6 @@ libm = "0.2.7"
 serde = { version = "1.0.188", default-features = false, features = ["derive"] }
 postcard = { version = "1.0.7", features = ["experimental-derive"] }
 
-# read uninitialized memory
-grounded = "0.2.0"
-
 # third party utilities for dealing with rgb values
 smart-leds = "0.3.0"
 
@@ -106,8 +103,6 @@ nrf-ble = ["dep:nrf-softdevice", "nrf-softdevice/defmt", "nrf-softdevice/ble-sec
 nrf52840 = ["nrf", "embassy-nrf/nrf52840", "nrf-softdevice?/nrf52840", "nrf-softdevice?/s140"]
 
 storage = ["rumcake-macros/storage"]
-
-bootloader-double-tap-reset = ["rumcake-macros/bootloader-double-tap-reset"]
 
 #
 # Keyboard features

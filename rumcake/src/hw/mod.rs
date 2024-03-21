@@ -15,13 +15,14 @@ compile_error!("Please enable only one chip feature flag.");
 #[cfg_attr(feature = "rp", path = "mcu/rp.rs")]
 pub mod mcu;
 
+use core::ptr::read_volatile;
 use core::ptr::write_volatile;
+use core::mem::MaybeUninit;
 use crate::hw::mcu::jump_to_bootloader;
 use crate::State;
 use embassy_futures::select;
 use embassy_sync::signal::Signal;
 use embassy_time::Timer;
-use grounded::uninit::GroundedCell;
 
 use mcu::RawMutex;
 
@@ -127,20 +128,23 @@ pub async fn output_switcher() {
     }
 }
 
-#[cfg(feature = "bootloader-double-tap-reset")]
-pub static BOOTLOADER_MAGIC: u32 = 0xDEADBEEF;
+const BOOTLOADER_MAGIC: u32 = 0xDEADBEEF;
 
-#[cfg(feature = "bootloader-double-tap-reset")]
 #[link_section = ".uninit"]
-pub static mut FLAG: GroundedCell<u32> = GroundedCell::uninit();
+static mut FLAG: MaybeUninit<u32> = MaybeUninit::uninit();
 
-// inspired by https://github.com/qmk/qmk_firmware/blob/master/platforms/chibios/bootloaders/rp2040.c
-#[cfg(feature = "bootloader-double-tap-reset")]
-#[rumcake_macros::task]
-pub async unsafe fn clear_bootloader_magic_task(timeout: u64) {
+pub async unsafe fn check_double_tap_bootloader(timeout: u64) {
+    if read_volatile(FLAG.as_ptr()) == BOOTLOADER_MAGIC {
+        write_volatile(FLAG.as_mut_ptr(), 0);
+
+        jump_to_bootloader();
+    }
+
+    write_volatile(FLAG.as_mut_ptr(), BOOTLOADER_MAGIC);
+
     Timer::after_millis(timeout).await;
 
-    write_volatile(FLAG.get(), 0);
+    write_volatile(FLAG.as_mut_ptr(), 0);
 }
 
 extern "C" {

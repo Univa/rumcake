@@ -322,44 +322,6 @@ fn setup_storage_driver(
     });
 }
 
-fn setup_bootloader_double_tap_reset(
-    initialization: &mut TokenStream,
-    spawning: &mut TokenStream,
-    timeout: Option<u64>,
-) {
-    let timeout = timeout.unwrap_or(200);
-
-    if timeout == 0 {
-        initialization.extend(quote! {
-            compile_error!("The timeout for double tapping the reset button should be > 0");
-        })
-    }
-
-    initialization.extend(quote! {
-        use core::ptr::read_volatile;
-        use core::ptr::write_volatile;
-        use rumcake::hw::mcu::jump_to_bootloader;
-        use rumcake::hw::BOOTLOADER_MAGIC;
-        use rumcake::hw::FLAG;
-
-        unsafe {
-            if read_volatile(FLAG.get()) == BOOTLOADER_MAGIC {
-                write_volatile(FLAG.get(), 0);
-
-                jump_to_bootloader();
-            }
-
-            write_volatile(FLAG.get(), BOOTLOADER_MAGIC);
-        }
-    });
-
-    // Clear the bootloader magic value
-    spawning.extend(quote! {
-        spawner.spawn(::rumcake::clear_bootloader_magic_task!(#timeout)).unwrap();
-    });
-}
-
-
 pub(crate) fn keyboard_main(
     str: ItemStruct,
     kb_name: Ident,
@@ -384,13 +346,20 @@ pub(crate) fn keyboard_main(
         ::rumcake::hw::mcu::initialize_rcc();
     });
 
-    #[cfg(feature = "bootloader-double-tap-reset")]
     if let Some(arg) = keyboard.bootloader_double_tap_reset {
-        setup_bootloader_double_tap_reset(
-            &mut initialization,
-            &mut spawning,
-            arg.explicit(),
-        );
+        let timeout = arg.unwrap_or(200);
+
+        if timeout == 0 {
+            initialization.extend(quote! {
+                compile_error!("The timeout for double tapping the reset button should be > 0");
+            })
+        }
+
+        initialization.extend(quote! {
+            unsafe {
+                ::rumcake::hw::check_double_tap_bootloader(#timeout).await;
+            }
+        });
     }
 
     #[cfg(feature = "nrf")]
