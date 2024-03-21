@@ -131,7 +131,7 @@ pub async fn output_switcher() {
 
 const BOOTLOADER_MAGIC: u32 = 0xDEADBEEF;
 
-#[link_section = ".uninit"]
+#[link_section = ".uninit.FLAG"]
 static mut FLAG: UnsafeCell<MaybeUninit<u32>> = UnsafeCell::new(MaybeUninit::uninit());
 
 pub async unsafe fn check_double_tap_bootloader(timeout: u64) {

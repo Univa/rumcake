@@ -346,22 +346,6 @@ pub(crate) fn keyboard_main(
         ::rumcake::hw::mcu::initialize_rcc();
     });
 
-    if let Some(arg) = keyboard.bootloader_double_tap_reset {
-        let timeout = arg.unwrap_or(200);
-
-        if timeout == 0 {
-            initialization.extend(quote! {
-                compile_error!("The timeout for double tapping the reset button should be > 0");
-            })
-        }
-
-        initialization.extend(quote! {
-            unsafe {
-                ::rumcake::hw::check_double_tap_bootloader(#timeout).await;
-            }
-        });
-    }
-
     #[cfg(feature = "nrf")]
     {
         spawning.extend(quote! {
@@ -687,6 +671,23 @@ pub(crate) fn keyboard_main(
             });
         }
     }
+
+    if let Some(arg) = keyboard.bootloader_double_tap_reset {
+        let timeout = arg.unwrap_or(200);
+
+        if timeout == 0 {
+            initialization.extend(quote! {
+                compile_error!("The timeout for double tapping the reset button should be > 0");
+            })
+        }
+
+        spawning.extend(quote! {
+            unsafe {
+                ::rumcake::hw::check_double_tap_bootloader(#timeout).await;
+            }
+        });
+    }
+
 
     let final_traits = traits.values();
 
