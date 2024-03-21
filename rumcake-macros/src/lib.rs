@@ -2,13 +2,13 @@ use darling::FromMeta;
 use heck::{ToShoutySnakeCase, ToSnakeCase};
 use proc_macro2::{Ident, Literal, TokenStream, TokenTree};
 use proc_macro_error::proc_macro_error;
-use quote::{format_ident, quote, quote_spanned};
+use quote::{format_ident, quote, quote_spanned, ToTokens};
 use syn::parse::Parse;
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::{
-    parse_macro_input, parse_quote, parse_str, DeriveInput, ExprTuple, ItemEnum, ItemFn,
-    ItemStruct, LitStr, Meta, Pat, Token,
+    parenthesized, parse_macro_input, parse_quote, parse_str, DeriveInput, ItemEnum, ItemFn,
+    ItemStruct, LitInt, LitStr, Meta, Pat, Token,
 };
 
 struct Templates(Punctuated<LitStr, Token![,]>);
@@ -98,6 +98,35 @@ pub fn generate_items_from_enum_variants(
     .into()
 }
 
+#[derive(Debug)]
+struct TuplePair {
+    parenthesis_token: syn::token::Paren,
+    left: LitInt,
+    comma_token: Token![,],
+    right: LitInt,
+}
+
+impl Parse for TuplePair {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let content;
+        let parenthesis_token = parenthesized!(content in input);
+        Ok(Self {
+            parenthesis_token,
+            left: content.parse()?,
+            comma_token: content.parse()?,
+            right: content.parse()?,
+        })
+    }
+}
+
+impl ToTokens for TuplePair {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let left = &self.left;
+        let right = &self.right;
+        quote! { (#left,#right) }.to_tokens(tokens)
+    }
+}
+
 mod derive;
 
 #[proc_macro_derive(LEDEffect, attributes(animated, reactive))]
@@ -169,7 +198,7 @@ pub fn setup_backlight_matrix(input: proc_macro::TokenStream) -> proc_macro::Tok
 #[proc_macro_error]
 pub fn led_layout(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let matrix =
-        parse_macro_input!(input as keyboard::MatrixLike<keyboard::OptionalItem<ExprTuple>>);
+        parse_macro_input!(input as keyboard::MatrixLike<keyboard::OptionalItem<TuplePair>>);
     backlight::led_layout(matrix).into()
 }
 

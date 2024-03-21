@@ -4,20 +4,14 @@ use quote::{quote, ToTokens};
 use syn::parse::Parse;
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
-use syn::{braced, ExprTuple, Ident, Token};
+use syn::{braced, Ident, Token};
 
 use crate::keyboard::{MatrixLike, OptionalItem};
+use crate::TuplePair;
 
-pub fn led_layout(input: MatrixLike<OptionalItem<ExprTuple>>) -> TokenStream {
+pub fn led_layout(input: MatrixLike<OptionalItem<TuplePair>>) -> TokenStream {
     let coordinates = input.rows.iter().map(|row| {
         let items = &row.cols;
-
-        if let Some(item) = items.iter().find(|item| match item {
-            OptionalItem::None => false,
-            OptionalItem::Some(tuple) => tuple.elems.len() != 2,
-        }) {
-            abort!(item.span(), "Item is not a coordinate.")
-        };
 
         quote! { #(#items),* }
     });
@@ -37,16 +31,16 @@ pub struct LEDFlags {
 impl Parse for LEDFlags {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         Ok(LEDFlags {
-            flags: input.parse_terminated(Ident::parse, Token![|])?,
+            flags: input.call(Punctuated::parse_separated_nonempty)?,
         })
     }
 }
 
 impl ToTokens for LEDFlags {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
-        for flag in self.flags.iter() {
-            quote! { ::rumcake::backlight::LEDFlags::#flag }.to_tokens(tokens)
-        }
+        let flags = self.flags.iter();
+
+        quote! { #(::rumcake::backlight::LEDFlags::#flags)|* }.to_tokens(tokens)
     }
 }
 
@@ -74,7 +68,7 @@ pub fn led_flags(input: MatrixLike<OptionalItem<LEDFlags>>) -> TokenStream {
 #[derive(Debug)]
 pub struct BacklightMatrixMacroInput {
     pub led_layout_brace: syn::token::Brace,
-    pub led_layout: MatrixLike<OptionalItem<ExprTuple>>,
+    pub led_layout: MatrixLike<OptionalItem<TuplePair>>,
     pub led_flags_brace: syn::token::Brace,
     pub led_flags: MatrixLike<OptionalItem<LEDFlags>>,
 }
