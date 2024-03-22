@@ -25,6 +25,7 @@ pub(crate) struct KeyboardSettings {
     split_central: Option<SplitCentralSettings>,
     via: Option<Override<ViaSettings>>,
     vial: Option<Override<ViaSettings>>,
+    bootloader_double_tap_reset: Option<Override<u64>>,
 }
 
 #[derive(Debug, FromMeta, Default)]
@@ -670,6 +671,23 @@ pub(crate) fn keyboard_main(
             });
         }
     }
+
+    if let Some(arg) = keyboard.bootloader_double_tap_reset {
+        let timeout = arg.unwrap_or(200);
+
+        if timeout == 0 {
+            initialization.extend(quote! {
+                compile_error!("The timeout for double tapping the reset button should be > 0");
+            })
+        }
+
+        spawning.extend(quote! {
+            unsafe {
+                ::rumcake::hw::check_double_tap_bootloader(#timeout).await;
+            }
+        });
+    }
+
 
     let final_traits = traits.values();
 
