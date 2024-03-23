@@ -5,9 +5,11 @@ use darling::FromMeta;
 use proc_macro2::{Ident, TokenStream, TokenTree};
 use proc_macro_error::OptionExt;
 use quote::{quote, quote_spanned, ToTokens};
-use syn::parse::{Parse, Parser};
+use syn::parse::Parse;
 use syn::spanned::Spanned;
-use syn::{braced, bracketed, ItemStruct, PathSegment};
+use syn::{braced, bracketed, custom_keyword, ExprRange, ItemStruct, PathSegment};
+
+use crate::TuplePair;
 
 #[derive(Debug, FromMeta, Default)]
 #[darling(default)]
@@ -346,10 +348,10 @@ pub(crate) fn keyboard_main(
         ::rumcake::hw::mcu::initialize_rcc();
     });
 
-    #[cfg(feature = "nrf")]
-    {
+    if cfg!(feature = "nrf") {
         spawning.extend(quote! {
-            spawner.spawn(::rumcake::adc_task!()).unwrap();
+            let sampler = setup_adc_sampler();
+            spawner.spawn(::rumcake::adc_task!(sampler)).unwrap();
         });
 
         if uses_bluetooth {
@@ -712,23 +714,16 @@ pub(crate) enum OptionalItem<T> {
     Some(T),
 }
 
+custom_keyword!(No);
+
 impl<T: Parse> Parse for OptionalItem<T> {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        input.step(|cursor| {
-            if let Some((tt, next)) = cursor.token_tree() {
-                if tt.to_string() == "No" {
-                    return Ok((OptionalItem::None, next));
-                }
-
-                return if let Ok(t) = T::parse.parse2(tt.into_token_stream()) {
-                    Ok((OptionalItem::Some(t), next))
-                } else {
-                    Err(cursor.error("Invalid item."))
-                };
-            };
-
-            Err(cursor.error("No item found."))
-        })
+        let lookahead = input.lookahead1();
+        if lookahead.peek(No) {
+            input.parse::<No>().map(|_| OptionalItem::None)
+        } else {
+            input.parse().map(OptionalItem::Some)
+        }
     }
 }
 
@@ -853,6 +848,7 @@ pub fn build_direct_pin_matrix(input: MatrixLike<OptionalItem<Ident>>) -> TokenS
     quote! {
         const MATRIX_ROWS: usize = #row_count;
         const MATRIX_COLS: usize = #col_count;
+
         fn get_matrix() -> &'static ::rumcake::keyboard::PollableMatrix<impl ::rumcake::keyboard::Pollable> {
             static MATRIX: ::rumcake::once_cell::sync::OnceCell<
                 ::rumcake::keyboard::PollableMatrix<
@@ -871,6 +867,87 @@ pub fn build_direct_pin_matrix(input: MatrixLike<OptionalItem<Ident>>) -> TokenS
                         ],
                         Self::DEBOUNCE_MS
                     ).unwrap()
+                )
+            })
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct AnalogMatrixDefinition {
+    pub pos_to_ch_brace: syn::token::Brace,
+    pub pos_to_ch: MatrixLike<OptionalItem<TuplePair>>,
+    pub ranges_brace: syn::token::Brace,
+    pub ranges: MatrixLike<OptionalItem<ExprRange>>,
+}
+
+impl syn::parse::Parse for AnalogMatrixDefinition {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let pos_to_ch_content;
+        let pos_to_ch_brace = braced!(pos_to_ch_content in input);
+        let ranges_content;
+        let ranges_brace = braced!(ranges_content in input);
+
+        Ok(Self {
+            pos_to_ch_brace,
+            pos_to_ch: pos_to_ch_content.parse()?,
+            ranges_brace,
+            ranges: ranges_content.parse()?,
+        })
+    }
+}
+
+pub fn build_analog_matrix(input: AnalogMatrixDefinition) -> TokenStream {
+    let pos_to_ch = input.pos_to_ch.rows.iter().map(|row| {
+        let items = row.cols.iter().map(|item| match item {
+            OptionalItem::None => quote! { (0, 0) },
+            OptionalItem::Some(tuple) => quote! { #tuple },
+        });
+        quote! { #(#items),* }
+    });
+
+    let ranges = input.ranges.rows.iter().map(|row| {
+        let items = row.cols.iter().map(|item| match item {
+            OptionalItem::None => quote! { 0..0 },
+            OptionalItem::Some(range) => quote! { #range },
+        });
+        quote! { #(#items),* }
+    });
+
+    let row_count = pos_to_ch.len();
+    let col_count = input
+        .pos_to_ch
+        .rows
+        .first()
+        .expect_or_abort("At least one row must be specified")
+        .cols
+        .len();
+
+    quote! {
+        const MATRIX_ROWS: usize = #row_count;
+        const MATRIX_COLS: usize = #col_count;
+
+        fn get_matrix() -> &'static ::rumcake::keyboard::PollableMatrix<impl ::rumcake::keyboard::Pollable> {
+            static MATRIX: ::rumcake::once_cell::sync::OnceCell<
+                ::rumcake::keyboard::PollableMatrix<
+                    ::rumcake::keyboard::PollableAnalogMatrix<
+                        AdcSamplerType,
+                        #col_count,
+                        #row_count
+                    >
+                >
+            > = ::rumcake::once_cell::sync::OnceCell::new();
+            MATRIX.get_or_init(|| {
+                ::rumcake::keyboard::PollableMatrix::new(
+                    ::rumcake::keyboard::setup_analog_keyboard_matrix(
+                        setup_adc_sampler(),
+                        [
+                            #([ #pos_to_ch ]),*
+                        ],
+                        [
+                            #([ #ranges ]),*
+                        ],
+                    )
                 )
             })
         }

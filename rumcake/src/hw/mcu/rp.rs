@@ -4,25 +4,36 @@
 //! of other versions of the `mcu` module. This is the case so that parts of `rumcake` can remain
 //! hardware-agnostic.
 
+use core::cell::RefCell;
+use core::ops::DerefMut;
+
 use defmt::assert;
+use embassy_rp::adc::{Adc, Async as AdcAsync, Channel};
 use embassy_rp::bind_interrupts;
 use embassy_rp::config::Config;
 use embassy_rp::flash::Async;
 use embassy_rp::flash::Flash as HALFlash;
-use embassy_rp::peripherals::{FLASH, USB};
+use embassy_rp::gpio::Output;
+use embassy_rp::peripherals::{ADC, FLASH, USB};
 use embassy_rp::rom_data::reset_to_usb_boot;
 use embassy_rp::usb::Driver;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::blocking_mutex::ThreadModeMutex;
 
 pub use rumcake_macros::{
-    input_pin, output_pin, setup_buffered_uart, setup_dma_channel, setup_i2c,
+    input_pin, output_pin, setup_adc_sampler, setup_buffered_uart, setup_dma_channel, setup_i2c,
 };
 
 pub use embassy_rp;
 
+use crate::keyboard::MatrixSampler;
+
+use super::Multiplexer;
+
 pub const SYSCLK: u32 = 125_000_000;
 
 pub type RawMutex = ThreadModeRawMutex;
+pub type BlockingMutex<T> = ThreadModeMutex<T>;
 
 /// A function that allows you to jump to the bootloader, usually for re-flashing the firmware.
 pub fn jump_to_bootloader() {
@@ -84,6 +95,85 @@ pub fn setup_usb_driver<K: crate::usb::USBKeyboard>(
             msos_descriptor,
             control_buf,
         )
+    }
+}
+
+/// Different types of analog pins.
+pub enum AnalogPinType<'a, const MP: usize> {
+    /// A pin that is connected to an analog multiplexer. Must contain a [`Multiplexer`]
+    /// definition.
+    Multiplexed(Multiplexer<Output<'a>, MP>),
+    /// A pin that is directly connected to the analog source.
+    Direct,
+}
+
+pub type AdcSampleType = u16;
+
+// TODO: use a different mutex if using multiple cores on the MCU, thread mode mutex is not safe for multicore.
+/// A sampler for the analog pins on an RP MCU. This sampler can handle analog pins that may be
+/// multiplexed, or directly wired to the analog source. This can also be used to power an analog
+/// keyboard matrix.
+pub struct AdcSampler<'a, const MP: usize, const C: usize> {
+    adc_sampler: BlockingMutex<RefCell<RawAdcSampler<'a, MP, C>>>,
+}
+
+struct RawAdcSampler<'a, const MP: usize, const C: usize> {
+    idx_to_pin_type: [AnalogPinType<'a, MP>; C],
+    channels: [Channel<'a>; C],
+    adc: Adc<'a, AdcAsync>,
+}
+
+impl<'a, const MP: usize, const C: usize> AdcSampler<'a, MP, C> {
+    /// Create a new instance of the ADC sampler.
+    pub fn new(idx_to_pin_type: [AnalogPinType<'a, MP>; C], analog_pins: [Channel<'a>; C]) -> Self {
+        let adc = unsafe {
+            bind_interrupts! {
+                struct Irqs {
+                    ADC_IRQ_FIFO => embassy_rp::adc::InterruptHandler;
+                }
+            }
+
+            Adc::new(ADC::steal(), Irqs, Default::default())
+        };
+
+        Self {
+            adc_sampler: BlockingMutex::new(RefCell::new(RawAdcSampler {
+                idx_to_pin_type,
+                channels: analog_pins,
+                adc,
+            })),
+        }
+    }
+
+    /// Obtain a sample from the ADC. The `ch` argument corresponds to the index of the analog pin
+    /// you want to sample (which you provided in the [`Self::new()`] method). If the pin is
+    /// multiplexed, the `sub_ch` argument is used to determine which multiplexer channel to sample
+    /// from. Otherwise, the `sub_ch` argument is ignored.
+    pub fn get_sample(&self, ch: usize, sub_ch: usize) -> Option<AdcSampleType> {
+        self.adc_sampler.lock(|adc_sampler| {
+            let mut adc_sampler = adc_sampler.borrow_mut();
+            let RawAdcSampler {
+                idx_to_pin_type,
+                channels,
+                adc,
+            } = adc_sampler.deref_mut();
+
+            idx_to_pin_type.get_mut(ch).map(|channel| match channel {
+                AnalogPinType::Multiplexed(ref mut multiplexer) => {
+                    multiplexer.select_channel(sub_ch as u8).unwrap();
+                    adc.blocking_read(&mut channels[ch]).unwrap()
+                }
+                AnalogPinType::Direct => adc.blocking_read(&mut channels[ch]).unwrap(),
+            })
+        })
+    }
+}
+
+impl<'a, const MP: usize, const C: usize> MatrixSampler for AdcSampler<'a, MP, C> {
+    type SampleType = AdcSampleType;
+
+    fn get_sample(&self, ch: usize, sub_ch: usize) -> Option<Self::SampleType> {
+        self.get_sample(ch, sub_ch)
     }
 }
 

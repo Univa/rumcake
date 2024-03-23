@@ -4,21 +4,33 @@
 //! of other versions of the `mcu` module. This is the case so that parts of `rumcake` can remain
 //! hardware-agnostic.
 
+use core::cell::RefCell;
+use core::mem::MaybeUninit;
+use core::ops::DerefMut;
+
+use defmt::error;
+use embassy_futures::select::select;
 use embassy_nrf::bind_interrupts;
+use embassy_nrf::gpio::Output;
 use embassy_nrf::interrupt::{InterruptExt, Priority};
 use embassy_nrf::nvmc::Nvmc;
 use embassy_nrf::peripherals::SAADC;
+use embassy_nrf::ppi::ConfigurableChannel;
 use embassy_nrf::saadc::{ChannelConfig, Input, Saadc, VddhDiv5Input};
+use embassy_nrf::timer::Instance;
 use embassy_nrf::usb::Driver;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::blocking_mutex::ThreadModeMutex;
 use embassy_sync::mutex::Mutex;
+use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
 use static_cell::StaticCell;
 
 use crate::hw::BATTERY_LEVEL_STATE;
+use crate::keyboard::MatrixSampler;
 
 pub use rumcake_macros::{
-    input_pin, output_pin, setup_buffered_uarte, setup_i2c, setup_i2c_blocking,
+    input_pin, output_pin, setup_adc_sampler, setup_buffered_uarte, setup_i2c, setup_i2c_blocking,
 };
 
 pub use embassy_nrf;
@@ -26,10 +38,13 @@ pub use embassy_nrf;
 #[cfg(feature = "nrf-ble")]
 pub use nrf_softdevice;
 
+use super::Multiplexer;
+
 #[cfg(feature = "nrf52840")]
 pub const SYSCLK: u32 = 48_000_000;
 
 pub type RawMutex = ThreadModeRawMutex;
+pub type BlockingMutex<T> = ThreadModeMutex<T>;
 
 pub fn jump_to_bootloader() {
     // TODO
@@ -157,41 +172,240 @@ pub fn setup_internal_softdevice_flash(sd: &nrf_softdevice::Softdevice) -> nrf_s
     nrf_softdevice::Flash::take(sd)
 }
 
-#[rumcake_macros::task]
-pub async fn adc_task() {
-    let mut adc = unsafe {
-        bind_interrupts! {
-            struct Irqs {
-                SAADC => embassy_nrf::saadc::InterruptHandler;
-            }
+pub type AdcSampleType = i16;
+
+/// Different types of analog pins.
+pub enum AnalogPinType<'a, const MP: usize>
+where
+    [(); 2_usize.pow(MP as u32)]:,
+{
+    /// A pin that is connected to an analog multiplexer. Must contain a buffer to store the
+    /// samples obtained by the ADC, and a [`Multiplexer`] definition.
+    Multiplexed(
+        [AdcSampleType; 2_usize.pow(MP as u32)],
+        Multiplexer<Output<'a>, MP>,
+    ),
+    /// A pin that is directly connected to the analog source. Must contain a buffer to store the
+    /// sample obtained by the ADC.
+    Direct([AdcSampleType; 1]),
+}
+
+/// A sampler for the analog pins on an nRF MCU. This sampler can handle analog pins that may be
+/// multiplexed, or directly wired to the analog source. This can also be used to power an analog
+/// keyboard matrix.
+pub struct AdcSampler<'a, TIM, PPI0, PPI1, const MP: usize, const C: usize>
+where
+    [(); C + 1]:,
+    [(); 2_usize.pow(MP as u32)]:,
+{
+    idx_to_pin_type: BlockingMutex<RefCell<[AnalogPinType<'a, MP>; C]>>,
+    adc_sampler: Mutex<RawMutex, RawAdcSampler<'a, TIM, PPI0, PPI1, C>>,
+}
+
+struct RawAdcSampler<'a, TIM, PPI0, PPI1, const C: usize>
+where
+    [(); C + 1]:,
+{
+    adc: Saadc<'a, { C + 1 }>,
+    timer: TIM,
+    ppi_ch0: PPI0,
+    ppi_ch1: PPI1,
+}
+
+impl<
+        'a,
+        TIM: Instance,
+        PPI0: ConfigurableChannel,
+        PPI1: ConfigurableChannel,
+        const MP: usize,
+        const C: usize,
+    > AdcSampler<'a, TIM, PPI0, PPI1, MP, C>
+where
+    [(); C + 1]:,
+    [(); 2_usize.pow(MP as u32)]:,
+{
+    /// Create a new instance of the ADC sampler.
+    pub fn new(
+        idx_to_pin_type: [AnalogPinType<'a, MP>; C],
+        configs: [ChannelConfig<'_>; C],
+        timer: TIM,
+        ppi_ch0: PPI0,
+        ppi_ch1: PPI1,
+    ) -> Self {
+        Self {
+            idx_to_pin_type: BlockingMutex::new(RefCell::new(idx_to_pin_type)),
+            adc_sampler: unsafe {
+                bind_interrupts! {
+                    struct Irqs {
+                        SAADC => embassy_nrf::saadc::InterruptHandler;
+                    }
+                }
+                embassy_nrf::interrupt::SAADC.set_priority(embassy_nrf::interrupt::Priority::P2);
+                let channels = {
+                    let mut uninit_arr: [MaybeUninit<ChannelConfig<'_>>; C + 1] =
+                        MaybeUninit::uninit().assume_init();
+
+                    let mut bat_ch_config =
+                        ChannelConfig::single_ended(VddhDiv5Input.degrade_saadc());
+                    bat_ch_config.time = embassy_nrf::saadc::Time::_3US;
+                    uninit_arr[0] = MaybeUninit::new(bat_ch_config);
+
+                    for (i, mut config) in configs.into_iter().enumerate() {
+                        config.time = embassy_nrf::saadc::Time::_3US;
+                        uninit_arr[i + 1] = MaybeUninit::new(config)
+                    }
+
+                    uninit_arr.map(|config| config.assume_init())
+                };
+
+                Mutex::new(RawAdcSampler {
+                    adc: Saadc::new(SAADC::steal(), Irqs, Default::default(), channels),
+                    timer,
+                    ppi_ch0,
+                    ppi_ch1,
+                })
+            },
         }
-        embassy_nrf::interrupt::SAADC.set_priority(embassy_nrf::interrupt::Priority::P2);
-        let vddh = VddhDiv5Input;
-        let channel = ChannelConfig::single_ended(vddh.degrade_saadc());
-        Saadc::new(SAADC::steal(), Irqs, Default::default(), [channel])
+    }
+
+    /// Run the sampler. This can only be used by running `adc_task`.
+    #[allow(clippy::await_holding_refcell_ref)]
+    async fn run_sampler(&self) {
+        let mut adc_sampler = self.adc_sampler.lock().await;
+        let RawAdcSampler {
+            adc,
+            timer,
+            ppi_ch0,
+            ppi_ch1,
+            ..
+        } = adc_sampler.deref_mut();
+
+        adc.calibrate().await;
+
+        let mut bufs = [[[0; C + 1]; 1]; 2];
+
+        // sample acquisition time: 3 microseconds (based on default saadc::Config)
+        // sample conversion time: 2 microseconds (worst case, based on datasheet)
+        // 1/(tacq + tconv): 200kHz
+        // fsample = 33.333kHz (with sample threshold = 30 and 1MHz timer, buffer starts to get filled every 30 microseconds)
+        // NOTE: depending on the number of keys and multiplexers, we need to go through multiple cycles of sampling to obtain all the key samples
+        // example: for 80 keys evenly divided among 5 multiplexers (6 channels total when you include VddhDiv5Input), you need to sample 16 times.
+        // sampling 6 channels 1 time will take ((3 + 2) microseconds * 6) = 30us.
+        // sampling 6 channels 16 times will take 480us, enough for the default matrix polling rate of 500us.
+        adc.run_task_sampler(
+            timer,
+            ppi_ch0,
+            ppi_ch1,
+            embassy_nrf::timer::Frequency::F1MHz,
+            30,
+            &mut bufs,
+            move |buf| {
+                let buf = buf[0];
+                self.idx_to_pin_type.lock(|pin_types| {
+                    let mut pin_types = pin_types.borrow_mut();
+                    BAT_SAMPLE_CHANNEL.signal(buf[0]);
+                    for (i, value) in buf.iter().skip(1).enumerate() {
+                        match &mut pin_types[i] {
+                            AnalogPinType::Multiplexed(values, multiplexer) => {
+                                values[multiplexer.cur_channel as usize] = *value;
+                                multiplexer
+                                    .select_channel(
+                                        ((multiplexer.cur_channel as usize + 1)
+                                            % 2_usize.pow(MP as u32))
+                                            as u8,
+                                    )
+                                    .unwrap();
+                            }
+                            AnalogPinType::Direct(values) => {
+                                values[0] = *value;
+                            }
+                        };
+                    }
+                });
+
+                embassy_nrf::saadc::CallbackResult::Continue
+            },
+        )
+        .await;
+    }
+
+    /// Obtain a sample from the ADC. The `ch` argument corresponds to the index of the analog pin
+    /// you want to sample (which you provided in the [`Self::new()`] method). If the pin is
+    /// multiplexed, the `sub_ch` argument is used to determine which multiplexer channel to sample
+    /// from. Otherwise, the `sub_ch` argument is ignored.
+    pub fn get_sample(&self, channel: usize, sub_channel: usize) -> Option<u16> {
+        self.idx_to_pin_type.lock(|pin_types| {
+            pin_types
+                .borrow()
+                .get(channel)
+                .and_then(|ch| match ch {
+                    AnalogPinType::Multiplexed(values, _) => values.get(sub_channel).copied(),
+                    AnalogPinType::Direct([result]) => Some(*result),
+                })
+                .map(|value| (value - i16::MIN) as u16)
+        })
+    }
+}
+
+impl<
+        'a,
+        TIM: Instance,
+        PPI0: ConfigurableChannel,
+        PPI1: ConfigurableChannel,
+        const MP: usize,
+        const C: usize,
+    > MatrixSampler for AdcSampler<'a, TIM, PPI0, PPI1, MP, C>
+where
+    [(); C + 1]:,
+    [(); 2_usize.pow(MP as u32)]:,
+{
+    type SampleType = u16;
+
+    fn get_sample(&self, ch: usize, sub_ch: usize) -> Option<Self::SampleType> {
+        self.get_sample(ch, sub_ch)
+    }
+}
+
+static BAT_SAMPLE_CHANNEL: Signal<RawMutex, AdcSampleType> = Signal::new();
+
+#[rumcake_macros::task]
+pub async fn adc_task<'a, const MP: usize, const N: usize>(
+    sampler: &AdcSampler<
+        'a,
+        impl Instance,
+        impl ConfigurableChannel,
+        impl ConfigurableChannel,
+        MP,
+        N,
+    >,
+) where
+    [(); N + 1]:,
+    [(); 2_usize.pow(MP as u32)]:,
+{
+    let adc_fut = sampler.run_sampler();
+
+    let bat_fut = async {
+        loop {
+            let sample = BAT_SAMPLE_CHANNEL.wait().await;
+            let mv = sample * 5;
+
+            let pct = if mv >= 4200 {
+                100
+            } else if mv <= 3450 {
+                0
+            } else {
+                (mv * 2 / 15 - 459) as u8
+            };
+
+            BATTERY_LEVEL_STATE.set(pct).await;
+
+            Timer::after(Duration::from_secs(10)).await;
+        }
     };
 
-    adc.calibrate().await;
+    select(adc_fut, bat_fut).await;
 
-    loop {
-        let mut buf: [i16; 1] = [0; 1];
-        adc.sample(&mut buf).await;
-
-        let sample = &buf[0];
-        let mv = sample * 5;
-
-        let pct = if mv >= 4200 {
-            100
-        } else if mv <= 3450 {
-            0
-        } else {
-            (mv * 2 / 15 - 459) as u8
-        };
-
-        BATTERY_LEVEL_STATE.set(pct).await;
-
-        Timer::after(Duration::from_secs(10)).await;
-    }
+    error!("[NRF_ADC] ADC sampler has stopped. This should not happen.");
 }
 
 #[cfg(feature = "nrf-ble")]

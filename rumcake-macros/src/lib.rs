@@ -2,13 +2,13 @@ use darling::FromMeta;
 use heck::{ToShoutySnakeCase, ToSnakeCase};
 use proc_macro2::{Ident, Literal, TokenStream, TokenTree};
 use proc_macro_error::proc_macro_error;
-use quote::{format_ident, quote, quote_spanned};
+use quote::{format_ident, quote, quote_spanned, ToTokens};
 use syn::parse::Parse;
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::{
-    parse_macro_input, parse_quote, parse_str, DeriveInput, ExprTuple, ItemEnum, ItemFn,
-    ItemStruct, LitStr, Meta, Pat, Token,
+    parenthesized, parse_macro_input, parse_quote, parse_str, DeriveInput, ItemEnum, ItemFn,
+    ItemStruct, LitInt, LitStr, Meta, Pat, Token,
 };
 
 struct Templates(Punctuated<LitStr, Token![,]>);
@@ -98,6 +98,35 @@ pub fn generate_items_from_enum_variants(
     .into()
 }
 
+#[derive(Debug)]
+struct TuplePair {
+    parenthesis_token: syn::token::Paren,
+    left: LitInt,
+    comma_token: Token![,],
+    right: LitInt,
+}
+
+impl Parse for TuplePair {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let content;
+        let parenthesis_token = parenthesized!(content in input);
+        Ok(Self {
+            parenthesis_token,
+            left: content.parse()?,
+            comma_token: content.parse()?,
+            right: content.parse()?,
+        })
+    }
+}
+
+impl ToTokens for TuplePair {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let left = &self.left;
+        let right = &self.right;
+        quote! { (#left,#right) }.to_tokens(tokens)
+    }
+}
+
 mod derive;
 
 #[proc_macro_derive(LEDEffect, attributes(animated, reactive))]
@@ -144,6 +173,12 @@ pub fn build_direct_pin_matrix(input: proc_macro::TokenStream) -> proc_macro::To
 }
 
 #[proc_macro]
+pub fn build_analog_matrix(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let matrix = parse_macro_input!(input as keyboard::AnalogMatrixDefinition);
+    keyboard::build_analog_matrix(matrix).into()
+}
+
+#[proc_macro]
 pub fn build_layout(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let raw = input.clone();
     let layers = parse_macro_input!(input as keyboard::LayoutLike<TokenTree>);
@@ -169,7 +204,7 @@ pub fn setup_backlight_matrix(input: proc_macro::TokenStream) -> proc_macro::Tok
 #[proc_macro_error]
 pub fn led_layout(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let matrix =
-        parse_macro_input!(input as keyboard::MatrixLike<keyboard::OptionalItem<ExprTuple>>);
+        parse_macro_input!(input as keyboard::MatrixLike<keyboard::OptionalItem<TuplePair>>);
     backlight::led_layout(matrix).into()
 }
 
@@ -219,6 +254,100 @@ pub fn is31fl3731_get_led_from_rgb_matrix_coordinates(
 #[cfg_attr(feature = "rp", path = "hw/rp.rs")]
 mod hw;
 
+pub(crate) mod common {
+    use proc_macro2::Ident;
+    use syn::parse::Parse;
+    use syn::{braced, custom_keyword, Token};
+
+    custom_keyword!(Multiplexer);
+    custom_keyword!(Direct);
+    custom_keyword!(pin);
+    custom_keyword!(select_pins);
+
+    #[allow(dead_code)]
+    pub struct MultiplexerDefinition {
+        pub multiplexer_field_name: Multiplexer,
+        pub pin_brace_token: syn::token::Brace,
+        pub pin_field_name: pin,
+        pub pin_field_colon_token: Token![:],
+        pub pin: Ident,
+        pub select_pins_field_name: select_pins,
+        pub select_pins_field_colon_token: Token![:],
+        pub select_pins_brace_token: syn::token::Brace,
+        pub select_pins: Vec<crate::keyboard::OptionalItem<Ident>>,
+    }
+
+    impl Parse for MultiplexerDefinition {
+        fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+            let content;
+            let select_pins_content;
+            Ok(Self {
+                multiplexer_field_name: input.parse()?,
+                pin_brace_token: braced!(content in input),
+                pin_field_name: content.parse()?,
+                pin_field_colon_token: content.parse()?,
+                pin: content.parse()?,
+                select_pins_field_name: content.parse()?,
+                select_pins_field_colon_token: content.parse()?,
+                select_pins_brace_token: braced!(select_pins_content in content),
+                select_pins: {
+                    let mut pins = Vec::new();
+                    while let Ok(t) = select_pins_content.parse() {
+                        pins.push(t)
+                    }
+                    if !select_pins_content.is_empty() {
+                        return Err(syn::Error::new(
+                            select_pins_content.span(),
+                            "Encountered an invalid token.",
+                        ));
+                    }
+                    pins
+                },
+            })
+        }
+    }
+
+    #[allow(dead_code)]
+    pub struct DirectPinDefinition {
+        pub direct_field_name: Direct,
+        pub brace_token: syn::token::Brace,
+        pub pin_field_name: pin,
+        pub colon_token: Token![:],
+        pub pin: Ident,
+    }
+
+    impl Parse for DirectPinDefinition {
+        fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+            let content;
+            Ok(Self {
+                direct_field_name: input.parse()?,
+                brace_token: braced!(content in input),
+                pin_field_name: content.parse()?,
+                colon_token: content.parse()?,
+                pin: content.parse()?,
+            })
+        }
+    }
+
+    pub enum AnalogPinType {
+        Multiplexed(MultiplexerDefinition),
+        Direct(DirectPinDefinition),
+    }
+
+    impl Parse for AnalogPinType {
+        fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+            let lookahead = input.lookahead1();
+            if lookahead.peek(Direct) {
+                input.parse().map(AnalogPinType::Direct)
+            } else if lookahead.peek(Multiplexer) {
+                input.parse().map(AnalogPinType::Multiplexed)
+            } else {
+                Err(lookahead.error())
+            }
+        }
+    }
+}
+
 #[proc_macro]
 pub fn input_pin(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ident = parse_macro_input!(input as Ident);
@@ -263,6 +392,21 @@ pub fn setup_buffered_uart(input: proc_macro::TokenStream) -> proc_macro::TokenS
 pub fn setup_dma_channel(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let args = parse_macro_input!(input as Ident);
     hw::setup_dma_channel(args).into()
+}
+
+#[proc_macro]
+#[proc_macro_error]
+pub fn setup_adc_sampler(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    #[cfg(feature = "stm32")]
+    let channels = parse_macro_input!(input with Punctuated<hw::STM32AdcSamplerDefinition, Token![,]>::parse_terminated);
+
+    #[cfg(feature = "nrf")]
+    let channels = parse_macro_input!(input as hw::NrfAdcSamplerDefinition);
+
+    #[cfg(feature = "rp")]
+    let channels = parse_macro_input!(input with Punctuated<common::AnalogPinType, Token![,]>::parse_terminated);
+
+    hw::setup_adc_sampler(channels).into()
 }
 
 mod via;

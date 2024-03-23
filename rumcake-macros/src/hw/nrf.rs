@@ -1,8 +1,11 @@
 use proc_macro2::{Ident, TokenStream};
 use proc_macro_error::{abort, OptionExt};
 use quote::quote;
+use syn::parse::Parse;
 use syn::punctuated::Punctuated;
-use syn::Token;
+use syn::{braced, parenthesized, Token};
+
+use crate::common::{AnalogPinType, DirectPinDefinition, MultiplexerDefinition};
 
 pub const HAL_CRATE: &'static str = "embassy_nrf";
 
@@ -149,6 +152,118 @@ pub fn setup_buffered_uarte(args: Punctuated<Ident, Token![,]>) -> TokenStream {
         fn setup_serial(
         ) -> impl ::rumcake::embedded_io_async::Write + ::rumcake::embedded_io_async::Read {
             #inner
+        }
+    }
+}
+pub struct NrfAdcSamplerDefinition {
+    parenthesis_token: syn::token::Paren,
+    adc_instance_args: Punctuated<Ident, Token![,]>,
+    colon_token: Token![=>],
+    brace_token: syn::token::Brace,
+    channels: Punctuated<AnalogPinType, Token![,]>,
+}
+
+impl Parse for NrfAdcSamplerDefinition {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let adc_type_content;
+        let channels_content;
+        Ok(Self {
+            parenthesis_token: parenthesized!(adc_type_content in input),
+            adc_instance_args: Punctuated::parse_terminated(&adc_type_content)?,
+            colon_token: input.parse()?,
+            brace_token: braced!(channels_content in input),
+            channels: Punctuated::parse_terminated(&channels_content)?,
+        })
+    }
+}
+
+pub fn setup_adc_sampler(
+    NrfAdcSamplerDefinition {
+        adc_instance_args,
+        channels,
+        ..
+    }: NrfAdcSamplerDefinition,
+) -> TokenStream {
+    let mut args = adc_instance_args.iter();
+    let timer = args.next().expect_or_abort("Missing timer argument.");
+    let ppi_ch0 = args.next().expect_or_abort("Missing PPI CH0 argument.");
+    let ppi_ch1 = args.next().expect_or_abort("Missing PPI CH1 argument.");
+
+    let channel_count = channels.len();
+    let select_pin_count = channels.iter().fold(0, |acc, ch| {
+        if let AnalogPinType::Multiplexed(MultiplexerDefinition { select_pins, .. }) = ch {
+            acc.max(select_pins.len())
+        } else {
+            acc
+        }
+    });
+    let buf_size = 2usize.pow(select_pin_count as u32);
+
+    let (pins, channels): (Vec<TokenStream>, Vec<TokenStream>) = channels
+        .iter()
+        .map(|ch| match ch {
+            AnalogPinType::Multiplexed(MultiplexerDefinition {
+                pin, select_pins, ..
+            }) => {
+                let select_pins = select_pins.iter().map(|select_pin| match select_pin {
+                    crate::keyboard::OptionalItem::None => quote! { None },
+                    crate::keyboard::OptionalItem::Some(pin_ident) => {
+                        quote! { Some(::rumcake::hw::mcu::output_pin!(#pin_ident)) }
+                    }
+                });
+
+                (
+                    quote! {
+                        ::rumcake::hw::mcu::AnalogPinType::Multiplexed(
+                            [0; #buf_size],
+                            ::rumcake::hw::Multiplexer::new(
+                                [ #(#select_pins),* ],
+                                None
+                            )
+                        )
+                    },
+                    quote! {
+                        ::rumcake::hw::mcu::embassy_nrf::saadc::ChannelConfig::single_ended(
+                            unsafe { ::rumcake::hw::mcu::embassy_nrf::peripherals::#pin::steal() }
+                        )
+                    },
+                )
+            }
+            AnalogPinType::Direct(DirectPinDefinition { pin, .. }) => (
+                quote! {
+                    ::rumcake::hw::mcu::AnalogPinType::Direct([0])
+                },
+                quote! {
+                    ::rumcake::hw::mcu::embassy_nrf::saadc::ChannelConfig::single_ended(
+                        unsafe { ::rumcake::hw::mcu::embassy_nrf::peripherals::#pin::steal() }
+                    )
+                },
+            ),
+        })
+        .unzip();
+
+    quote! {
+        type AdcSamplerType = ::rumcake::hw::mcu::AdcSampler<
+            'static,
+            ::rumcake::hw::mcu::embassy_nrf::peripherals::#timer,
+            ::rumcake::hw::mcu::embassy_nrf::peripherals::#ppi_ch0,
+            ::rumcake::hw::mcu::embassy_nrf::peripherals::#ppi_ch1,
+            #select_pin_count,
+            #channel_count,
+        >;
+
+        fn setup_adc_sampler() -> &'static AdcSamplerType {
+            static SAMPLER: ::rumcake::once_cell::sync::OnceCell<AdcSamplerType> = ::rumcake::once_cell::sync::OnceCell::new();
+
+            SAMPLER.get_or_init(|| unsafe {
+                ::rumcake::hw::mcu::AdcSampler::new(
+                    [ #(#pins),* ],
+                    [ #(#channels),* ],
+                    ::rumcake::hw::mcu::embassy_nrf::peripherals::#timer::steal(),
+                    ::rumcake::hw::mcu::embassy_nrf::peripherals::#ppi_ch0::steal(),
+                    ::rumcake::hw::mcu::embassy_nrf::peripherals::#ppi_ch1::steal(),
+                )
+            })
         }
     }
 }

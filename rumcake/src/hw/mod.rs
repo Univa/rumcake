@@ -15,15 +15,16 @@ compile_error!("Please enable only one chip feature flag.");
 #[cfg_attr(feature = "rp", path = "mcu/rp.rs")]
 pub mod mcu;
 
-use core::ptr::read_volatile;
-use core::ptr::write_volatile;
-use core::mem::MaybeUninit;
-use core::cell::UnsafeCell;
 use crate::hw::mcu::jump_to_bootloader;
 use crate::State;
+use core::cell::UnsafeCell;
+use core::mem::MaybeUninit;
+use core::ptr::read_volatile;
+use core::ptr::write_volatile;
 use embassy_futures::select;
 use embassy_sync::signal::Signal;
 use embassy_time::Timer;
+use embedded_hal::digital::v2::OutputPin;
 
 use mcu::RawMutex;
 
@@ -160,4 +161,51 @@ extern "C" {
     /// `memory.x` file. If you want to know what value to set this to in `memory.x`, take
     /// [`__config_start`], and add the size of your config section, in bytes.
     pub static __config_end: u32;
+}
+
+pub struct Multiplexer<T, const P: usize> {
+    cur_channel: u8,
+    pins: [Option<T>; P],
+    en: Option<T>,
+}
+
+impl<E, T: OutputPin<Error = E>, const P: usize> Multiplexer<T, P> {
+    pub fn new(pins: [Option<T>; P], en: Option<T>) -> Self {
+        let mut multiplexer = Self {
+            pins,
+            en,
+            cur_channel: 0,
+        };
+        let _ = multiplexer.select_channel(0);
+        multiplexer
+    }
+
+    pub fn select_channel(&mut self, mut channel: u8) -> Result<(), E> {
+        for i in 0..P {
+            if let Some(ref mut pin) = self.pins[i] {
+                if channel & 0x01 == 0x01 {
+                    pin.set_high()?;
+                } else {
+                    pin.set_low()?;
+                }
+            }
+            channel >>= 1;
+        }
+        self.cur_channel = channel;
+        Ok(())
+    }
+
+    pub fn enable(&mut self) -> Result<(), E> {
+        if let Some(ref mut en) = self.en {
+            en.set_low()?;
+        }
+        Ok(())
+    }
+
+    pub fn disable(&mut self) -> Result<(), E> {
+        if let Some(ref mut en) = self.en {
+            en.set_high()?;
+        }
+        Ok(())
+    }
 }
