@@ -4,6 +4,8 @@ use quote::quote;
 use syn::punctuated::Punctuated;
 use syn::Token;
 
+use crate::common::{AnalogPinType, DirectPinDefinition, MultiplexerDefinition};
+
 pub const HAL_CRATE: &'static str = "embassy_rp";
 
 pub fn input_pin(ident: Ident) -> TokenStream {
@@ -134,6 +136,76 @@ pub fn setup_buffered_uart(args: Punctuated<Ident, Token![,]>) -> TokenStream {
         fn setup_serial(
         ) -> impl ::rumcake::embedded_io_async::Write + ::rumcake::embedded_io_async::Read {
             #inner
+        }
+    }
+}
+
+pub fn setup_adc_sampler(channels: Punctuated<AnalogPinType, Token![,]>) -> TokenStream {
+    let channel_count = channels.len();
+    let select_pin_count = channels.iter().fold(0, |acc, ch| {
+        if let AnalogPinType::Multiplexed(MultiplexerDefinition { select_pins, .. }) = ch {
+            acc.max(select_pins.len())
+        } else {
+            acc
+        }
+    });
+
+    let (pins, channels): (Vec<TokenStream>, Vec<TokenStream>) = channels
+        .iter()
+        .map(|ch| match ch {
+            AnalogPinType::Multiplexed(MultiplexerDefinition {
+                pin, select_pins, ..
+            }) => {
+                let select_pins = select_pins.iter().map(|select_pin| match select_pin {
+                    crate::keyboard::OptionalItem::None => quote! { None },
+                    crate::keyboard::OptionalItem::Some(pin_ident) => {
+                        quote! { Some(::rumcake::hw::mcu::output_pin!(#pin_ident)) }
+                    }
+                });
+
+                (
+                    quote! {
+                        ::rumcake::hw::mcu::AnalogPinType::Multiplexed(
+                            ::rumcake::hw::Multiplexer::new(
+                                [ #(#select_pins),* ],
+                                None
+                            )
+                        )
+                    },
+                    quote! {
+                        ::rumcake::hw::mcu::embassy_rp::adc::Channel::new_pin(
+                            unsafe { ::rumcake::hw::mcu::embassy_rp::peripherals::#pin::steal() },
+                            ::rumcake::hw::mcu::embassy_rp::gpio::Pull::None
+                        )
+                    },
+                )
+            }
+            AnalogPinType::Direct(DirectPinDefinition { pin, .. }) => (
+                quote! {
+                    ::rumcake::hw::mcu::AnalogPinType::Direct
+                },
+                quote! {
+                    ::rumcake::hw::mcu::embassy_rp::adc::Channel::new_pin(
+                        unsafe { ::rumcake::hw::mcu::embassy_rp::peripherals::#pin::steal() },
+                        ::rumcake::hw::mcu::embassy_rp::gpio::Pull::None
+                    )
+                },
+            ),
+        })
+        .unzip();
+
+    quote! {
+        type AdcSamplerType = ::rumcake::hw::mcu::AdcSampler<'static, #select_pin_count, #channel_count>;
+
+        static SAMPLER: ::rumcake::once_cell::sync::OnceCell<AdcSamplerType> = ::rumcake::once_cell::sync::OnceCell::new();
+
+        fn setup_adc_sampler() -> &'static AdcSamplerType {
+            SAMPLER.get_or_init(||
+                ::rumcake::hw::mcu::AdcSampler::new(
+                    [ #(#pins),* ],
+                    [ #(#channels),* ]
+                )
+            )
         }
     }
 }

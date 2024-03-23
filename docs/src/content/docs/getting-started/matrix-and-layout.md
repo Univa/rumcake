@@ -181,6 +181,81 @@ Each row must have the same number of columns. If there are matrix positions tha
 In this example, the switch connected to `PB10` maps to row 0, column 1. Based on the implementation of `KeyboardLayout`, this
 switch will correspond to the `Q`/`F1` key.
 
+## Analog matrix
+
+:::caution
+Analog matrices are a work in progress, and may not be fully stable.
+:::
+
+If your switch is powered by an analog-to-digital conversion peripheral (which is usually the case with hall-effect switches, for example),
+then you can use the `build_analog_matrix!` macro. In addition, you will need to specify an ADC sampler configuration, using the `setup_adc_sampler!`
+macro.
+
+```rust ins={4-15,17-29}
+// rest of your config...
+
+// Create an ADC sampler, where the pins of the MCU are either connected to a multiplexer, or directly to the analog source
+setup_adc_sampler! {
+    // (interrupt, ADC peripheral) => { ...
+    (ADC1_2, ADC2) => {
+        Multiplexer {
+            pin: PA2 // MCU analog pin connected to a multiplexer
+            select_pins: { PA3 No PA4 } // Pins connected to the selection pins on the multiplexer
+        },
+        Direct {
+            pin: PA5 // MCU analog pin connected directly to an analog source
+        },
+    }
+}
+
+use rumcake::keyboard::{build_analog_matrix, KeyboardMatrix};
+impl KeyboardMatrix for MyKeyboard {
+    build_analog_matrix! {
+        {
+            [ (1,0) (0,1) (0,4) (0,5) ]
+            [ (0,0) No    No    No    ]
+        }
+        {
+            [ 3040..4080 3040..4080 3040..4080 3040..4080 ]
+            [ 3040..4080 No         No         No         ]
+        }
+    }
+}
+```
+
+Firstly, an ADC sampler definition is provided. In this example, the `ADC2` peripheral (controlled by the `ADC1_2` interrupt), is connected to two pins.
+Pin `PA2` is connected to a multiplexer, and pin `PA5` is connected directly to the analog source (a switch in this case).
+
+For `PA2`, the multiplexer output selection is controlled by `PA3` and `PA4`. The second select pin is unused, so that is denoted with `No`.
+Pins are ordered least-significant bit first. So, if `PA4` is high and `PA2` is low, multiplexer output `4` is selected.
+
+:::note
+All multiplexer definitions in `setup_adc_sampler!` must have the same number of select pins. If you have multiplexers with varying numbers of
+select pins, you can pad the smaller multiplexers with `No`s until the definitions have the same number of select pins.
+:::
+
+:::note
+Note that the arguments of the `setup_adc_sampler!` macro will depend on the platform that you're building for.
+Check the API reference for specific arguments that you need to call `setup_adc_sampler!`
+:::
+
+The matrix provided by `build_analog_matrix!` serves two purposes:
+
+- Define a mapping from matrix position (row, col) to analog pin index and multiplexer output (if applicable).
+- Define the possible ranges of values that the analog source can generate from the ADC process.
+
+When we take a look at row 0, col 0 on the matrix we find:
+
+- It corresponds to ADC pin `0` (which is connected to the multiplexer, `PA2`), and multiplexer output `0` (when the select pins `PA3` and `PA4` are set low).
+- It is expected to yield values ranging from `3040` to `4080` from the ADC.
+
+For row 1, col 0 on the matrix, we find:
+
+- It corresponds to ADC pin `1` (which is connected directly to the analog source via `PA5`). The `0` in `(1,0)` is ignored, since it is not connected to a multiplexer.
+- It is expected to yield values ranging from `3040` to `4080` from the ADC.
+
+Note that unused matrix positions are denoted by `No`.
+
 # Revisualizing a matrix (e.g. duplex matrix)
 
 Sometimes, your keyboard might have a complicated matrix scheme that could make it
