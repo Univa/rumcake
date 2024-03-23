@@ -15,6 +15,7 @@ use embassy_rp::flash::Async;
 use embassy_rp::flash::Flash as HALFlash;
 use embassy_rp::gpio::Output;
 use embassy_rp::peripherals::{ADC, FLASH, USB};
+use embassy_rp::rom_data::reset_to_usb_boot;
 use embassy_rp::usb::Driver;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::blocking_mutex::ThreadModeMutex;
@@ -36,7 +37,7 @@ pub type BlockingMutex<T> = ThreadModeMutex<T>;
 
 /// A function that allows you to jump to the bootloader, usually for re-flashing the firmware.
 pub fn jump_to_bootloader() {
-    // TODO
+    reset_to_usb_boot(0, 0);
 }
 
 /// Initialize the MCU's internal clocks.
