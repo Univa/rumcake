@@ -1,17 +1,16 @@
 use proc_macro2::TokenStream;
-use proc_macro_error::{abort, OptionExt};
+use proc_macro_error::OptionExt;
 use quote::{quote, ToTokens};
 use syn::parse::Parse;
 use syn::punctuated::Punctuated;
-use syn::spanned::Spanned;
-use syn::{braced, Ident, Token};
+use syn::{Ident, Token};
 
-use crate::keyboard::{MatrixLike, OptionalItem};
+use crate::common::{Layer, MatrixLike, OptionalItem};
 use crate::TuplePair;
 
 pub fn led_layout(input: MatrixLike<OptionalItem<TuplePair>>) -> TokenStream {
     let coordinates = input.rows.iter().map(|row| {
-        let items = &row.cols;
+        let items = &row.items;
 
         quote! { #(#items),* }
     });
@@ -40,15 +39,15 @@ impl ToTokens for LEDFlags {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         let flags = self.flags.iter();
 
-        quote! { #(::rumcake::backlight::LEDFlags::#flags)|* }.to_tokens(tokens)
+        quote! { #(::rumcake::lighting::LEDFlags::#flags)|* }.to_tokens(tokens)
     }
 }
 
 pub fn led_flags(input: MatrixLike<OptionalItem<LEDFlags>>) -> TokenStream {
     let flags = input.rows.iter().map(|row| {
-        let items = row.cols.iter().map(|col| match col {
+        let items = row.items.iter().map(|col| match col {
             OptionalItem::None => quote! {
-                ::rumcake::backlight::LEDFlags::NONE
+                ::rumcake::lighting::LEDFlags::NONE
             },
             OptionalItem::Some(ident) => quote! {
                 #ident
@@ -65,56 +64,40 @@ pub fn led_flags(input: MatrixLike<OptionalItem<LEDFlags>>) -> TokenStream {
     }
 }
 
-#[derive(Debug)]
-pub struct BacklightMatrixMacroInput {
-    pub led_layout_brace: syn::token::Brace,
-    pub led_layout: MatrixLike<OptionalItem<TuplePair>>,
-    pub led_flags_brace: syn::token::Brace,
-    pub led_flags: MatrixLike<OptionalItem<LEDFlags>>,
-}
-
-impl Parse for BacklightMatrixMacroInput {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let led_layout_content;
-        let led_layout_brace = braced!(led_layout_content in input);
-        let led_flags_content;
-        let led_flags_brace = braced!(led_flags_content in input);
-        Ok(BacklightMatrixMacroInput {
-            led_layout_brace,
-            led_layout: led_layout_content.parse()?,
-            led_flags_brace,
-            led_flags: led_flags_content.parse()?,
-        })
+crate::parse_as_custom_fields! {
+    pub struct BacklightMatrixMacroInputBuilder for BacklightMatrixMacroInput {
+        pub led_layout: Layer<OptionalItem<TuplePair>>,
+        pub led_flags: Layer<OptionalItem<LEDFlags>>,
     }
 }
 
-pub fn setup_backlight_matrix(input: BacklightMatrixMacroInput) -> TokenStream {
-    let BacklightMatrixMacroInput {
+pub fn setup_backlight_matrix(
+    BacklightMatrixMacroInput {
         led_layout,
         led_flags,
-        ..
-    } = input;
-
+    }: BacklightMatrixMacroInput,
+) -> TokenStream {
     let first_row = led_layout
+        .layer
         .rows
         .first()
         .expect_or_abort("Expected at least one row to be defined.");
 
-    let row_count = led_layout.rows.len();
-    let col_count = first_row.cols.len();
+    let row_count = led_layout.layer.rows.len();
+    let col_count = first_row.items.len();
 
-    let led_layout = self::led_layout(led_layout);
-    let led_flags = self::led_flags(led_flags);
+    let led_layout = self::led_layout(led_layout.layer);
+    let led_flags = self::led_flags(led_flags.layer);
 
     quote! {
         const LIGHTING_COLS: usize = #col_count;
         const LIGHTING_ROWS: usize = #row_count;
 
         fn get_backlight_matrix(
-        ) -> ::rumcake::backlight::BacklightMatrix<{ Self::LIGHTING_COLS }, { Self::LIGHTING_ROWS }>
+        ) -> ::rumcake::lighting::BacklightMatrix<{ Self::LIGHTING_COLS }, { Self::LIGHTING_ROWS }>
         {
-            const BACKLIGHT_MATRIX: ::rumcake::backlight::BacklightMatrix<#col_count, #row_count> =
-                ::rumcake::backlight::BacklightMatrix::new(#led_layout, #led_flags);
+            const BACKLIGHT_MATRIX: ::rumcake::lighting::BacklightMatrix<#col_count, #row_count> =
+                ::rumcake::lighting::BacklightMatrix::new(#led_layout, #led_flags);
             BACKLIGHT_MATRIX
         }
     }

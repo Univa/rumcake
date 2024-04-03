@@ -13,25 +13,29 @@ compile_error!("Please enable only one chip feature flag.");
 #[cfg_attr(feature = "stm32", path = "mcu/stm32.rs")]
 #[cfg_attr(feature = "nrf", path = "mcu/nrf.rs")]
 #[cfg_attr(feature = "rp", path = "mcu/rp.rs")]
-pub mod mcu;
+pub mod platform;
 
-use crate::hw::mcu::jump_to_bootloader;
+use crate::hw::platform::jump_to_bootloader;
 use crate::State;
 use core::cell::UnsafeCell;
 use core::mem::MaybeUninit;
 use core::ptr::read_volatile;
 use core::ptr::write_volatile;
+use defmt::info;
 use embassy_futures::select;
+use embassy_sync::channel::Channel;
 use embassy_sync::signal::Signal;
 use embassy_time::Timer;
 use embedded_hal::digital::v2::OutputPin;
 
-use mcu::RawMutex;
+use platform::RawMutex;
+use usbd_human_interface_device::device::consumer::MultipleConsumerReport;
+use usbd_human_interface_device::device::keyboard::NKROBootKeyboardReport;
 
-/// State that contains the current battery level. `rumcake` may or may not use this
-/// static internally, depending on what MCU is being used. The contents of this state
-/// is usually set by a task in the [`mcu`] module. For example, on nRF5x-based MCUs,
-/// this is controlled by a task called `adc_task`.
+/// State that contains the current battery level. `rumcake` may or may not use this static
+/// internally, depending on what MCU is being used. The contents of this state is usually set by a
+/// task in the [`platform`] module. For example, on nRF5x-based MCUs, this is controlled by a task
+/// called `adc_task`.
 pub static BATTERY_LEVEL_STATE: State<u8> = State::new(
     100,
     &[
@@ -45,6 +49,7 @@ pub static BATTERY_LEVEL_STATE: State<u8> = State::new(
 /// Possible settings used to determine how the firmware will choose the destination for HID
 /// reports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum OutputMode {
     Usb,
     Bluetooth,
@@ -92,42 +97,90 @@ pub(crate) static OUTPUT_MODE_STATE_LISTENER: Signal<RawMutex, ()> = Signal::new
 pub(crate) static USB_RUNNING_STATE_LISTENER: Signal<RawMutex, ()> = Signal::new();
 pub(crate) static BLUETOOTH_CONNECTED_STATE_LISTENER: Signal<RawMutex, ()> = Signal::new();
 
+pub(crate) static HARDWARE_COMMAND_CHANNEL: Channel<RawMutex, HardwareCommand, 2> = Channel::new();
+
+#[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
+/// An enumeration of possible commands that will be processed by the bluetooth task.
+pub enum HardwareCommand {
+    /// Switch between USB and Bluetooth operation.
+    ///
+    /// This will **NOT** disconnect your keyboard from your host device. It
+    /// will simply determine which device the HID reports get sent to.
+    ToggleOutput = 0,
+    /// Switch to USB operation.
+    ///
+    /// If your keyboard is connected to a bluetooth device, this will **NOT** disconnect your
+    /// keyboard from it. It will simply output the HID reports to the connected USB device.
+    OutputUSB = 1,
+    /// Switch to bluetooth operation.
+    ///
+    /// If your keyboard is connected to a USB device, this will **NOT** disconnect your keyboard
+    /// from it. It will simply output the HID reports to the connected bluetooth device.
+    OutputBluetooth = 2,
+}
+
 #[rumcake_macros::task]
 pub async fn output_switcher() {
-    // This task doesn't need to run if only one of USB or Bluetooth is enabled.
-    loop {
-        let output = match OUTPUT_MODE_STATE.get().await {
-            #[cfg(feature = "usb")]
-            OutputMode::Usb => {
-                if crate::usb::USB_RUNNING_STATE.get().await {
-                    Some(HIDOutput::Usb)
-                } else {
-                    None
+    // This task doesn't need to run if only one of USB or Bluetooth is enabled, and there are no
+    // HardwareCommand members on the user's layout.
+    let switcher_fut = async {
+        loop {
+            let output = match OUTPUT_MODE_STATE.get().await {
+                #[cfg(feature = "usb")]
+                OutputMode::Usb => {
+                    if crate::usb::USB_RUNNING_STATE.get().await {
+                        Some(HIDOutput::Usb)
+                    } else {
+                        None
+                    }
+                }
+                #[cfg(feature = "bluetooth")]
+                OutputMode::Bluetooth => {
+                    if crate::bluetooth::BLUETOOTH_CONNECTED_STATE.get().await {
+                        Some(HIDOutput::Bluetooth)
+                    } else {
+                        None
+                    }
+                }
+                #[allow(unreachable_patterns)]
+                _ => None,
+            };
+
+            CURRENT_OUTPUT_STATE.set(output).await;
+            info!("[HW] Output updated: {:?}", defmt::Debug2Format(&output));
+
+            // Wait for a change in state before attempting to update the output again.
+            select::select3(
+                USB_RUNNING_STATE_LISTENER.wait(),
+                BLUETOOTH_CONNECTED_STATE_LISTENER.wait(),
+                OUTPUT_MODE_STATE_LISTENER.wait(),
+            )
+            .await;
+        }
+    };
+
+    let command_fut = async {
+        loop {
+            match HARDWARE_COMMAND_CHANNEL.receive().await {
+                HardwareCommand::ToggleOutput => {
+                    OUTPUT_MODE_STATE.set(match OUTPUT_MODE_STATE.get().await {
+                        OutputMode::Usb => OutputMode::Bluetooth,
+                        OutputMode::Bluetooth => OutputMode::Usb,
+                    });
+                }
+                HardwareCommand::OutputUSB => {
+                    OUTPUT_MODE_STATE.set(OutputMode::Usb);
+                }
+                HardwareCommand::OutputBluetooth => {
+                    OUTPUT_MODE_STATE.set(OutputMode::Bluetooth);
                 }
             }
-            #[cfg(feature = "bluetooth")]
-            OutputMode::Bluetooth => {
-                if crate::bluetooth::BLUETOOTH_CONNECTED_STATE.get().await {
-                    Some(HIDOutput::Bluetooth)
-                } else {
-                    None
-                }
-            }
-            #[allow(unreachable_patterns)]
-            _ => None,
-        };
+        }
+    };
 
-        CURRENT_OUTPUT_STATE.set(output).await;
-        defmt::info!("[HW] Output updated: {:?}", defmt::Debug2Format(&output));
-
-        // Wait for a change in state before attempting to update the output again.
-        select::select3(
-            USB_RUNNING_STATE_LISTENER.wait(),
-            BLUETOOTH_CONNECTED_STATE_LISTENER.wait(),
-            OUTPUT_MODE_STATE_LISTENER.wait(),
-        )
-        .await;
-    }
+    select::select(switcher_fut, command_fut).await;
+    info!("[HW] Output switching task has failed. This should not happen.");
 }
 
 const BOOTLOADER_MAGIC: u32 = 0xDEADBEEF;
@@ -207,5 +260,31 @@ impl<E, T: OutputPin<Error = E>, const P: usize> Multiplexer<T, P> {
             en.set_high()?;
         }
         Ok(())
+    }
+}
+
+pub trait HIDDevice {
+    fn get_keyboard_report_send_channel() -> &'static Channel<RawMutex, NKROBootKeyboardReport, 1> {
+        static KEYBOARD_REPORT_HID_SEND_CHANNEL: Channel<RawMutex, NKROBootKeyboardReport, 1> =
+            Channel::new();
+        &KEYBOARD_REPORT_HID_SEND_CHANNEL
+    }
+
+    fn get_consumer_report_send_channel() -> &'static Channel<RawMutex, MultipleConsumerReport, 1> {
+        static CONSUMER_REPORT_HID_SEND_CHANNEL: Channel<RawMutex, MultipleConsumerReport, 1> =
+            Channel::new();
+        &CONSUMER_REPORT_HID_SEND_CHANNEL
+    }
+
+    #[cfg(feature = "via")]
+    fn get_via_hid_send_channel() -> &'static Channel<RawMutex, [u8; 32], 1> {
+        static VIA_REPORT_HID_SEND_CHANNEL: Channel<RawMutex, [u8; 32], 1> = Channel::new();
+        &VIA_REPORT_HID_SEND_CHANNEL
+    }
+
+    #[cfg(feature = "via")]
+    fn get_via_hid_receive_channel() -> &'static Channel<RawMutex, [u8; 32], 1> {
+        static VIA_REPORT_HID_RECEIVE_CHANNEL: Channel<RawMutex, [u8; 32], 1> = Channel::new();
+        &VIA_REPORT_HID_RECEIVE_CHANNEL
     }
 }

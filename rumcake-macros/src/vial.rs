@@ -1,17 +1,17 @@
-use proc_macro2::TokenStream;
+use proc_macro2::{Ident, TokenStream};
 use quote::quote;
 
-pub fn enable_vial_rgb() -> TokenStream {
+pub fn enable_vial_rgb(ident: Ident) -> TokenStream {
     quote! {
         const VIALRGB_ENABLE: bool = true;
-        type BacklightMatrixDevice = Self;
+        type RGBBacklightMatrixDevice = #ident;
         fn get_backlight_matrix() -> Option<
-            ::rumcake::backlight::BacklightMatrix<
-                { <Self::BacklightMatrixDevice as ::rumcake::backlight::BacklightMatrixDevice>::LIGHTING_COLS },
-                { <Self::BacklightMatrixDevice as ::rumcake::backlight::BacklightMatrixDevice>::LIGHTING_ROWS },
+            ::rumcake::lighting::BacklightMatrix<
+                { <Self::RGBBacklightMatrixDevice as ::rumcake::lighting::BacklightMatrixDevice>::LIGHTING_COLS },
+                { <Self::RGBBacklightMatrixDevice as ::rumcake::lighting::BacklightMatrixDevice>::LIGHTING_ROWS },
             >,
         > {
-            Some(<Self::BacklightMatrixDevice as ::rumcake::backlight::BacklightMatrixDevice>::get_backlight_matrix())
+            Some(<Self::RGBBacklightMatrixDevice as ::rumcake::lighting::BacklightMatrixDevice>::get_backlight_matrix())
         }
     }
 }

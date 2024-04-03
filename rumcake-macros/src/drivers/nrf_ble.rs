@@ -1,22 +1,40 @@
-use proc_macro2::TokenStream;
+use proc_macro2::{Ident, TokenStream};
 use quote::quote;
+use syn::ExprArray;
 
-pub fn peripheral_driver_trait() -> TokenStream {
-    quote! {
-        /// A trait that nRF-based keyboards must implement to use bluetooth to drive peripheral devices in a split keyboard setup.
-        pub(crate) trait NRFBLEPeripheralDriverSettings {
-            /// A "Random Static" bluetooth address of the central device that this peripheral will connect to.
-            const CENTRAL_ADDRESS: [u8; 6];
-        }
+use crate::common::Row;
+
+crate::parse_as_custom_fields! {
+    pub struct NrfBlePeripheralArgsBuilder for NrfBlePeripheralArgs {
+        central_address: ExprArray,
     }
 }
 
-pub fn central_driver_trait() -> TokenStream {
+pub fn setup_nrf_ble_split_peripheral(
+    NrfBlePeripheralArgs { central_address }: NrfBlePeripheralArgs,
+) -> TokenStream {
     quote! {
-        /// A trait that nRF-based keyboards must implement to use bluetooth to drive central devices in a split keyboard setup.
-        pub(crate) trait NRFBLECentralDriverSettings {
-            /// A list of "Random Static" bluetooth addresses that this central device can connect to.
-            const PERIPHERAL_ADDRESSES: &'static [[u8; 6]];
-        }
+        (::rumcake::drivers::nrf_ble::peripheral::setup_driver(), #central_address)
+    }
+}
+
+crate::parse_as_custom_fields! {
+    pub struct NrfBleCentralArgsBuilder for NrfBleCentralArgs {
+        peripheral_addresses: Row<ExprArray>,
+    }
+}
+
+pub fn setup_nrf_ble_split_central(
+    NrfBleCentralArgs {
+        peripheral_addresses,
+    }: NrfBleCentralArgs,
+) -> TokenStream {
+    let items = peripheral_addresses
+        .items
+        .iter()
+        .map(|item| quote! { #item });
+
+    quote! {
+        (::rumcake::drivers::nrf_ble::central::setup_driver(), &[ #(#items),* ] )
     }
 }

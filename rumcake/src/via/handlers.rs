@@ -1,10 +1,10 @@
 use defmt::warn;
 use embassy_sync::signal::Signal;
 use keyberon::action::Action;
-use keyberon::key_code::KeyCode;
 
-use crate::hw::mcu::RawMutex;
-use crate::keyboard::Keycode;
+use crate::hw::platform::RawMutex;
+use crate::keyboard::{KeyboardLayout, Keycode};
+use crate::storage::{FlashStorage, StorageDevice, StorageKey};
 
 use super::ViaKeyboard;
 
@@ -17,8 +17,9 @@ pub fn get_uptime(data: &mut [u8]) {
 }
 
 pub async fn get_switch_matrix_state<K: ViaKeyboard>(
-    matrix_state: &[u8; (K::LAYOUT_COLS + u8::BITS as usize - 1) / u8::BITS as usize
-         * K::LAYOUT_ROWS],
+    matrix_state: &[u8; (<K::Layout as KeyboardLayout>::LAYOUT_COLS + u8::BITS as usize - 1)
+         / u8::BITS as usize
+         * <K::Layout as KeyboardLayout>::LAYOUT_ROWS],
     data: &mut [u8],
 ) {
     // see [`crate::via::protocol::background_task`] to see how `matrix_state` is created.
@@ -34,47 +35,71 @@ pub async fn get_layout_options<K: ViaKeyboard>(layout_options: &u32, data: &mut
         .copy_from_slice(&layout_options.to_be_bytes()[(4 - K::VIA_EEPROM_LAYOUT_OPTIONS_SIZE)..=3])
 }
 
-pub async fn set_layout_options<K: ViaKeyboard>(layout_options: &mut u32, data: &[u8]) {
+pub async fn set_layout_options<K: ViaKeyboard + 'static>(layout_options: &mut u32, data: &[u8])
+where
+    [(); <<K::StorageType as StorageDevice>::FlashStorageType as FlashStorage>::ERASE_SIZE]:,
+{
     let mut bytes = [0; 4];
     bytes[(4 - K::VIA_EEPROM_LAYOUT_OPTIONS_SIZE)..]
         .copy_from_slice(&data[2..(2 + K::VIA_EEPROM_LAYOUT_OPTIONS_SIZE)]);
     *layout_options = u32::from_be_bytes(bytes);
     K::handle_set_layout_options(*layout_options);
 
-    #[cfg(feature = "storage")]
-    super::storage::update_data(
-        super::storage::ViaStorageKeys::LayoutOptions,
-        0,
-        &data[0..K::VIA_EEPROM_LAYOUT_OPTIONS_SIZE],
-    )
-    .await;
+    if let Some(database) = K::get_storage_service() {
+        // Update data
+        // For layout options, we just overwrite all of the old data
+        if let Err(()) = database
+            .write_raw(
+                StorageKey::LayoutOptions,
+                &data[..K::VIA_EEPROM_LAYOUT_OPTIONS_SIZE],
+            )
+            .await
+        {
+            warn!("[VIA] Could not write layout options.")
+        };
+    }
 }
 
-pub async fn device_indication() {
+pub async fn device_indication<K: ViaKeyboard>() {
     #[cfg(feature = "simple-backlight")]
-    crate::backlight::simple_backlight::BACKLIGHT_COMMAND_CHANNEL
-        .send(crate::backlight::simple_backlight::animations::BacklightCommand::Toggle)
-        .await;
+    if let Some(channel) = <<K::Layout as KeyboardLayout>::SimpleBacklightDeviceType as crate::lighting::simple_backlight::private::MaybeSimpleBacklightDevice>::get_command_channel() {
+        channel
+            .send(crate::lighting::simple_backlight::SimpleBacklightCommand::Toggle)
+            .await;
+    }
 
     #[cfg(feature = "simple-backlight-matrix")]
-    crate::backlight::simple_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
-        .send(crate::backlight::simple_backlight_matrix::animations::BacklightCommand::Toggle)
-        .await;
+    if let Some(channel) = <<K::Layout as KeyboardLayout>::SimpleBacklightMatrixDeviceType as crate::lighting::simple_backlight_matrix::private::MaybeSimpleBacklightMatrixDevice>::get_command_channel() {
+        channel
+            .send(crate::lighting::simple_backlight_matrix::SimpleBacklightMatrixCommand::Toggle)
+            .await;
+    }
 
     #[cfg(feature = "rgb-backlight-matrix")]
-    crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
-        .send(crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::Toggle)
-        .await;
+    if let Some(channel) = <<K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType as crate::lighting::rgb_backlight_matrix::private::MaybeRGBBacklightMatrixDevice>::get_command_channel() {
+        channel
+            .send(crate::lighting::rgb_backlight_matrix::RGBBacklightMatrixCommand::Toggle)
+            .await;
+    }
 
     #[cfg(feature = "underglow")]
-    crate::underglow::UNDERGLOW_COMMAND_CHANNEL
-        .send(crate::underglow::animations::UnderglowCommand::Toggle)
-        .await;
+    if let Some(channel) = <<K::Layout as KeyboardLayout>::UnderglowDeviceType as crate::lighting::underglow::private::MaybeUnderglowDevice>::get_command_channel() {
+        channel
+            .send(crate::lighting::underglow::UnderglowCommand::Toggle)
+            .await;
+    }
 }
 
-pub async fn eeprom_reset() {
-    #[cfg(feature = "storage")]
-    super::storage::reset_data().await;
+pub async fn eeprom_reset<K: ViaKeyboard + 'static>()
+where
+    [(); <<K::StorageType as StorageDevice>::FlashStorageType as FlashStorage>::ERASE_SIZE]:,
+{
+    if let Some(database) = K::get_storage_service() {
+        let _ = database.delete(StorageKey::LayoutOptions).await;
+        let _ = database.delete(StorageKey::DynamicKeymap).await;
+        let _ = database.delete(StorageKey::DynamicKeymapMacro).await;
+        let _ = database.delete(StorageKey::DynamicKeymapEncoder).await;
+    }
 }
 
 pub(super) static BOOTLOADER_JUMP_SIGNAL: Signal<RawMutex, ()> = Signal::new();
@@ -125,6 +150,7 @@ pub async fn dynamic_keymap_macro_set_buffer<K: ViaKeyboard + 'static>(
     size: u8,
     data: &[u8],
 ) where
+    [(); <<K::StorageType as StorageDevice>::FlashStorageType as FlashStorage>::ERASE_SIZE]:,
     [(); K::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize]:,
     [(); K::DYNAMIC_KEYMAP_MACRO_COUNT as usize]:,
 {
@@ -138,13 +164,34 @@ pub async fn dynamic_keymap_macro_set_buffer<K: ViaKeyboard + 'static>(
         macro_data.update_buffer(offset as usize, &data[..len]);
     }
 
-    #[cfg(feature = "storage")]
-    super::storage::update_data(
-        super::storage::ViaStorageKeys::DynamicKeymapMacro,
-        offset as usize,
-        &data[..len],
-    )
-    .await;
+    if let Some(database) = K::get_storage_service() {
+        let offset = offset as usize;
+        let mut buf = [0; K::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize];
+
+        // Read data
+        let stored_len = match database.read_raw(StorageKey::DynamicKeymapMacro).await {
+            Ok((stored_data, stored_len)) => {
+                buf[..stored_len].copy_from_slice(stored_data);
+                stored_len
+            }
+            Err(()) => {
+                warn!("[VIA] Could not read dynamic keymap macro buffer.");
+                0 // Assume that there is no data yet
+            }
+        };
+
+        // Update data
+        buf[offset..(offset + len)].copy_from_slice(&data[..len]);
+
+        let new_length = stored_len.max(offset + len);
+
+        if let Err(()) = database
+            .write_raw(StorageKey::DynamicKeymapMacro, &buf[..new_length])
+            .await
+        {
+            warn!("[VIA] Could not write dynamic keymap macro buffer.")
+        };
+    }
 }
 
 pub fn dynamic_keymap_get_layer_count<K: ViaKeyboard>(data: &mut [u8]) {
@@ -158,17 +205,18 @@ pub async fn dynamic_keymap_get_keycode<K: ViaKeyboard + 'static>(
     data: &mut [u8],
     convert_action_to_keycode: impl Fn(Action<Keycode>) -> u16,
 ) where
-    [(); K::LAYERS]:,
-    [(); K::LAYOUT_ROWS]:,
-    [(); K::LAYOUT_COLS]:,
+    [(); <K::Layout as KeyboardLayout>::LAYERS]:,
+    [(); <K::Layout as KeyboardLayout>::LAYOUT_ROWS]:,
+    [(); <K::Layout as KeyboardLayout>::LAYOUT_COLS]:,
 {
     let keycodes_bytes = &mut data[0..=1];
 
     if !(layer as usize >= K::DYNAMIC_KEYMAP_LAYER_COUNT
-        || row as usize >= K::LAYOUT_ROWS
-        || col as usize >= K::LAYOUT_COLS)
+        || row as usize >= <K::Layout as KeyboardLayout>::LAYOUT_ROWS
+        || col as usize >= <K::Layout as KeyboardLayout>::LAYOUT_COLS)
     {
-        if let Some(action) = K::get_layout()
+        if let Some(action) = <K::Layout as KeyboardLayout>::get_layout()
+            .layout
             .lock()
             .await
             .get_action((row, col), layer as usize)
@@ -187,18 +235,23 @@ pub async fn dynamic_keymap_set_keycode<K: ViaKeyboard + 'static>(
     data: &[u8],
     convert_keycode_to_action: impl Fn(u16) -> Option<Action<Keycode>>,
 ) where
-    [(); K::LAYERS]:,
-    [(); K::LAYOUT_ROWS]:,
-    [(); K::LAYOUT_COLS]:,
+    [(); <<K::StorageType as StorageDevice>::FlashStorageType as FlashStorage>::ERASE_SIZE]:,
+    [(); K::DYNAMIC_KEYMAP_LAYER_COUNT * K::Layout::LAYOUT_COLS * K::Layout::LAYOUT_ROWS * 2]:,
+    [(); <K::Layout as KeyboardLayout>::LAYERS]:,
+    [(); <K::Layout as KeyboardLayout>::LAYOUT_ROWS]:,
+    [(); <K::Layout as KeyboardLayout>::LAYOUT_COLS]:,
 {
     let keycode = &data[0..=1];
 
     if !(layer as usize >= K::DYNAMIC_KEYMAP_LAYER_COUNT
-        || row as usize >= K::LAYOUT_ROWS
-        || col as usize >= K::LAYOUT_COLS)
+        || row as usize >= <K::Layout as KeyboardLayout>::LAYOUT_ROWS
+        || col as usize >= <K::Layout as KeyboardLayout>::LAYOUT_COLS)
     {
         {
-            let mut layout = K::get_layout().lock().await;
+            let mut layout = <K::Layout as KeyboardLayout>::get_layout()
+                .layout
+                .lock()
+                .await;
             if let Some(action) =
                 convert_keycode_to_action(u16::from_be_bytes(keycode.try_into().unwrap()))
             {
@@ -208,18 +261,35 @@ pub async fn dynamic_keymap_set_keycode<K: ViaKeyboard + 'static>(
             }
         }
 
-        #[cfg(feature = "storage")]
-        {
-            let keycode_offset = ((layer * K::LAYOUT_ROWS as u8 * K::LAYOUT_COLS as u8 * 2)
-                + (row * K::LAYOUT_COLS as u8 * 2)
+        if let Some(database) = K::get_storage_service() {
+            let offset = ((layer
+                * <K::Layout as KeyboardLayout>::LAYOUT_ROWS as u8
+                * K::Layout::LAYOUT_COLS as u8
+                * 2)
+                + (row * <K::Layout as KeyboardLayout>::LAYOUT_COLS as u8 * 2)
                 + (col * 2)) as usize;
 
-            super::storage::update_data(
-                super::storage::ViaStorageKeys::DynamicKeymap,
-                keycode_offset,
-                keycode,
-            )
-            .await;
+            let mut buf = [0; K::DYNAMIC_KEYMAP_LAYER_COUNT
+                * K::Layout::LAYOUT_COLS
+                * K::Layout::LAYOUT_ROWS
+                * 2];
+
+            // Read data
+            match database.read_raw(StorageKey::DynamicKeymap).await {
+                Ok((stored_data, stored_len)) => {
+                    buf[..stored_len].copy_from_slice(stored_data);
+                }
+                Err(()) => {
+                    warn!("[VIA] Could not read dynamic keymap buffer.");
+                }
+            };
+
+            // Update data
+            buf[offset..(offset + 2)].copy_from_slice(keycode);
+
+            if let Err(()) = database.write_raw(StorageKey::DynamicKeymap, &buf).await {
+                warn!("[VIA] Could not write dynamic keymap buffer.",)
+            };
         }
     } else {
         warn!("[VIA] Requested a dynamic keymap keycode that is out of bounds.")
@@ -234,11 +304,12 @@ pub async fn dynamic_keymap_get_encoder<K: ViaKeyboard>(
 ) {
     let keycode = &mut data[0..=1];
 
-    let keycode_offset = ((layer * K::NUM_ENCODERS as u8 * 2 * 2)
+    let offset = ((layer * <K::Layout as KeyboardLayout>::NUM_ENCODERS as u8 * 2 * 2)
         + (encoder_id * 2 * 2)
         + if clockwise { 0 } else { 2 }) as usize;
 
-    if !(layer as usize >= K::DYNAMIC_KEYMAP_LAYER_COUNT || encoder_id as usize >= K::NUM_ENCODERS)
+    if !(layer as usize >= K::DYNAMIC_KEYMAP_LAYER_COUNT
+        || encoder_id as usize >= <K::Layout as KeyboardLayout>::NUM_ENCODERS)
     {
         //TODO: encoder support
     } else {
@@ -246,28 +317,49 @@ pub async fn dynamic_keymap_get_encoder<K: ViaKeyboard>(
     }
 }
 
-pub async fn dynamic_keymap_set_encoder<K: ViaKeyboard>(
+pub async fn dynamic_keymap_set_encoder<K: ViaKeyboard + 'static>(
     layer: u8,
     encoder_id: u8,
     clockwise: bool,
     data: &[u8],
-) {
+) where
+    [(); <<K::StorageType as StorageDevice>::FlashStorageType as FlashStorage>::ERASE_SIZE]:,
+    [(); K::DYNAMIC_KEYMAP_LAYER_COUNT * K::Layout::NUM_ENCODERS * 2 * 2]:,
+{
     let keycode = &data[0..=1];
 
-    let keycode_offset = ((layer * K::NUM_ENCODERS as u8 * 2 * 2)
+    let offset = ((layer * <K::Layout as KeyboardLayout>::NUM_ENCODERS as u8 * 2 * 2)
         + (encoder_id * 2 * 2)
         + if clockwise { 0 } else { 2 }) as usize;
 
-    if !(layer as usize >= K::DYNAMIC_KEYMAP_LAYER_COUNT || encoder_id as usize >= K::NUM_ENCODERS)
+    if !(layer as usize >= K::DYNAMIC_KEYMAP_LAYER_COUNT
+        || encoder_id as usize >= <K::Layout as KeyboardLayout>::NUM_ENCODERS)
     {
         //TODO: encoder support
-        #[cfg(feature = "storage")]
-        super::storage::update_data(
-            super::storage::ViaStorageKeys::DynamicKeymapEncoder,
-            keycode_offset,
-            keycode,
-        )
-        .await;
+
+        if let Some(database) = K::get_storage_service() {
+            let mut buf = [0; K::DYNAMIC_KEYMAP_LAYER_COUNT * K::Layout::NUM_ENCODERS * 2 * 2];
+
+            // Read data
+            match database.read_raw(StorageKey::DynamicKeymapEncoder).await {
+                Ok((stored_data, stored_len)) => {
+                    buf[..stored_len].copy_from_slice(stored_data);
+                }
+                Err(()) => {
+                    warn!("[VIA] Could not read dynamic keymap encoder.");
+                }
+            };
+
+            // Update data
+            buf[offset..(offset + 2)].copy_from_slice(keycode);
+
+            if let Err(()) = database
+                .write_raw(StorageKey::DynamicKeymapEncoder, &buf)
+                .await
+            {
+                warn!("[VIA] Could not write dynamic keymap encoder.")
+            };
+        }
     } else {
         warn!("[VIA] Attempted to set a dynamic keymap encoder out of bounds.")
     }
@@ -279,11 +371,14 @@ pub async fn dynamic_keymap_get_buffer<K: ViaKeyboard + 'static>(
     data: &mut [u8],
     convert_action_to_keycode: impl Fn(Action<Keycode>) -> u16,
 ) where
-    [(); K::LAYERS]:,
-    [(); K::LAYOUT_ROWS]:,
-    [(); K::LAYOUT_COLS]:,
+    [(); <K::Layout as KeyboardLayout>::LAYERS]:,
+    [(); <K::Layout as KeyboardLayout>::LAYOUT_ROWS]:,
+    [(); <K::Layout as KeyboardLayout>::LAYOUT_COLS]:,
 {
-    let buffer_size = K::DYNAMIC_KEYMAP_LAYER_COUNT * K::LAYOUT_ROWS * K::LAYOUT_COLS * 2;
+    let buffer_size = K::DYNAMIC_KEYMAP_LAYER_COUNT
+        * <K::Layout as KeyboardLayout>::LAYOUT_ROWS
+        * K::Layout::LAYOUT_COLS
+        * 2;
 
     let len = if offset as usize + size as usize > buffer_size {
         buffer_size.saturating_sub(offset as usize)
@@ -291,16 +386,21 @@ pub async fn dynamic_keymap_get_buffer<K: ViaKeyboard + 'static>(
         size as usize
     };
 
-    let mut layout = K::get_layout().lock().await;
+    let mut layout = <K::Layout as KeyboardLayout>::get_layout()
+        .layout
+        .lock()
+        .await;
 
     // We make the assumption that Via will never request for a buffer that requires us to send
     // part a 2-byte keycode (so a partial keycode). In other words, we assume that `offset` and
     // `size` will always be even.
     // https://github.com/the-via/app/blob/ee4443bbdcad79a9568d43488e5097a9c6d96bbe/src/utils/keyboard-api.ts#L249
     for byte in ((offset as usize)..(offset as usize + len)).step_by(2) {
-        let layer = byte / (K::LAYOUT_ROWS * K::LAYOUT_COLS * 2);
-        let row = (byte / (K::LAYOUT_COLS * 2)) % K::LAYOUT_ROWS;
-        let col = (byte / 2) % K::LAYOUT_COLS;
+        let layer =
+            byte / (<K::Layout as KeyboardLayout>::LAYOUT_ROWS * K::Layout::LAYOUT_COLS * 2);
+        let row =
+            (byte / (<K::Layout as KeyboardLayout>::LAYOUT_COLS * 2)) % K::Layout::LAYOUT_ROWS;
+        let col = (byte / 2) % <K::Layout as KeyboardLayout>::LAYOUT_COLS;
 
         data[(byte - offset as usize)..(byte - offset as usize + 2)].copy_from_slice(
             &convert_action_to_keycode(layout.get_action((row as u8, col as u8), layer).unwrap())
@@ -315,11 +415,16 @@ pub async fn dynamic_keymap_set_buffer<K: ViaKeyboard + 'static>(
     data: &[u8],
     convert_keycode_to_action: impl Fn(u16) -> Option<Action<Keycode>>,
 ) where
-    [(); K::LAYERS]:,
-    [(); K::LAYOUT_ROWS]:,
-    [(); K::LAYOUT_COLS]:,
+    [(); <<K::StorageType as StorageDevice>::FlashStorageType as FlashStorage>::ERASE_SIZE]:,
+    [(); K::DYNAMIC_KEYMAP_LAYER_COUNT * K::Layout::LAYOUT_COLS * K::Layout::LAYOUT_ROWS * 2]:,
+    [(); <K::Layout as KeyboardLayout>::LAYERS]:,
+    [(); <K::Layout as KeyboardLayout>::LAYOUT_ROWS]:,
+    [(); <K::Layout as KeyboardLayout>::LAYOUT_COLS]:,
 {
-    let buffer_size = K::DYNAMIC_KEYMAP_LAYER_COUNT * K::LAYOUT_ROWS * K::LAYOUT_COLS * 2;
+    let buffer_size = K::DYNAMIC_KEYMAP_LAYER_COUNT
+        * <K::Layout as KeyboardLayout>::LAYOUT_ROWS
+        * K::Layout::LAYOUT_COLS
+        * 2;
 
     let len = if offset as usize + size as usize > buffer_size {
         buffer_size.saturating_sub(offset as usize)
@@ -328,7 +433,10 @@ pub async fn dynamic_keymap_set_buffer<K: ViaKeyboard + 'static>(
     };
 
     {
-        let mut layout = K::get_layout().lock().await;
+        let mut layout = <K::Layout as KeyboardLayout>::get_layout()
+            .layout
+            .lock()
+            .await;
 
         // We make the assumption that VIA will never write a buffer that contains part a 2-byte
         // keycode (so a partial keycode). In other words, we assume that `offset` and `size` will
@@ -340,9 +448,11 @@ pub async fn dynamic_keymap_set_buffer<K: ViaKeyboard + 'static>(
                     .try_into()
                     .unwrap(),
             )) {
-                let layer = byte / (K::LAYOUT_ROWS * K::LAYOUT_COLS * 2);
-                let row = (byte / (K::LAYOUT_COLS * 2)) % K::LAYOUT_ROWS;
-                let col = (byte / 2) % K::LAYOUT_COLS;
+                let layer = byte
+                    / (<K::Layout as KeyboardLayout>::LAYOUT_ROWS * K::Layout::LAYOUT_COLS * 2);
+                let row = (byte / (<K::Layout as KeyboardLayout>::LAYOUT_COLS * 2))
+                    % K::Layout::LAYOUT_ROWS;
+                let col = (byte / 2) % <K::Layout as KeyboardLayout>::LAYOUT_COLS;
 
                 layout
                     .change_action((row as u8, col as u8), layer, action)
@@ -351,25 +461,43 @@ pub async fn dynamic_keymap_set_buffer<K: ViaKeyboard + 'static>(
         }
     }
 
-    #[cfg(feature = "storage")]
-    {
-        super::storage::update_data(
-            super::storage::ViaStorageKeys::DynamicKeymap,
-            offset as usize,
-            &data[..len],
-        )
-        .await;
+    if let Some(database) = K::get_storage_service() {
+        let offset = offset as usize;
+        let mut buf = [0; K::DYNAMIC_KEYMAP_LAYER_COUNT
+            * K::Layout::LAYOUT_COLS
+            * K::Layout::LAYOUT_ROWS
+            * 2];
+
+        // Read data
+        match database.read_raw(StorageKey::DynamicKeymap).await {
+            Ok((stored_data, stored_len)) => {
+                buf[..stored_len].copy_from_slice(stored_data);
+            }
+            Err(()) => {
+                warn!("[VIA] Could not read dynamic keymap buffer.");
+            }
+        };
+
+        // Update data
+        buf[offset..(offset + 2)].copy_from_slice(&data[..len]);
+
+        if let Err(()) = database.write_raw(StorageKey::DynamicKeymap, &buf).await {
+            warn!("[VIA] Could not write dynamic keymap buffer.",)
+        };
     }
 }
 
 pub async fn dynamic_keymap_reset<K: ViaKeyboard + 'static>()
 where
-    [(); K::LAYERS]:,
-    [(); K::LAYOUT_ROWS]:,
-    [(); K::LAYOUT_COLS]:,
+    [(); <K::Layout as KeyboardLayout>::LAYERS]:,
+    [(); <K::Layout as KeyboardLayout>::LAYOUT_ROWS]:,
+    [(); <K::Layout as KeyboardLayout>::LAYOUT_COLS]:,
 {
-    let mut layout = K::get_layout().lock().await;
-    let original = K::get_original_layout();
+    let mut layout = <K::Layout as KeyboardLayout>::get_layout()
+        .layout
+        .lock()
+        .await;
+    let original = <K::Layout as KeyboardLayout>::get_original_layout();
 
     for (layer_idx, layer) in original.iter().enumerate() {
         for (row_idx, row) in layer.iter().enumerate() {
@@ -382,373 +510,206 @@ where
     }
 }
 
-#[cfg(feature = "simple-backlight")]
-pub async fn simple_backlight_get_enabled(data: &mut [u8]) {
-    data[0] = crate::backlight::simple_backlight::BACKLIGHT_CONFIG_STATE
-        .get()
-        .await
-        .enabled as u8
-}
-
-#[cfg(feature = "simple-backlight-matrix")]
-pub async fn simple_backlight_matrix_get_enabled(data: &mut [u8]) {
-    data[0] = crate::backlight::simple_backlight_matrix::BACKLIGHT_CONFIG_STATE
-        .get()
-        .await
-        .enabled as u8
-}
-
-#[cfg(feature = "rgb-backlight-matrix")]
-pub async fn rgb_backlight_matrix_get_enabled(data: &mut [u8]) {
-    data[0] = crate::backlight::rgb_backlight_matrix::BACKLIGHT_CONFIG_STATE
-        .get()
-        .await
-        .enabled as u8
+#[cfg(feature = "underglow")]
+pub async fn underglow_get_enabled<K: ViaKeyboard>(data: &mut [u8]) {
+    if let Some(state) =
+        <<K::Layout as KeyboardLayout>::UnderglowDeviceType as crate::lighting::underglow::private::MaybeUnderglowDevice>::get_state()
+    {
+        data[0] = state.get().await.enabled as u8
+    }
 }
 
 #[cfg(feature = "simple-backlight")]
-pub async fn simple_backlight_set_enabled(data: &[u8]) {
-    let command = if data[0] == 1 {
-        crate::backlight::simple_backlight::animations::BacklightCommand::TurnOn
-    } else {
-        crate::backlight::simple_backlight::animations::BacklightCommand::TurnOff
-    };
-
-    crate::backlight::simple_backlight::BACKLIGHT_COMMAND_CHANNEL
-        .send(command)
-        .await;
-}
-
-#[cfg(feature = "simple-backlight-matrix")]
-pub async fn simple_backlight_matrix_set_enabled(data: &[u8]) {
-    let command = if data[0] == 1 {
-        crate::backlight::simple_backlight_matrix::animations::BacklightCommand::TurnOn
-    } else {
-        crate::backlight::simple_backlight_matrix::animations::BacklightCommand::TurnOff
-    };
-
-    crate::backlight::simple_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
-        .send(command)
-        .await;
-}
-
-#[cfg(feature = "rgb-backlight-matrix")]
-pub async fn rgb_backlight_matrix_set_enabled(data: &[u8]) {
-    let command = if data[0] == 1 {
-        crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::TurnOn
-    } else {
-        crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::TurnOff
-    };
-
-    crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
-        .send(command)
-        .await;
-}
-
-#[cfg(feature = "simple-backlight")]
-pub async fn simple_backlight_get_brightness(data: &mut [u8]) {
-    data[0] = crate::backlight::simple_backlight::BACKLIGHT_CONFIG_STATE
-        .get()
-        .await
-        .val
-}
-
-#[cfg(feature = "simple-backlight-matrix")]
-pub async fn simple_backlight_matrix_get_brightness(data: &mut [u8]) {
-    data[0] = crate::backlight::simple_backlight_matrix::BACKLIGHT_CONFIG_STATE
-        .get()
-        .await
-        .val
-}
-
-#[cfg(feature = "rgb-backlight-matrix")]
-pub async fn rgb_backlight_matrix_get_brightness(data: &mut [u8]) {
-    data[0] = crate::backlight::rgb_backlight_matrix::BACKLIGHT_CONFIG_STATE
-        .get()
-        .await
-        .val
-}
-
-#[cfg(feature = "simple-backlight")]
-pub async fn simple_backlight_set_brightness(data: &[u8]) {
-    crate::backlight::simple_backlight::BACKLIGHT_COMMAND_CHANNEL
-        .send(crate::backlight::simple_backlight::animations::BacklightCommand::SetValue(data[0]))
-        .await;
-}
-
-#[cfg(feature = "simple-backlight-matrix")]
-pub async fn simple_backlight_matrix_set_brightness(data: &[u8]) {
-    crate::backlight::simple_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
-        .send(
-            crate::backlight::simple_backlight_matrix::animations::BacklightCommand::SetValue(
-                data[0],
-            ),
-        )
-        .await;
-}
-
-#[cfg(feature = "rgb-backlight-matrix")]
-pub async fn rgb_backlight_matrix_set_brightness(data: &[u8]) {
-    crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
-        .send(
-            crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::SetValue(data[0]),
-        )
-        .await;
-}
-
-#[cfg(feature = "simple-backlight")]
-pub async fn simple_backlight_get_effect(
-    data: &mut [u8],
-    convert_effect_to_qmk_id: impl Fn(
-        crate::backlight::simple_backlight::animations::BacklightEffect,
-    ) -> u8,
-) {
-    data[0] = convert_effect_to_qmk_id(
-        crate::backlight::simple_backlight::BACKLIGHT_CONFIG_STATE
-            .get()
-            .await
-            .effect,
-    )
-}
-
-#[cfg(feature = "simple-backlight-matrix")]
-pub async fn simple_backlight_matrix_get_effect(
-    data: &mut [u8],
-    convert_effect_to_qmk_id: impl Fn(
-        crate::backlight::simple_backlight_matrix::animations::BacklightEffect,
-    ) -> u8,
-) {
-    data[0] = convert_effect_to_qmk_id(
-        crate::backlight::simple_backlight_matrix::BACKLIGHT_CONFIG_STATE
-            .get()
-            .await
-            .effect,
-    )
-}
-
-#[cfg(feature = "rgb-backlight-matrix")]
-pub async fn rgb_backlight_matrix_get_effect(
-    data: &mut [u8],
-    convert_effect_to_qmk_id: impl Fn(
-        crate::backlight::rgb_backlight_matrix::animations::BacklightEffect,
-    ) -> u8,
-) {
-    data[0] = convert_effect_to_qmk_id(
-        crate::backlight::rgb_backlight_matrix::BACKLIGHT_CONFIG_STATE
-            .get()
-            .await
-            .effect,
-    )
-}
-
-#[cfg(feature = "simple-backlight")]
-pub async fn simple_backlight_set_effect(
-    data: &[u8],
-    convert_qmk_id_to_effect: impl Fn(
-        u8,
-    ) -> Option<
-        crate::backlight::simple_backlight::animations::BacklightEffect,
-    >,
-) {
-    if let Some(effect) = convert_qmk_id_to_effect(data[0]) {
-        crate::backlight::simple_backlight::BACKLIGHT_COMMAND_CHANNEL
-            .send(
-                crate::backlight::simple_backlight::animations::BacklightCommand::SetEffect(effect),
-            )
-            .await;
-    } else {
-        warn!(
-            "[VIA] Tried to set an unknown backlight effect: {:?}",
-            data[0]
-        )
+pub async fn simple_backlight_get_enabled<K: ViaKeyboard>(data: &mut [u8]) {
+    if let Some(state) = <<K::Layout as KeyboardLayout>::SimpleBacklightDeviceType as crate::lighting::simple_backlight::private::MaybeSimpleBacklightDevice>::get_state() {
+        data[0] = state.get().await.enabled as u8
     }
 }
 
 #[cfg(feature = "simple-backlight-matrix")]
-pub async fn simple_backlight_matrix_set_effect(
-    data: &[u8],
-    convert_qmk_id_to_effect: impl Fn(
-        u8,
-    ) -> Option<
-        crate::backlight::simple_backlight_matrix::animations::BacklightEffect,
-    >,
-) {
-    if let Some(effect) = convert_qmk_id_to_effect(data[0]) {
-        crate::backlight::simple_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
+pub async fn simple_backlight_matrix_get_enabled<K: ViaKeyboard>(data: &mut [u8]) {
+    if let Some(state) = <<K::Layout as KeyboardLayout>::SimpleBacklightMatrixDeviceType as crate::lighting::simple_backlight_matrix::private::MaybeSimpleBacklightMatrixDevice>::get_state() {
+        data[0] = state.get().await.enabled as u8
+    }
+}
+
+#[cfg(feature = "rgb-backlight-matrix")]
+pub async fn rgb_backlight_matrix_get_enabled<K: ViaKeyboard>(data: &mut [u8]) {
+    if let Some(state) = <<K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType as crate::lighting::rgb_backlight_matrix::private::MaybeRGBBacklightMatrixDevice>::get_state() {
+        data[0] = state.get().await.enabled as u8
+    }
+}
+
+#[cfg(feature = "underglow")]
+pub async fn underglow_set_enabled<K: ViaKeyboard>(data: &[u8]) {
+    if let Some(channel) = <<K::Layout as KeyboardLayout>::UnderglowDeviceType as crate::lighting::underglow::private::MaybeUnderglowDevice>::get_command_channel() {
+        let command = if data[0] == 1 {
+            crate::lighting::underglow::UnderglowCommand::TurnOn
+        } else {
+            crate::lighting::underglow::UnderglowCommand::TurnOff
+        };
+
+        channel.send(command).await;
+    }
+}
+
+#[cfg(feature = "simple-backlight")]
+pub async fn simple_backlight_set_enabled<K: ViaKeyboard>(data: &[u8]) {
+    if let Some(channel) = <<K::Layout as KeyboardLayout>::SimpleBacklightDeviceType as crate::lighting::simple_backlight::private::MaybeSimpleBacklightDevice>::get_command_channel() {
+        let command = if data[0] == 1 {
+            crate::lighting::simple_backlight::SimpleBacklightCommand::TurnOn
+        } else {
+            crate::lighting::simple_backlight::SimpleBacklightCommand::TurnOff
+        };
+
+        channel.send(command).await;
+    }
+}
+
+#[cfg(feature = "simple-backlight-matrix")]
+pub async fn simple_backlight_matrix_set_enabled<K: ViaKeyboard>(data: &[u8]) {
+    if let Some(channel) = <<K::Layout as KeyboardLayout>::SimpleBacklightMatrixDeviceType as crate::lighting::simple_backlight_matrix::private::MaybeSimpleBacklightMatrixDevice>::get_command_channel() {
+        let command = if data[0] == 1 {
+            crate::lighting::simple_backlight_matrix::SimpleBacklightMatrixCommand::TurnOn
+        } else {
+            crate::lighting::simple_backlight_matrix::SimpleBacklightMatrixCommand::TurnOff
+        };
+
+        channel.send(command).await;
+    }
+}
+
+#[cfg(feature = "rgb-backlight-matrix")]
+pub async fn rgb_backlight_matrix_set_enabled<K: ViaKeyboard>(data: &[u8]) {
+    if let Some(channel) = <<K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType as crate::lighting::rgb_backlight_matrix::private::MaybeRGBBacklightMatrixDevice>::get_command_channel() {
+        let command = if data[0] == 1 {
+            crate::lighting::rgb_backlight_matrix::RGBBacklightMatrixCommand::TurnOn
+        } else {
+            crate::lighting::rgb_backlight_matrix::RGBBacklightMatrixCommand::TurnOff
+        };
+
+        channel.send(command).await;
+    }
+}
+
+#[cfg(feature = "underglow")]
+pub async fn underglow_get_brightness<K: ViaKeyboard>(data: &mut [u8]) {
+    if let Some(state) =
+        <<K::Layout as KeyboardLayout>::UnderglowDeviceType as crate::lighting::underglow::private::MaybeUnderglowDevice>::get_state()
+    {
+        data[0] = state.get().await.val;
+    }
+}
+
+#[cfg(feature = "simple-backlight")]
+pub async fn simple_backlight_get_brightness<K: ViaKeyboard>(data: &mut [u8]) {
+    if let Some(state) = <<K::Layout as KeyboardLayout>::SimpleBacklightDeviceType as crate::lighting::simple_backlight::private::MaybeSimpleBacklightDevice>::get_state() {
+        data[0] = state.get().await.val
+    }
+}
+
+#[cfg(feature = "simple-backlight-matrix")]
+pub async fn simple_backlight_matrix_get_brightness<K: ViaKeyboard>(data: &mut [u8]) {
+    if let Some(state) = <<K::Layout as KeyboardLayout>::SimpleBacklightMatrixDeviceType as crate::lighting::simple_backlight_matrix::private::MaybeSimpleBacklightMatrixDevice>::get_state() {
+        data[0] = state.get().await.val
+    }
+}
+
+#[cfg(feature = "rgb-backlight-matrix")]
+pub async fn rgb_backlight_matrix_get_brightness<K: ViaKeyboard>(data: &mut [u8]) {
+    if let Some(state) = <<K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType as crate::lighting::rgb_backlight_matrix::private::MaybeRGBBacklightMatrixDevice>::get_state() {
+        data[0] = state.get().await.val
+    }
+}
+
+#[cfg(feature = "underglow")]
+pub async fn underglow_set_brightness<K: ViaKeyboard>(data: &[u8]) {
+    if let Some(channel) = <<K::Layout as KeyboardLayout>::UnderglowDeviceType as crate::lighting::underglow::private::MaybeUnderglowDevice>::get_command_channel() {
+        channel
+            .send(crate::lighting::underglow::UnderglowCommand::SetValue(
+                data[0],
+            ))
+            .await;
+    }
+}
+
+#[cfg(feature = "simple-backlight")]
+pub async fn simple_backlight_set_brightness<K: ViaKeyboard>(data: &[u8]) {
+    if let Some(channel) = <<K::Layout as KeyboardLayout>::SimpleBacklightDeviceType as crate::lighting::simple_backlight::private::MaybeSimpleBacklightDevice>::get_command_channel() {
+        channel
+            .send(crate::lighting::simple_backlight::SimpleBacklightCommand::SetValue(data[0]))
+            .await;
+    }
+}
+
+#[cfg(feature = "simple-backlight-matrix")]
+pub async fn simple_backlight_matrix_set_brightness<K: ViaKeyboard>(data: &[u8]) {
+    if let Some(channel) = <<K::Layout as KeyboardLayout>::SimpleBacklightMatrixDeviceType as crate::lighting::simple_backlight_matrix::private::MaybeSimpleBacklightMatrixDevice>::get_command_channel() {
+        channel
             .send(
-                crate::backlight::simple_backlight_matrix::animations::BacklightCommand::SetEffect(
-                    effect,
+                crate::lighting::simple_backlight_matrix::SimpleBacklightMatrixCommand::SetValue(
+                    data[0],
                 ),
             )
             .await;
-    } else {
-        warn!(
-            "[VIA] Tried to set an unknown backlight effect: {:?}",
-            data[0]
-        )
     }
 }
 
 #[cfg(feature = "rgb-backlight-matrix")]
-pub async fn rgb_backlight_matrix_set_effect(
-    data: &[u8],
-    convert_qmk_id_to_effect: impl Fn(
-        u8,
-    ) -> Option<
-        crate::backlight::rgb_backlight_matrix::animations::BacklightEffect,
-    >,
-) {
-    if let Some(effect) = convert_qmk_id_to_effect(data[0]) {
-        crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
+pub async fn rgb_backlight_matrix_set_brightness<K: ViaKeyboard>(data: &[u8]) {
+    if let Some(channel) = <<K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType as crate::lighting::rgb_backlight_matrix::private::MaybeRGBBacklightMatrixDevice>::get_command_channel() {
+        channel
             .send(
-                crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::SetEffect(
-                    effect,
-                ),
+                crate::lighting::rgb_backlight_matrix::RGBBacklightMatrixCommand::SetValue(data[0]),
             )
             .await;
-    } else {
-        warn!(
-            "[VIA] Tried to set an unknown backlight effect: {:?}",
-            data[0]
-        )
+    }
+}
+
+#[cfg(feature = "underglow")]
+pub async fn underglow_get_effect<K: ViaKeyboard>(
+    data: &mut [u8],
+    convert_effect_to_qmk_id: impl Fn(crate::lighting::underglow::UnderglowConfig) -> u8,
+) {
+    if let Some(state) =
+        <<K::Layout as KeyboardLayout>::UnderglowDeviceType as crate::lighting::underglow::private::MaybeUnderglowDevice>::get_state()
+    {
+        data[0] = convert_effect_to_qmk_id(state.get().await);
     }
 }
 
 #[cfg(feature = "simple-backlight")]
-pub async fn simple_backlight_get_speed(data: &mut [u8]) {
-    data[0] = crate::backlight::simple_backlight::BACKLIGHT_CONFIG_STATE
-        .get()
-        .await
-        .speed
-}
-
-#[cfg(feature = "simple-backlight-matrix")]
-pub async fn simple_backlight_matrix_get_speed(data: &mut [u8]) {
-    data[0] = crate::backlight::simple_backlight_matrix::BACKLIGHT_CONFIG_STATE
-        .get()
-        .await
-        .speed
-}
-
-#[cfg(feature = "rgb-backlight-matrix")]
-pub async fn rgb_backlight_matrix_get_speed(data: &mut [u8]) {
-    data[0] = crate::backlight::rgb_backlight_matrix::BACKLIGHT_CONFIG_STATE
-        .get()
-        .await
-        .speed
-}
-
-#[cfg(feature = "simple-backlight")]
-pub async fn simple_backlight_set_speed(data: &[u8]) {
-    crate::backlight::simple_backlight::BACKLIGHT_COMMAND_CHANNEL
-        .send(crate::backlight::simple_backlight::animations::BacklightCommand::SetSpeed(data[0]))
-        .await;
-}
-
-#[cfg(feature = "simple-backlight-matrix")]
-pub async fn simple_backlight_matrix_set_speed(data: &[u8]) {
-    crate::backlight::simple_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
-        .send(
-            crate::backlight::simple_backlight_matrix::animations::BacklightCommand::SetSpeed(
-                data[0],
-            ),
-        )
-        .await;
-}
-
-#[cfg(feature = "rgb-backlight-matrix")]
-pub async fn rgb_backlight_matrix_set_speed(data: &[u8]) {
-    crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
-        .send(
-            crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::SetSpeed(data[0]),
-        )
-        .await;
-}
-
-#[cfg(feature = "rgb-backlight-matrix")]
-pub async fn rgb_backlight_matrix_get_color(data: &mut [u8]) {
-    // Color only available on RGB matrices
-    let config = crate::backlight::rgb_backlight_matrix::BACKLIGHT_CONFIG_STATE
-        .get()
-        .await;
-    data[0] = config.hue;
-    data[1] = config.sat;
-}
-
-#[cfg(feature = "rgb-backlight-matrix")]
-pub async fn rgb_backlight_matrix_set_color(data: &[u8]) {
-    // Color only available on RGB matrices
-    crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
-        .send(crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::SetHue(data[0]))
-        .await;
-    crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
-        .send(
-            crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::SetSaturation(
-                data[1],
-            ),
-        )
-        .await;
-}
-
-pub async fn simple_backlight_save() {
-    #[cfg(all(feature = "storage", feature = "simple-backlight"))]
-    crate::backlight::simple_backlight::BACKLIGHT_COMMAND_CHANNEL
-        .send(crate::backlight::simple_backlight::animations::BacklightCommand::SaveConfig)
-        .await;
-}
-
-pub async fn simple_backlight_matrix_save() {
-    #[cfg(all(feature = "storage", feature = "simple-backlight-matrix"))]
-    crate::backlight::simple_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
-        .send(crate::backlight::simple_backlight_matrix::animations::BacklightCommand::SaveConfig)
-        .await;
-}
-
-pub async fn rgb_backlight_matrix_save() {
-    #[cfg(all(feature = "storage", feature = "rgb-backlight-matrix"))]
-    crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
-        .send(crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::SaveConfig)
-        .await;
-}
-
-#[cfg(feature = "underglow")]
-pub async fn underglow_get_enabled(data: &mut [u8]) {
-    data[0] = crate::underglow::UNDERGLOW_CONFIG_STATE.get().await.enabled as u8
-}
-
-#[cfg(feature = "underglow")]
-pub async fn underglow_set_enabled(data: &[u8]) {
-    let command = if data[0] == 1 {
-        crate::underglow::animations::UnderglowCommand::TurnOn
-    } else {
-        crate::underglow::animations::UnderglowCommand::TurnOff
-    };
-
-    crate::underglow::UNDERGLOW_COMMAND_CHANNEL
-        .send(command)
-        .await;
-}
-
-#[cfg(feature = "underglow")]
-pub async fn underglow_get_brightness(data: &mut [u8]) {
-    data[0] = crate::underglow::UNDERGLOW_CONFIG_STATE.get().await.val;
-}
-
-#[cfg(feature = "underglow")]
-pub async fn underglow_set_brightness(data: &[u8]) {
-    crate::underglow::UNDERGLOW_COMMAND_CHANNEL
-        .send(crate::underglow::animations::UnderglowCommand::SetValue(
-            data[0],
-        ))
-        .await;
-}
-
-#[cfg(feature = "underglow")]
-pub async fn underglow_get_effect(
+pub async fn simple_backlight_get_effect<K: ViaKeyboard>(
     data: &mut [u8],
-    convert_effect_to_qmk_id: impl Fn(crate::underglow::animations::UnderglowConfig) -> u8,
+    convert_effect_to_qmk_id: impl Fn(crate::lighting::simple_backlight::SimpleBacklightEffect) -> u8,
 ) {
-    data[0] = convert_effect_to_qmk_id(crate::underglow::UNDERGLOW_CONFIG_STATE.get().await);
+    if let Some(state) = <<K::Layout as KeyboardLayout>::SimpleBacklightDeviceType as crate::lighting::simple_backlight::private::MaybeSimpleBacklightDevice>::get_state() {
+        data[0] = convert_effect_to_qmk_id(state.get().await.effect)
+    }
+}
+
+#[cfg(feature = "simple-backlight-matrix")]
+pub async fn simple_backlight_matrix_get_effect<K: ViaKeyboard>(
+    data: &mut [u8],
+    convert_effect_to_qmk_id: impl Fn(
+        crate::lighting::simple_backlight_matrix::SimpleBacklightMatrixEffect,
+    ) -> u8,
+) {
+    if let Some(state) = <<K::Layout as KeyboardLayout>::SimpleBacklightMatrixDeviceType as crate::lighting::simple_backlight_matrix::private::MaybeSimpleBacklightMatrixDevice>::get_state() {
+        data[0] = convert_effect_to_qmk_id(state.get().await.effect)
+    }
+}
+
+#[cfg(feature = "rgb-backlight-matrix")]
+pub async fn rgb_backlight_matrix_get_effect<K: ViaKeyboard>(
+    data: &mut [u8],
+    convert_effect_to_qmk_id: impl Fn(
+        crate::lighting::rgb_backlight_matrix::RGBBacklightMatrixEffect,
+    ) -> u8,
+) {
+    if let Some(state) = <<K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType as crate::lighting::rgb_backlight_matrix::private::MaybeRGBBacklightMatrixDevice>::get_state() {
+        data[0] = convert_effect_to_qmk_id(state.get().await.effect)
+    }
 }
 
 #[cfg(feature = "underglow")]
@@ -757,73 +718,278 @@ pub async fn underglow_get_effect(
 /// e.g. RainbowSwirl to RainbowSwirl6. Option<u8> is used to set the speed for the effect to
 /// handle these cases. This only really applies to Vial, since it uses an older protocol. In the
 /// new Via protocol, we never set the speed, and instead use a custom UI to control speed.
-pub async fn underglow_set_effect(
+pub async fn underglow_set_effect<K: ViaKeyboard>(
     data: &[u8],
     convert_qmk_id_to_effect: impl Fn(
         u8,
     ) -> Option<(
-        crate::underglow::animations::UnderglowEffect,
+        crate::lighting::underglow::UnderglowEffect,
         Option<u8>,
     )>,
 ) {
-    if let Some((effect, speed)) = convert_qmk_id_to_effect(data[0]) {
-        crate::underglow::UNDERGLOW_COMMAND_CHANNEL
-            .send(crate::underglow::animations::UnderglowCommand::SetEffect(
-                effect,
-            ))
-            .await;
-
-        if let Some(speed) = speed {
-            crate::underglow::UNDERGLOW_COMMAND_CHANNEL
-                .send(crate::underglow::animations::UnderglowCommand::SetSpeed(
-                    speed,
+    if let Some(channel) = <<K::Layout as KeyboardLayout>::UnderglowDeviceType as crate::lighting::underglow::private::MaybeUnderglowDevice>::get_command_channel() {
+        if let Some((effect, speed)) = convert_qmk_id_to_effect(data[0]) {
+            channel
+                .send(crate::lighting::underglow::UnderglowCommand::SetEffect(
+                    effect,
                 ))
                 .await;
+
+            if let Some(speed) = speed {
+                channel
+                    .send(crate::lighting::underglow::UnderglowCommand::SetSpeed(
+                        speed,
+                    ))
+                    .await;
+            }
+        } else {
+            warn!(
+                "[VIA] Tried to set an unknown underglow effect: {:?}",
+                data[0]
+            )
         }
-    } else {
-        warn!(
-            "[VIA] Tried to set an unknown underglow effect: {:?}",
-            data[0]
-        )
+    }
+}
+
+#[cfg(feature = "simple-backlight")]
+pub async fn simple_backlight_set_effect<K: ViaKeyboard>(
+    data: &[u8],
+    convert_qmk_id_to_effect: impl Fn(
+        u8,
+    ) -> Option<
+        crate::lighting::simple_backlight::SimpleBacklightEffect,
+    >,
+) {
+    if let Some(channel) = <<K::Layout as KeyboardLayout>::SimpleBacklightDeviceType as crate::lighting::simple_backlight::private::MaybeSimpleBacklightDevice>::get_command_channel() {
+        if let Some(effect) = convert_qmk_id_to_effect(data[0]) {
+            channel
+                .send(crate::lighting::simple_backlight::SimpleBacklightCommand::SetEffect(effect))
+                .await;
+        } else {
+            warn!(
+                "[VIA] Tried to set an unknown backlight effect: {:?}",
+                data[0]
+            )
+        }
+    }
+}
+
+#[cfg(feature = "simple-backlight-matrix")]
+pub async fn simple_backlight_matrix_set_effect<K: ViaKeyboard>(
+    data: &[u8],
+    convert_qmk_id_to_effect: impl Fn(
+        u8,
+    ) -> Option<
+        crate::lighting::simple_backlight_matrix::SimpleBacklightMatrixEffect,
+    >,
+) {
+    if let Some(channel) = <<K::Layout as KeyboardLayout>::SimpleBacklightMatrixDeviceType as crate::lighting::simple_backlight_matrix::private::MaybeSimpleBacklightMatrixDevice>::get_command_channel() {
+        if let Some(effect) = convert_qmk_id_to_effect(data[0]) {
+            channel
+            .send(
+                crate::lighting::simple_backlight_matrix::SimpleBacklightMatrixCommand::SetEffect(
+                    effect,
+                ),
+            )
+            .await;
+        } else {
+            warn!(
+                "[VIA] Tried to set an unknown backlight effect: {:?}",
+                data[0]
+            )
+        }
+    }
+}
+
+#[cfg(feature = "rgb-backlight-matrix")]
+pub async fn rgb_backlight_matrix_set_effect<K: ViaKeyboard>(
+    data: &[u8],
+    convert_qmk_id_to_effect: impl Fn(
+        u8,
+    ) -> Option<
+        crate::lighting::rgb_backlight_matrix::RGBBacklightMatrixEffect,
+    >,
+) {
+    if let Some(channel) = <<K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType as crate::lighting::rgb_backlight_matrix::private::MaybeRGBBacklightMatrixDevice>::get_command_channel() {
+        if let Some(effect) = convert_qmk_id_to_effect(data[0]) {
+            channel
+                .send(
+                    crate::lighting::rgb_backlight_matrix::RGBBacklightMatrixCommand::SetEffect(
+                        effect,
+                    ),
+                )
+                .await;
+        } else {
+            warn!(
+                "[VIA] Tried to set an unknown backlight effect: {:?}",
+                data[0]
+            )
+        }
     }
 }
 
 #[cfg(feature = "underglow")]
-pub async fn underglow_get_speed(data: &mut [u8]) {
-    data[0] = crate::underglow::UNDERGLOW_CONFIG_STATE.get().await.speed;
+pub async fn underglow_get_speed<K: ViaKeyboard>(data: &mut [u8]) {
+    if let Some(state) =
+        <<K::Layout as KeyboardLayout>::UnderglowDeviceType as crate::lighting::underglow::private::MaybeUnderglowDevice>::get_state()
+    {
+        data[0] = state.get().await.speed;
+    }
+}
+
+#[cfg(feature = "simple-backlight")]
+pub async fn simple_backlight_get_speed<K: ViaKeyboard>(data: &mut [u8]) {
+    if let Some(state) = <<K::Layout as KeyboardLayout>::SimpleBacklightDeviceType as crate::lighting::simple_backlight::private::MaybeSimpleBacklightDevice>::get_state() {
+        data[0] = state.get().await.speed
+    }
+}
+
+#[cfg(feature = "simple-backlight-matrix")]
+pub async fn simple_backlight_matrix_get_speed<K: ViaKeyboard>(data: &mut [u8]) {
+    if let Some(state) = <<K::Layout as KeyboardLayout>::SimpleBacklightMatrixDeviceType as crate::lighting::simple_backlight_matrix::private::MaybeSimpleBacklightMatrixDevice>::get_state() {
+        data[0] = state.get().await.speed
+    }
+}
+
+#[cfg(feature = "rgb-backlight-matrix")]
+pub async fn rgb_backlight_matrix_get_speed<K: ViaKeyboard>(data: &mut [u8]) {
+    if let Some(state) = <<K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType as crate::lighting::rgb_backlight_matrix::private::MaybeRGBBacklightMatrixDevice>::get_state() {
+        data[0] = state.get().await.speed
+    }
 }
 
 #[cfg(feature = "underglow")]
-pub async fn underglow_set_speed(data: &[u8]) {
-    crate::underglow::UNDERGLOW_COMMAND_CHANNEL
-        .send(crate::underglow::animations::UnderglowCommand::SetSpeed(
-            data[0],
-        ))
-        .await;
+pub async fn underglow_set_speed<K: ViaKeyboard>(data: &[u8]) {
+    if let Some(channel) = <<K::Layout as KeyboardLayout>::UnderglowDeviceType as crate::lighting::underglow::private::MaybeUnderglowDevice>::get_command_channel() {
+        channel
+            .send(crate::lighting::underglow::UnderglowCommand::SetSpeed(
+                data[0],
+            ))
+            .await;
+    }
+}
+
+#[cfg(feature = "simple-backlight")]
+pub async fn simple_backlight_set_speed<K: ViaKeyboard>(data: &[u8]) {
+    if let Some(channel) = <<K::Layout as KeyboardLayout>::SimpleBacklightDeviceType as crate::lighting::simple_backlight::private::MaybeSimpleBacklightDevice>::get_command_channel() {
+        channel
+            .send(crate::lighting::simple_backlight::SimpleBacklightCommand::SetSpeed(data[0]))
+            .await;
+    }
+}
+
+#[cfg(feature = "simple-backlight-matrix")]
+pub async fn simple_backlight_matrix_set_speed<K: ViaKeyboard>(data: &[u8]) {
+    if let Some(channel) = <<K::Layout as KeyboardLayout>::SimpleBacklightMatrixDeviceType as crate::lighting::simple_backlight_matrix::private::MaybeSimpleBacklightMatrixDevice>::get_command_channel() {
+        channel
+            .send(
+                crate::lighting::simple_backlight_matrix::SimpleBacklightMatrixCommand::SetSpeed(
+                    data[0],
+                ),
+            )
+            .await;
+    }
+}
+
+#[cfg(feature = "rgb-backlight-matrix")]
+pub async fn rgb_backlight_matrix_set_speed<K: ViaKeyboard>(data: &[u8]) {
+    if let Some(channel) = <<K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType as crate::lighting::rgb_backlight_matrix::private::MaybeRGBBacklightMatrixDevice>::get_command_channel() {
+        channel
+            .send(
+                crate::lighting::rgb_backlight_matrix::RGBBacklightMatrixCommand::SetSpeed(data[0]),
+            )
+            .await;
+    }
 }
 
 #[cfg(feature = "underglow")]
-pub async fn underglow_get_color(data: &mut [u8]) {
-    let config = crate::underglow::UNDERGLOW_CONFIG_STATE.get().await;
-    data[0] = config.hue;
-    data[1] = config.sat;
+pub async fn underglow_get_color<K: ViaKeyboard>(data: &mut [u8]) {
+    if let Some(state) =
+        <<K::Layout as KeyboardLayout>::UnderglowDeviceType as crate::lighting::underglow::private::MaybeUnderglowDevice>::get_state()
+    {
+        let config = state.get().await;
+        data[0] = config.hue;
+        data[1] = config.sat;
+    }
+}
+
+#[cfg(feature = "rgb-backlight-matrix")]
+pub async fn rgb_backlight_matrix_get_color<K: ViaKeyboard>(data: &mut [u8]) {
+    if let Some(state) = <<K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType as crate::lighting::rgb_backlight_matrix::private::MaybeRGBBacklightMatrixDevice>::get_state() {
+        // Color only available on RGB matrices
+        let config = state.get().await;
+        data[0] = config.hue;
+        data[1] = config.sat;
+    }
 }
 
 #[cfg(feature = "underglow")]
-pub async fn underglow_set_color(data: &[u8]) {
-    crate::underglow::UNDERGLOW_COMMAND_CHANNEL
-        .send(crate::underglow::animations::UnderglowCommand::SetHue(
-            data[0],
-        ))
-        .await;
-    crate::underglow::UNDERGLOW_COMMAND_CHANNEL
-        .send(crate::underglow::animations::UnderglowCommand::SetSaturation(data[1]))
-        .await;
+pub async fn underglow_set_color<K: ViaKeyboard>(data: &[u8]) {
+    if let Some(channel) = <<K::Layout as KeyboardLayout>::UnderglowDeviceType as crate::lighting::underglow::private::MaybeUnderglowDevice>::get_command_channel() {
+        channel
+            .send(crate::lighting::underglow::UnderglowCommand::SetHue(
+                data[0],
+            ))
+            .await;
+        channel
+            .send(crate::lighting::underglow::UnderglowCommand::SetSaturation(
+                data[1],
+            ))
+            .await;
+    }
 }
 
-pub async fn underglow_save() {
-    #[cfg(all(feature = "storage", feature = "underglow"))]
-    crate::underglow::UNDERGLOW_COMMAND_CHANNEL
-        .send(crate::underglow::animations::UnderglowCommand::SaveConfig)
-        .await;
+#[cfg(feature = "rgb-backlight-matrix")]
+pub async fn rgb_backlight_matrix_set_color<K: ViaKeyboard>(data: &[u8]) {
+    if let Some(channel) = <<K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType as crate::lighting::rgb_backlight_matrix::private::MaybeRGBBacklightMatrixDevice>::get_command_channel() {
+        // Color only available on RGB matrices
+        channel
+            .send(crate::lighting::rgb_backlight_matrix::RGBBacklightMatrixCommand::SetHue(data[0]))
+            .await;
+        channel
+            .send(
+                crate::lighting::rgb_backlight_matrix::RGBBacklightMatrixCommand::SetSaturation(
+                    data[1],
+                ),
+            )
+            .await;
+    }
+}
+
+pub async fn underglow_save<K: ViaKeyboard>() {
+    #[cfg(feature = "underglow")]
+    if let Some(channel) = <<K::Layout as KeyboardLayout>::UnderglowDeviceType as crate::lighting::underglow::private::MaybeUnderglowDevice>::get_command_channel() {
+        channel
+            .send(crate::lighting::underglow::UnderglowCommand::SaveConfig)
+            .await;
+    }
+}
+
+pub async fn simple_backlight_save<K: ViaKeyboard>() {
+    #[cfg(feature = "simple-backlight")]
+    if let Some(channel) = <<K::Layout as KeyboardLayout>::SimpleBacklightDeviceType as crate::lighting::simple_backlight::private::MaybeSimpleBacklightDevice>::get_command_channel() {
+        channel
+            .send(crate::lighting::simple_backlight::SimpleBacklightCommand::SaveConfig)
+            .await;
+    }
+}
+
+pub async fn simple_backlight_matrix_save<K: ViaKeyboard>() {
+    #[cfg(feature = "simple-backlight-matrix")]
+    if let Some(channel) = <<K::Layout as KeyboardLayout>::SimpleBacklightMatrixDeviceType as crate::lighting::simple_backlight_matrix::private::MaybeSimpleBacklightMatrixDevice>::get_command_channel() {
+        channel
+            .send(
+                crate::lighting::simple_backlight_matrix::SimpleBacklightMatrixCommand::SaveConfig,
+            )
+            .await;
+    }
+}
+
+pub async fn rgb_backlight_matrix_save<K: ViaKeyboard>() {
+    #[cfg(feature = "rgb-backlight-matrix")]
+    if let Some(channel) = <<K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType as crate::lighting::rgb_backlight_matrix::private::MaybeRGBBacklightMatrixDevice>::get_command_channel() {
+        channel
+            .send(crate::lighting::rgb_backlight_matrix::RGBBacklightMatrixCommand::SaveConfig)
+            .await;
+    }
 }

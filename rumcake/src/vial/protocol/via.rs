@@ -1,5 +1,6 @@
-use crate::backlight::BacklightMatrixDevice;
 use crate::keyboard::MATRIX_EVENTS;
+use crate::lighting::BacklightMatrixDevice;
+use crate::storage::{FlashStorage, StorageDevice};
 use crate::via::handlers::eeprom_reset as via_eeprom_reset;
 use crate::via::handlers::*;
 use crate::vial::handlers::eeprom_reset as vial_eeprom_reset;
@@ -11,7 +12,8 @@ use embassy_sync::mutex::Mutex;
 use num_derive::FromPrimitive;
 
 use super::VialState;
-use crate::hw::mcu::RawMutex;
+use crate::hw::platform::RawMutex;
+use crate::keyboard::KeyboardLayout;
 use crate::via::protocol::keycodes; // We just use the keycode conversions from the new via protocol
 
 pub(crate) const VIA_PROTOCOL_VERSION: u16 = 0x0009;
@@ -142,21 +144,24 @@ enum ViaAudioValue {
 
 pub(crate) struct ViaState<K: VialKeyboard>
 where
-    [(); (K::LAYOUT_COLS + u8::BITS as usize - 1) / u8::BITS as usize * K::LAYOUT_ROWS]:,
+    [(); (K::Layout::LAYOUT_COLS + u8::BITS as usize - 1) / u8::BITS as usize
+        * K::Layout::LAYOUT_ROWS]:,
 {
-    pub(crate) layout_state:
-        [u8; (K::LAYOUT_COLS + u8::BITS as usize - 1) / u8::BITS as usize * K::LAYOUT_ROWS],
+    pub(crate) layout_state: [u8; (K::Layout::LAYOUT_COLS + u8::BITS as usize - 1)
+        / u8::BITS as usize
+        * K::Layout::LAYOUT_ROWS],
     pub(crate) layout_options: u32,
 }
 
 impl<K: VialKeyboard> Default for ViaState<K>
 where
-    [(); (K::LAYOUT_COLS + u8::BITS as usize - 1) / u8::BITS as usize * K::LAYOUT_ROWS]:,
+    [(); (K::Layout::LAYOUT_COLS + u8::BITS as usize - 1) / u8::BITS as usize
+        * K::Layout::LAYOUT_ROWS]:,
 {
     fn default() -> Self {
         Self {
-            layout_state: [0; (K::LAYOUT_COLS + u8::BITS as usize - 1) / u8::BITS as usize
-                * K::LAYOUT_ROWS],
+            layout_state: [0; (K::Layout::LAYOUT_COLS + u8::BITS as usize - 1) / u8::BITS as usize
+                * K::Layout::LAYOUT_ROWS],
             layout_options: K::VIA_EEPROM_LAYOUT_OPTIONS_DEFAULT,
         }
     }
@@ -167,12 +172,15 @@ pub(crate) async fn process_via_command<K: VialKeyboard + 'static>(
     via_state: &mut ViaState<K>,
     vial_state: &mut VialState,
 ) where
-    [(); K::BacklightMatrixDevice::LIGHTING_COLS]:,
-    [(); K::BacklightMatrixDevice::LIGHTING_ROWS]:,
-    [(); (K::LAYOUT_COLS + u8::BITS as usize - 1) / u8::BITS as usize * K::LAYOUT_ROWS]:,
-    [(); K::LAYERS]:,
-    [(); K::LAYOUT_ROWS]:,
-    [(); K::LAYOUT_COLS]:,
+    [(); <<K::StorageType as StorageDevice>::FlashStorageType as FlashStorage>::ERASE_SIZE]:,
+    [(); K::DYNAMIC_KEYMAP_LAYER_COUNT * K::Layout::LAYOUT_COLS * K::Layout::LAYOUT_ROWS * 2]:,
+    [(); K::RGBBacklightMatrixDevice::LIGHTING_COLS]:,
+    [(); K::RGBBacklightMatrixDevice::LIGHTING_ROWS]:,
+    [(); (K::Layout::LAYOUT_COLS + u8::BITS as usize - 1) / u8::BITS as usize
+        * K::Layout::LAYOUT_ROWS]:,
+    [(); K::Layout::LAYERS]:,
+    [(); K::Layout::LAYOUT_ROWS]:,
+    [(); K::Layout::LAYOUT_COLS]:,
     [(); K::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize]:,
     [(); K::DYNAMIC_KEYMAP_MACRO_COUNT as usize]:,
 {
@@ -316,42 +324,44 @@ pub(crate) async fn process_via_command<K: VialKeyboard + 'static>(
                 match num::FromPrimitive::from_u8(data[1]) as Option<ViaLightingValue> {
                     #[cfg(feature = "simple-backlight")]
                     Some(ViaLightingValue::BacklightBrightness) => {
-                        simple_backlight_set_brightness(&mut data[2..=2]).await
+                        simple_backlight_set_brightness::<K>(&mut data[2..=2]).await
                     }
                     #[cfg(feature = "simple-backlight")]
                     Some(ViaLightingValue::BacklightEffect) => {
-                        simple_backlight_set_effect(&mut data[2..=2], |id| {
+                        simple_backlight_set_effect::<K>(&mut data[2..=2], |id| {
                             lighting::convert_qmk_id_to_backlight_effect(id)
                         })
                         .await;
                     }
                     #[cfg(feature = "underglow")]
                     Some(ViaLightingValue::RGBLightBrightness) => {
-                        underglow_set_brightness(&mut data[2..=2]).await
+                        underglow_set_brightness::<K>(&mut data[2..=2]).await
                     }
                     #[cfg(feature = "underglow")]
                     Some(ViaLightingValue::RGBLightEffect) => {
-                        if data[2] == 0 {
-                            crate::underglow::UNDERGLOW_COMMAND_CHANNEL
-                                .send(crate::underglow::animations::UnderglowCommand::TurnOff)
-                                .await;
-                        } else {
-                            crate::underglow::UNDERGLOW_COMMAND_CHANNEL
-                                .send(crate::underglow::animations::UnderglowCommand::TurnOn)
-                                .await;
-                            underglow_set_effect(&mut data[2..=2], |id| {
-                                lighting::convert_qmk_id_to_underglow_effect(id)
-                            })
-                            .await
+                        if let Some(channel) = <<K::Layout as KeyboardLayout>::UnderglowDeviceType as crate::lighting::underglow::private::MaybeUnderglowDevice>::get_command_channel() {
+                            if data[2] == 0 {
+                                channel
+                                    .send(crate::lighting::underglow::UnderglowCommand::TurnOff)
+                                    .await;
+                            } else {
+                                channel
+                                    .send(crate::lighting::underglow::UnderglowCommand::TurnOn)
+                                    .await;
+                                underglow_set_effect::<K>(&mut data[2..=2], |id| {
+                                    lighting::convert_qmk_id_to_underglow_effect(id)
+                                })
+                                .await
+                            }
                         }
                     }
                     #[cfg(feature = "underglow")]
                     Some(ViaLightingValue::RGBLightEffectSpeed) => {
-                        underglow_set_speed(&mut data[2..=2]).await
+                        underglow_set_speed::<K>(&mut data[2..=2]).await
                     }
                     #[cfg(feature = "underglow")]
                     Some(ViaLightingValue::RGBLightColor) => {
-                        underglow_set_color(&mut data[2..=3]).await
+                        underglow_set_color::<K>(&mut data[2..=3]).await
                     }
                     #[cfg(feature = "rgb-backlight-matrix")]
                     Some(ViaLightingValue::Mode) => vialrgb_set_mode::<K>(&mut data[2..=7]).await,
@@ -374,37 +384,39 @@ pub(crate) async fn process_via_command<K: VialKeyboard + 'static>(
                 match num::FromPrimitive::from_u8(data[1]) as Option<ViaLightingValue> {
                     #[cfg(feature = "simple-backlight")]
                     Some(ViaLightingValue::BacklightBrightness) => {
-                        simple_backlight_get_brightness(&mut data[2..=2]).await
+                        simple_backlight_get_brightness::<K>(&mut data[2..=2]).await
                     }
                     #[cfg(feature = "simple-backlight")]
                     Some(ViaLightingValue::BacklightEffect) => {
-                        simple_backlight_get_effect(&mut data[2..=2], |effect| {
+                        simple_backlight_get_effect::<K>(&mut data[2..=2], |effect| {
                             lighting::convert_backlight_effect_to_qmk_id(effect)
                         })
                         .await
                     }
                     #[cfg(feature = "underglow")]
                     Some(ViaLightingValue::RGBLightBrightness) => {
-                        underglow_get_brightness(&mut data[2..=2]).await
+                        underglow_get_brightness::<K>(&mut data[2..=2]).await
                     }
                     #[cfg(feature = "underglow")]
                     Some(ViaLightingValue::RGBLightEffect) => {
-                        if !crate::underglow::UNDERGLOW_CONFIG_STATE.get().await.enabled {
-                            data[2] = 0
-                        } else {
-                            underglow_get_effect(&mut data[2..=2], |config| {
-                                lighting::convert_underglow_effect_to_qmk_id(config)
-                            })
-                            .await
+                        if let Some(state) = <<K::Layout as KeyboardLayout>::UnderglowDeviceType as crate::lighting::underglow::private::MaybeUnderglowDevice>::get_state() {
+                            if !state.get().await.enabled {
+                                data[2] = 0
+                            } else {
+                                underglow_get_effect::<K>(&mut data[2..=2], |config| {
+                                    lighting::convert_underglow_effect_to_qmk_id(config)
+                                })
+                                .await
+                            }
                         }
                     }
                     #[cfg(feature = "underglow")]
                     Some(ViaLightingValue::RGBLightEffectSpeed) => {
-                        underglow_get_speed(&mut data[2..=2]).await
+                        underglow_get_speed::<K>(&mut data[2..=2]).await
                     }
                     #[cfg(feature = "underglow")]
                     Some(ViaLightingValue::RGBLightColor) => {
-                        underglow_get_color(&mut data[2..=3]).await
+                        underglow_get_color::<K>(&mut data[2..=3]).await
                     }
                     #[cfg(feature = "rgb-backlight-matrix")]
                     Some(ViaLightingValue::Info) => {
@@ -434,9 +446,9 @@ pub(crate) async fn process_via_command<K: VialKeyboard + 'static>(
                 };
             }
             ViaCommandId::CustomSave => {
-                simple_backlight_save().await;
-                rgb_backlight_matrix_save().await;
-                underglow_save().await;
+                simple_backlight_save::<K>().await;
+                rgb_backlight_matrix_save::<K>().await;
+                underglow_save::<K>().await;
             }
             _ => {
                 data[0] = ViaCommandId::Unhandled as u8;
@@ -453,7 +465,8 @@ pub(crate) async fn process_via_command<K: VialKeyboard + 'static>(
 
 pub(crate) async fn background_task<K: VialKeyboard>(via_state: &Mutex<RawMutex, ViaState<K>>)
 where
-    [(); (K::LAYOUT_COLS + u8::BITS as usize - 1) / u8::BITS as usize * K::LAYOUT_ROWS]:,
+    [(); (K::Layout::LAYOUT_COLS + u8::BITS as usize - 1) / u8::BITS as usize
+        * K::Layout::LAYOUT_ROWS]:,
 {
     // Update the layout_state. Used for SwitchMatrixState
     let mut subscriber = MATRIX_EVENTS.subscriber().unwrap();
@@ -464,7 +477,7 @@ where
         // (cols + 8 bits - 1) / 8 bits: we get the number of bytes needed to store the state of a
         // row (based on number of cols). multiply this by (row + 1), subtract by 1 and subtract by
         // (col / 8 bits) to get the byte that contains the bit we need to update.
-        let byte = (K::LAYOUT_COLS + u8::BITS as usize - 1) / u8::BITS as usize
+        let byte = (K::Layout::LAYOUT_COLS + u8::BITS as usize - 1) / u8::BITS as usize
             * (row as usize + 1)
             - 1
             - col as usize / u8::BITS as usize;

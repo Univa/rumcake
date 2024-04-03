@@ -4,7 +4,9 @@ use smart_leds::hsv::hsv2rgb;
 use super::protocol::via::ViaState;
 use super::protocol::{VialState, VIAL_RAW_EPSIZE};
 use super::{VialKeyboard, VIAL_DIRECT_SET_CHANNEL};
-use crate::backlight::BacklightMatrixDevice;
+use crate::keyboard::KeyboardLayout;
+use crate::lighting::BacklightMatrixDevice;
+use crate::storage::{FlashStorage, StorageDevice, StorageKey};
 
 // Unlike the other normal Via comands, Vial overwrites the command data received from the host
 
@@ -60,13 +62,14 @@ pub fn unlock_poll<K: VialKeyboard>(
     vial_state: &mut VialState,
     via_state: &ViaState<K>,
 ) where
-    [(); (K::LAYOUT_COLS + u8::BITS as usize - 1) / u8::BITS as usize * K::LAYOUT_ROWS]:,
+    [(); (K::Layout::LAYOUT_COLS + u8::BITS as usize - 1) / u8::BITS as usize
+        * K::Layout::LAYOUT_ROWS]:,
 {
     if !K::VIAL_INSECURE && vial_state.unlock_in_progress {
         let holding = K::VIAL_UNLOCK_COMBO.iter().all(|(row, col)| {
             // get the byte that stores the bit for the corresponding matrix coordinate
             // see [`crate::via::protocol::background_task`]
-            let byte = (K::LAYOUT_COLS + u8::BITS as usize - 1) / u8::BITS as usize
+            let byte = (K::Layout::LAYOUT_COLS + u8::BITS as usize - 1) / u8::BITS as usize
                 * (*row as usize + 1)
                 - 1
                 - *col as usize / u8::BITS as usize;
@@ -107,39 +110,39 @@ pub fn vialrgb_get_info(version: u16, data: &mut [u8]) {
 #[cfg(feature = "rgb-backlight-matrix")]
 pub async fn vialrgb_get_mode<K: VialKeyboard + 'static>(data: &mut [u8])
 where
-    [(); K::BacklightMatrixDevice::LIGHTING_COLS]:,
-    [(); K::BacklightMatrixDevice::LIGHTING_ROWS]:,
+    [(); K::RGBBacklightMatrixDevice::LIGHTING_COLS]:,
+    [(); K::RGBBacklightMatrixDevice::LIGHTING_ROWS]:,
 {
     if K::VIALRGB_ENABLE && K::get_backlight_matrix().is_some() {
-        let config = crate::backlight::rgb_backlight_matrix::BACKLIGHT_CONFIG_STATE
-            .get()
-            .await;
-        if !config.enabled {
-            data[0..=1].copy_from_slice(&[0; 2])
-        } else {
-            data[0..=1].copy_from_slice(
-                &super::protocol::vialrgb::convert_effect_to_vialrgb_id(config.effect)
-                    .to_le_bytes(),
-            );
+        if let Some(state) = <<K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType as crate::lighting::rgb_backlight_matrix::private::MaybeRGBBacklightMatrixDevice>::get_state() {
+            let config = state.get().await;
+            if !config.enabled {
+                data[0..=1].copy_from_slice(&[0; 2])
+            } else {
+                data[0..=1].copy_from_slice(
+                    &super::protocol::vialrgb::convert_effect_to_vialrgb_id(config.effect)
+                        .to_le_bytes(),
+                );
+            }
+            data[2] = config.speed;
+            data[3] = config.hue;
+            data[4] = config.sat;
+            data[5] = config.val;
         }
-        data[2] = config.speed;
-        data[3] = config.hue;
-        data[4] = config.sat;
-        data[5] = config.val;
     }
 }
 
 #[cfg(feature = "rgb-backlight-matrix")]
 pub fn vialrgb_get_supported<K: VialKeyboard + 'static>(data: &mut [u8])
 where
-    [(); K::BacklightMatrixDevice::LIGHTING_COLS]:,
-    [(); K::BacklightMatrixDevice::LIGHTING_ROWS]:,
+    [(); K::RGBBacklightMatrixDevice::LIGHTING_COLS]:,
+    [(); K::RGBBacklightMatrixDevice::LIGHTING_ROWS]:,
 {
     if K::VIALRGB_ENABLE && K::get_backlight_matrix().is_some() {
         let gt = u16::from_le_bytes(data[0..=1].try_into().unwrap());
         data.fill(0xFF);
         for id in gt..=super::protocol::vialrgb::MAX_VIALRGB_ID {
-            if super::protocol::vialrgb::is_supported::<K::BacklightMatrixDevice>(id) {
+            if super::protocol::vialrgb::is_supported::<K::RGBBacklightMatrixDevice>(id) {
                 data[(id as usize - gt as usize)..=(id as usize - gt as usize + 1)]
                     .copy_from_slice(&id.to_le_bytes())
             }
@@ -150,12 +153,12 @@ where
 #[cfg(feature = "rgb-backlight-matrix")]
 pub fn vialrgb_get_num_leds<K: VialKeyboard + 'static>(data: &mut [u8])
 where
-    [(); K::BacklightMatrixDevice::LIGHTING_COLS]:,
-    [(); K::BacklightMatrixDevice::LIGHTING_ROWS]:,
+    [(); K::RGBBacklightMatrixDevice::LIGHTING_COLS]:,
+    [(); K::RGBBacklightMatrixDevice::LIGHTING_ROWS]:,
 {
     if K::VIALRGB_ENABLE && K::get_backlight_matrix().is_some() {
-        let num_leds = (K::BacklightMatrixDevice::LIGHTING_COLS
-            * K::BacklightMatrixDevice::LIGHTING_ROWS) as u16;
+        let num_leds = (K::RGBBacklightMatrixDevice::LIGHTING_COLS
+            * K::RGBBacklightMatrixDevice::LIGHTING_ROWS) as u16;
         data[0..=1].copy_from_slice(&num_leds.to_le_bytes());
     }
 }
@@ -163,15 +166,15 @@ where
 #[cfg(feature = "rgb-backlight-matrix")]
 pub fn vialrgb_get_led_info<K: VialKeyboard + 'static>(data: &mut [u8])
 where
-    [(); K::BacklightMatrixDevice::LIGHTING_COLS]:,
-    [(); K::BacklightMatrixDevice::LIGHTING_ROWS]:,
+    [(); K::RGBBacklightMatrixDevice::LIGHTING_COLS]:,
+    [(); K::RGBBacklightMatrixDevice::LIGHTING_ROWS]:,
 {
     if K::VIALRGB_ENABLE {
         if let Some(backlight_matrix) = K::get_backlight_matrix() {
             let led = u16::from_le_bytes(data[0..=1].try_into().unwrap());
-            let col = led as usize % K::BacklightMatrixDevice::LIGHTING_COLS;
-            let row = (led as usize / K::BacklightMatrixDevice::LIGHTING_COLS)
-                % K::BacklightMatrixDevice::LIGHTING_ROWS;
+            let col = led as usize % K::RGBBacklightMatrixDevice::LIGHTING_COLS;
+            let row = (led as usize / K::RGBBacklightMatrixDevice::LIGHTING_COLS)
+                % K::RGBBacklightMatrixDevice::LIGHTING_ROWS;
             if let Some((x, y)) = backlight_matrix.layout[row][col] {
                 data[0] = x;
                 data[1] = y;
@@ -186,78 +189,81 @@ where
 #[cfg(feature = "rgb-backlight-matrix")]
 pub async fn vialrgb_set_mode<K: VialKeyboard + 'static>(data: &[u8])
 where
-    [(); K::BacklightMatrixDevice::LIGHTING_COLS]:,
-    [(); K::BacklightMatrixDevice::LIGHTING_ROWS]:,
+    [(); K::RGBBacklightMatrixDevice::LIGHTING_COLS]:,
+    [(); K::RGBBacklightMatrixDevice::LIGHTING_ROWS]:,
 {
     if K::VIALRGB_ENABLE && K::get_backlight_matrix().is_some() {
-        // set mode
-        let vialrgb_id = u16::from_le_bytes(data[0..=1].try_into().unwrap());
-        if vialrgb_id == 0 {
-            crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
-                .send(crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::TurnOff)
-                .await;
-        } else {
-            crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
-                .send(crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::TurnOn)
-                .await;
-            if let Some(effect) = super::protocol::vialrgb::convert_vialrgb_id_to_effect(vialrgb_id)
-            {
-                crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
-                    .send(crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::SetEffect(
+        if let Some(channel) = <<K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType as crate::lighting::rgb_backlight_matrix::private::MaybeRGBBacklightMatrixDevice>::get_command_channel() {
+            // set mode
+            let vialrgb_id = u16::from_le_bytes(data[0..=1].try_into().unwrap());
+            if vialrgb_id == 0 {
+                channel
+                    .send(crate::lighting::rgb_backlight_matrix::RGBBacklightMatrixCommand::TurnOff)
+                    .await;
+            } else {
+                channel
+                    .send(crate::lighting::rgb_backlight_matrix::RGBBacklightMatrixCommand::TurnOn)
+                    .await;
+                if let Some(effect) =
+                    super::protocol::vialrgb::convert_vialrgb_id_to_effect(vialrgb_id)
+                {
+                    channel
+                    .send(crate::lighting::rgb_backlight_matrix::RGBBacklightMatrixCommand::SetEffect(
                         effect,
                     ))
                     .await;
-            } else {
-                warn!(
-                    "[VIA] Tried to set an unknown VialRGB effect: {:?}",
-                    vialrgb_id
-                )
+                } else {
+                    warn!(
+                        "[VIA] Tried to set an unknown VialRGB effect: {:?}",
+                        vialrgb_id
+                    )
+                }
             }
+
+            // set speed
+            channel
+                .send(
+                    crate::lighting::rgb_backlight_matrix::RGBBacklightMatrixCommand::SetSpeed(
+                        data[2],
+                    ),
+                )
+                .await;
+
+            // set hsv
+            channel
+                .send(
+                    crate::lighting::rgb_backlight_matrix::RGBBacklightMatrixCommand::SetHue(
+                        data[3],
+                    ),
+                )
+                .await;
+            channel
+                .send(
+                    crate::lighting::rgb_backlight_matrix::RGBBacklightMatrixCommand::SetSaturation(
+                        data[4],
+                    ),
+                )
+                .await;
+            channel
+                .send(
+                    crate::lighting::rgb_backlight_matrix::RGBBacklightMatrixCommand::SetValue(
+                        data[5],
+                    ),
+                )
+                .await;
         }
-
-        // set speed
-        crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
-            .send(
-                crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::SetSpeed(
-                    data[2],
-                ),
-            )
-            .await;
-
-        // set hsv
-        crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
-            .send(
-                crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::SetHue(
-                    data[3],
-                ),
-            )
-            .await;
-        crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
-            .send(
-                crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::SetSaturation(
-                    data[4],
-                ),
-            )
-            .await;
-        crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
-            .send(
-                crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::SetValue(
-                    data[5],
-                ),
-            )
-            .await;
     }
 }
 
 #[cfg(feature = "rgb-backlight-matrix")]
 pub async fn vialrgb_direct_fast_set<K: VialKeyboard + 'static>(data: &[u8])
 where
-    [(); K::BacklightMatrixDevice::LIGHTING_COLS]:,
-    [(); K::BacklightMatrixDevice::LIGHTING_ROWS]:,
+    [(); K::RGBBacklightMatrixDevice::LIGHTING_COLS]:,
+    [(); K::RGBBacklightMatrixDevice::LIGHTING_ROWS]:,
 {
     if K::VIALRGB_ENABLE && K::get_backlight_matrix().is_some() {
-        let total_num_leds = (K::BacklightMatrixDevice::LIGHTING_COLS
-            * K::BacklightMatrixDevice::LIGHTING_ROWS) as u8;
+        let total_num_leds = (K::RGBBacklightMatrixDevice::LIGHTING_COLS
+            * K::RGBBacklightMatrixDevice::LIGHTING_ROWS) as u8;
 
         let first_led = u16::from_le_bytes(data[0..=1].try_into().unwrap()) as u8; // We assume that a backlight matrix will not have more than 255 leds
         let num_leds = data[2];
@@ -321,7 +327,13 @@ pub fn dynamic_keymap_set_key_override(data: &mut [u8]) {
     // TODO
 }
 
-pub async fn eeprom_reset() {
-    #[cfg(feature = "storage")]
-    super::storage::reset_data().await;
+pub async fn eeprom_reset<K: VialKeyboard + 'static>()
+where
+    [(); <<K::StorageType as StorageDevice>::FlashStorageType as FlashStorage>::ERASE_SIZE]:,
+{
+    if let Some(database) = K::get_storage_service() {
+        let _ = database.delete(StorageKey::DynamicKeymapTapDance).await;
+        let _ = database.delete(StorageKey::DynamicKeymapCombo).await;
+        let _ = database.delete(StorageKey::DynamicKeymapKeyOverride).await;
+    }
 }

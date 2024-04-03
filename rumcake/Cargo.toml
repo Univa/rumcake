@@ -82,8 +82,6 @@ rumcake-macros = { path = "../rumcake-macros" }
 [features]
 default = []
 
-drivers = []
-
 #
 # Chips
 #
@@ -112,19 +110,18 @@ storage = ["rumcake-macros/storage"]
 media-keycodes = ["rumcake-macros/media-keycodes"]
 
 # Via/Vial
-via = []
-vial = ["via", "_backlight"]
+via = ["storage"]
+vial = ["via", "rgb-backlight-matrix"]
 
 # Host communication
 usb = []
 bluetooth = ["nrf-softdevice?/ble-peripheral", "nrf-softdevice?/ble-gatt-server"]
 
-underglow = []
-
-_backlight = []
-simple-backlight = ["_backlight"]
-simple-backlight-matrix = ["_backlight"]
-rgb-backlight-matrix = ["_backlight"]
+lighting = []
+underglow = ["lighting"]
+simple-backlight = ["lighting"]
+simple-backlight-matrix = ["lighting"]
+rgb-backlight-matrix = ["lighting"]
 
 display = []
 

@@ -54,9 +54,9 @@ const UNKNOWN_EFFECT: u8 = 0;
 
 #[cfg(feature = "underglow")]
 pub(crate) fn convert_underglow_effect_to_qmk_id(
-    config: crate::underglow::animations::UnderglowConfig,
+    config: crate::lighting::underglow::UnderglowConfig,
 ) -> u8 {
-    use crate::underglow::animations::UnderglowEffect;
+    use crate::lighting::underglow::UnderglowEffect;
     match config.effect {
         UnderglowEffect::Solid => QMKRGBLightEffects::SolidColor as u8,
         UnderglowEffect::Breathing => match config.speed {
@@ -103,8 +103,8 @@ pub(crate) fn convert_underglow_effect_to_qmk_id(
 #[cfg(feature = "underglow")]
 pub(crate) fn convert_qmk_id_to_underglow_effect(
     id: u8,
-) -> Option<(crate::underglow::animations::UnderglowEffect, Option<u8>)> {
-    use crate::underglow::animations::UnderglowEffect;
+) -> Option<(crate::lighting::underglow::UnderglowEffect, Option<u8>)> {
+    use crate::lighting::underglow::UnderglowEffect;
     match num::FromPrimitive::from_u8(id) as Option<QMKRGBLightEffects> {
         Some(effect) => match effect {
             QMKRGBLightEffects::AllOff => None, // ID 0 is handled in the protocol by disabling the underglow system
@@ -158,25 +158,25 @@ enum QMKBacklightEffects {
 
 #[cfg(feature = "simple-backlight")]
 pub(crate) fn convert_backlight_effect_to_qmk_id(
-    effect: crate::backlight::simple_backlight::animations::BacklightEffect,
+    effect: crate::lighting::simple_backlight::SimpleBacklightEffect,
 ) -> u8 {
-    use crate::backlight::simple_backlight::animations::BacklightEffect;
+    use crate::lighting::simple_backlight::SimpleBacklightEffect;
     match effect {
-        BacklightEffect::Solid => QMKBacklightEffects::Solid as u8,
-        BacklightEffect::Breathing => QMKBacklightEffects::Breathing as u8,
-        BacklightEffect::Reactive => UNKNOWN_EFFECT,
+        SimpleBacklightEffect::Solid => QMKBacklightEffects::Solid as u8,
+        SimpleBacklightEffect::Breathing => QMKBacklightEffects::Breathing as u8,
+        SimpleBacklightEffect::Reactive => UNKNOWN_EFFECT,
     }
 }
 
 #[cfg(feature = "simple-backlight")]
 pub(crate) fn convert_qmk_id_to_backlight_effect(
     id: u8,
-) -> Option<crate::backlight::simple_backlight::animations::BacklightEffect> {
-    use crate::backlight::simple_backlight::animations::BacklightEffect;
+) -> Option<crate::lighting::simple_backlight::SimpleBacklightEffect> {
+    use crate::lighting::simple_backlight::SimpleBacklightEffect;
     match num::FromPrimitive::from_u8(id) as Option<QMKBacklightEffects> {
         Some(effect) => match effect {
-            QMKBacklightEffects::Solid => Some(BacklightEffect::Solid),
-            QMKBacklightEffects::Breathing => Some(BacklightEffect::Breathing),
+            QMKBacklightEffects::Solid => Some(SimpleBacklightEffect::Solid),
+            QMKBacklightEffects::Breathing => Some(SimpleBacklightEffect::Breathing),
         },
         None => None, // Instead of defaulting to the last valid effect like QMK, we will just do nothing
     }

@@ -1,14 +1,11 @@
-use std::collections::HashMap;
-
-use darling::util::Override;
+use darling::util::{Override, SpannedValue};
 use darling::FromMeta;
 use proc_macro2::{Ident, TokenStream, TokenTree};
-use proc_macro_error::OptionExt;
-use quote::{quote, quote_spanned, ToTokens};
-use syn::parse::Parse;
-use syn::spanned::Spanned;
-use syn::{braced, bracketed, custom_keyword, ExprRange, ItemStruct, PathSegment};
+use proc_macro_error::{abort, emit_error, OptionExt};
+use quote::quote;
+use syn::{ExprRange, ItemStruct, LitInt, LitStr, PathSegment};
 
+use crate::common::{Layer, LayoutLike, MatrixLike, OptionalItem, Row};
 use crate::TuplePair;
 
 #[derive(Debug, FromMeta, Default)]
@@ -25,303 +22,220 @@ pub(crate) struct KeyboardSettings {
     display: Option<DisplaySettings>,
     split_peripheral: Option<SplitPeripheralSettings>,
     split_central: Option<SplitCentralSettings>,
-    via: Option<Override<ViaSettings>>,
-    vial: Option<Override<ViaSettings>>,
-    bootloader_double_tap_reset: Option<Override<u64>>,
+    via: Option<ViaSettings>,
+    vial: Option<ViaSettings>,
+    bootloader_double_tap_reset: Option<Override<LitInt>>,
 }
 
-#[derive(Debug, FromMeta, Default)]
-#[darling(default)]
+#[derive(Debug, FromMeta)]
 pub(crate) struct LightingSettings {
-    driver: String,
-    use_storage: bool,
+    id: Ident,
+    driver_setup_fn: Ident,
+    use_storage: Option<SpannedValue<bool>>,
 }
 
-#[derive(Debug, FromMeta, Default)]
-#[darling(default)]
+#[derive(Debug, FromMeta)]
 pub(crate) struct DisplaySettings {
-    driver: String,
+    driver_setup_fn: Ident,
 }
 
-#[derive(Debug, FromMeta, Default)]
-#[darling(default)]
+#[derive(Debug, FromMeta)]
 pub(crate) struct SplitCentralSettings {
-    driver: String,
+    driver_type: Option<LitStr>,
+    driver_setup_fn: Ident,
 }
 
-#[derive(Debug, FromMeta, Default)]
-#[darling(default)]
+#[derive(Debug, FromMeta)]
 pub(crate) struct SplitPeripheralSettings {
-    driver: String,
+    driver_type: Option<LitStr>,
+    driver_setup_fn: Ident,
 }
 
-#[derive(Debug, FromMeta, Default)]
-#[darling(default)]
+#[derive(Debug, FromMeta)]
 pub(crate) struct ViaSettings {
-    use_storage: bool,
+    id: Ident,
+    use_storage: Option<SpannedValue<bool>>,
 }
 
-#[derive(Debug, FromMeta, Default)]
-#[darling(default)]
+#[derive(Debug, FromMeta)]
 pub(crate) struct StorageSettings {
-    driver: String,
-    flash_size: usize,
-}
-
-enum SplitSettings<'a> {
-    Central(&'a SplitCentralSettings),
-    Peripheral(&'a SplitPeripheralSettings),
-}
-
-fn setup_split_driver(
-    initialization: &mut TokenStream,
-    spawning: &mut TokenStream,
-    traits: &mut HashMap<String, TokenStream>,
-    kb_name: &Ident,
-    role: SplitSettings,
-) {
-    match role {
-        SplitSettings::Central(config) => match config.driver.as_str() {
-            "ble" => {
-                if cfg!(feature = "nrf") {
-                    return {
-                        traits.insert(
-                            config.driver.clone(),
-                            crate::drivers::nrf_ble::central_driver_trait(),
-                        );
-                        initialization.extend(quote! {
-                            let split_central_driver = ::rumcake::drivers::nrf_ble::central::setup_driver();
-                        });
-                        spawning.extend(quote! {
-                            spawner.spawn(::rumcake::nrf_ble_central_task!(<#kb_name as NRFBLECentralDriverSettings>::PERIPHERAL_ADDRESSES, sd)).unwrap();
-                        });
-                    };
-                }
-            }
-            "serial" => {
-                return {
-                    traits.insert(config.driver.clone(), crate::drivers::serial_driver_trait());
-                    initialization.extend(quote! {
-                        let split_central_driver = ::rumcake::drivers::SerialSplitDriver { serial: <#kb_name as SerialDriverSettings>::setup_serial() };
-                    });
-                };
-            }
-            _ => (),
-        },
-        SplitSettings::Peripheral(config) => match config.driver.as_str() {
-            "ble" => {
-                if cfg!(feature = "nrf") {
-                    return {
-                        traits.insert(
-                            config.driver.clone(),
-                            crate::drivers::nrf_ble::peripheral_driver_trait(),
-                        );
-                        initialization.extend(quote! {
-                            let peripheral_server = ::rumcake::drivers::nrf_ble::peripheral::PeripheralDeviceServer::new(sd).unwrap();
-                            let split_peripheral_driver = ::rumcake::drivers::nrf_ble::peripheral::setup_driver();
-                        });
-                        spawning.extend(quote! {
-                            spawner.spawn(::rumcake::nrf_ble_peripheral_task!(<#kb_name as NRFBLEPeripheralDriverSettings>::CENTRAL_ADDRESS, sd, peripheral_server)).unwrap();
-                        });
-                    };
-                }
-            }
-            "serial" => {
-                return {
-                    traits.insert(config.driver.clone(), crate::drivers::serial_driver_trait());
-                    initialization.extend(quote! {
-                        let split_peripheral_driver = ::rumcake::drivers::SerialSplitDriver { serial: <#kb_name as SerialDriverSettings>::setup_serial() };
-                    });
-                };
-            }
-            _ => (),
-        },
-    }
-
-    match role {
-        SplitSettings::Central(config) => initialization.extend(quote_spanned! {
-            config.driver.span() => compile_error!("Unknown split central device driver.");
-        }),
-        SplitSettings::Peripheral(config) => initialization.extend(quote_spanned! {
-            config.driver.span() => compile_error!("Unknown split peripheral device driver.");
-        }),
-    }
-}
-
-fn setup_underglow_driver(
-    initialization: &mut TokenStream,
-    traits: &mut HashMap<String, TokenStream>,
-    kb_name: &Ident,
-    config: &LightingSettings,
-) {
-    match config.driver.as_str() {
-        "ws2812_bitbang" => {
-            return {
-                traits.insert(
-                    config.driver.clone(),
-                    crate::drivers::ws2812::bitbang::driver_trait(),
-                );
-                initialization.extend(quote! {
-                    let underglow_driver = ::rumcake::drivers::ws2812_bitbang::setup_driver(<#kb_name as WS2812BitbangDriverSettings>::ws2812_pin());
-                });
-            }
-        }
-        _ => (),
-    }
-
-    initialization.extend(quote_spanned! {
-        config.driver.span() => compile_error!("Unknown underglow driver.");
-    });
-}
-
-enum BacklightType {
-    SimpleBacklight,
-    SimpleBacklightMatrix,
-    RGBBacklightMatrix,
-}
-
-fn setup_backlight_driver(
-    initialization: &mut TokenStream,
-    traits: &mut HashMap<String, TokenStream>,
-    kb_name: &Ident,
-    backlight_type: BacklightType,
-    config: &LightingSettings,
-) {
-    match config.driver.as_str() {
-        "is31fl3731" => {
-            return {
-                traits.insert(
-                    config.driver.clone(),
-                    crate::drivers::is31fl3731::driver_trait(),
-                );
-                initialization.extend(quote! {
-                    let backlight_driver = ::rumcake::drivers::is31fl3731::setup_driver(
-                        <#kb_name as IS31FL3731DriverSettings>::setup_i2c(),
-                        <#kb_name as IS31FL3731DriverSettings>::LED_DRIVER_ADDR,
-                        <#kb_name as ::rumcake::backlight::BacklightMatrixDevice>::LIGHTING_COLS as u8,
-                        <#kb_name as ::rumcake::backlight::BacklightMatrixDevice>::LIGHTING_ROWS as u8,
-                        <#kb_name as ::rumcake::drivers::is31fl3731::backlight::IS31FL3731BacklightDriver>::get_led_from_matrix_coordinates
-                    ).await;
-                });
-            }
-        }
-        "ws2812_bitbang" => {
-            return {
-                traits.insert(
-                    config.driver.clone(),
-                    crate::drivers::ws2812::bitbang::driver_trait(),
-                );
-                initialization.extend(quote! {
-                    let backlight_driver = ::rumcake::drivers::ws2812_bitbang::setup_driver(<#kb_name as WS2812BitbangDriverSettings>::ws2812_pin());
-                });
-            }
-        }
-        _ => (),
-    }
-
-    match backlight_type {
-        BacklightType::SimpleBacklight => initialization.extend(quote_spanned! {
-            config.driver.span() => compile_error!("Unknown simple backlight driver.");
-        }),
-        BacklightType::SimpleBacklightMatrix => initialization.extend(quote_spanned! {
-            config.driver.span() => compile_error!("Unknown simple backlight matrix driver.");
-        }),
-        BacklightType::RGBBacklightMatrix => initialization.extend(quote_spanned! {
-            config.driver.span() => compile_error!("Unknown RGB backlight matrix driver.");
-        }),
-    }
-}
-
-fn setup_display_driver(
-    initialization: &mut TokenStream,
-    traits: &mut HashMap<String, TokenStream>,
-    kb_name: &Ident,
-    config: &DisplaySettings,
-) {
-    match config.driver.as_str() {
-        "ssd1306" => {
-            return {
-                traits.insert(
-                    config.driver.clone(),
-                    crate::drivers::ssd1306::driver_trait(),
-                );
-                initialization.extend(quote! {
-                    let display_driver = ::rumcake::drivers::ssd1306::setup_driver(<#kb_name as Ssd1306I2cDriverSettings>::setup_i2c(), <#kb_name as Ssd1306I2cDriverSettings>::SIZE, <#kb_name as Ssd1306I2cDriverSettings>::ROTATION);
-                });
-            }
-        }
-        _ => (),
-    }
-
-    initialization.extend(quote_spanned! {
-        config.driver.span() => compile_error!("Unknown display driver.");
-    });
+    driver: LitStr,
+    buffer_size: Option<LitInt>,
+    flash_size: Option<LitInt>,
+    dma: Option<Ident>,
 }
 
 fn setup_storage_driver(
     initialization: &mut TokenStream,
-    traits: &mut HashMap<String, TokenStream>,
+    outer: &mut TokenStream,
     kb_name: &Ident,
     config: &StorageSettings,
     uses_bluetooth: bool,
-) {
-    match config.driver.as_str() {
+) -> bool {
+    let buffer_size = if let Some(lit) = &config.buffer_size {
+        lit.base10_parse::<usize>().unwrap_or_else(|_| {
+            abort!(
+                lit,
+                "The provided buffer size could not be parsed as a usize value."
+            )
+        })
+    } else {
+        1024
+    };
+
+    match config.driver.value().as_str() {
         "internal" => {
-            return if cfg!(feature = "nrf") && uses_bluetooth {
+            if cfg!(feature = "nrf") && uses_bluetooth {
                 // TODO: Fix storage on nrf-ble targets
-                initialization.extend(quote! {
+                outer.extend(quote! {
                     use ::rumcake::storage::FlashStorage;
-                    let flash = ::rumcake::hw::mcu::setup_internal_softdevice_flash(sd);
-                    let config_start = unsafe { &::rumcake::hw::__config_start as *const u32 as usize };
-                    let config_end = unsafe { &::rumcake::hw::__config_end as *const u32 as usize };
-                    static mut READ_BUF: [u8; ::rumcake::hw::mcu::nrf_softdevice::Flash::ERASE_SIZE] = [0; ::rumcake::hw::mcu::nrf_softdevice::Flash::ERASE_SIZE];
-                    static mut OP_BUF: [u8; ::rumcake::hw::mcu::nrf_softdevice::Flash::ERASE_SIZE] = [0; ::rumcake::hw::mcu::nrf_softdevice::Flash::ERASE_SIZE];
-                    static DATABASE: ::rumcake::storage::StorageService<'static, ::rumcake::hw::mcu::nrf_softdevice::Flash> = ::rumcake::storage::StorageService::new();
-                    unsafe { DATABASE.setup(flash, config_start, config_end, &mut READ_BUF, &mut OP_BUF).await; }
-                })
-            } else if cfg!(any(feature = "stm32", feature = "nrf")) {
-                initialization.extend(quote! {
-                    use ::rumcake::storage::FlashStorage;
-                    let flash = ::rumcake::hw::mcu::setup_internal_flash();
-                    let config_start = unsafe { &::rumcake::hw::__config_start as *const u32 as usize };
-                    let config_end = unsafe { &::rumcake::hw::__config_end as *const u32 as usize };
-                    static mut READ_BUF: [u8; ::rumcake::hw::mcu::Flash::ERASE_SIZE] = [0; ::rumcake::hw::mcu::Flash::ERASE_SIZE];
-                    static mut OP_BUF: [u8; ::rumcake::hw::mcu::Flash::ERASE_SIZE] = [0; ::rumcake::hw::mcu::Flash::ERASE_SIZE];
-                    static DATABASE: ::rumcake::storage::StorageService<'static, ::rumcake::hw::mcu::Flash> = ::rumcake::storage::StorageService::new();
-                    unsafe { DATABASE.setup(flash, config_start, config_end, &mut READ_BUF, &mut OP_BUF).await; }
-                })
-            } else if cfg!(feature = "rp") {
-                #[cfg(feature = "rp")]
-                traits.insert(config.driver.clone(), crate::hw::internal_storage_trait());
-                if config.flash_size == 0 {
-                    initialization.extend(quote_spanned! {
-                        config.driver.span() => compile_error!("You must specify a non-zero size for your flash chip.");
-                    });
-                } else {
-                    let size = config.flash_size;
-                    initialization.extend(quote! {
-                        use ::rumcake::storage::FlashStorage;
-                        let flash = ::rumcake::hw::mcu::setup_internal_flash::<#size>(<#kb_name as RP2040FlashSettings>::setup_dma_channel());
-                        let config_start = unsafe { &::rumcake::hw::__config_start as *const u32 as usize };
-                        let config_end = unsafe { &::rumcake::hw::__config_end as *const u32 as usize };
-                        static mut READ_BUF: [u8; ::rumcake::hw::mcu::embassy_rp::flash::ERASE_SIZE] = [0; ::rumcake::hw::mcu::embassy_rp::flash::ERASE_SIZE];
-                        static mut OP_BUF: [u8; ::rumcake::hw::mcu::embassy_rp::flash::ERASE_SIZE] = [0; ::rumcake::hw::mcu::embassy_rp::flash::ERASE_SIZE];
-                        static DATABASE: ::rumcake::storage::StorageService<'static, ::rumcake::hw::mcu::Flash<#size>> = ::rumcake::storage::StorageService::new();
-                        unsafe { DATABASE.setup(flash, config_start, config_end, &mut READ_BUF, &mut OP_BUF).await; }
-                    })
-                }
-            } else {
-                initialization.extend(quote_spanned! {
-                    config.driver.span() => compile_error!("Internal storage driver is not available for your platform.");
+                    static DATABASE: ::rumcake::storage::StorageService<'static, ::rumcake::hw::platform::nrf_softdevice::Flash, #kb_name> = ::rumcake::storage::StorageService::new();
+                    impl ::rumcake::storage::StorageDevice for #kb_name {
+                        type FlashStorageType = ::rumcake::hw::platform::nrf_softdevice::Flash;
+
+                        fn get_storage_buffer() -> &'static mut [u8] {
+                            static mut STORAGE_BUFFER: [u8; #buffer_size] = [0; #buffer_size];
+                            unsafe { &mut STORAGE_BUFFER }
+                        }
+
+                        fn get_storage_service(
+                        ) -> &'static rumcake::storage::StorageService<'static, Self::FlashStorageType, Self>
+                        where
+                            [(); Self::FlashStorageType::ERASE_SIZE]:,
+                            Self: Sized,
+                        {
+                            &DATABASE
+                        }
+                    }
                 });
-            };
+                initialization.extend(quote! {
+                    use ::rumcake::storage::FlashStorage;
+                    let flash = ::rumcake::hw::platform::setup_internal_softdevice_flash(sd);
+                    let config_start = unsafe { &::rumcake::hw::__config_start as *const u32 as usize };
+                    let config_end = unsafe { &::rumcake::hw::__config_end as *const u32 as usize };
+                    static mut READ_BUF: [u8; ::rumcake::hw::platform::nrf_softdevice::Flash::ERASE_SIZE] = [0; ::rumcake::hw::platform::nrf_softdevice::Flash::ERASE_SIZE];
+                    static mut OP_BUF: [u8; ::rumcake::hw::platform::nrf_softdevice::Flash::ERASE_SIZE] = [0; ::rumcake::hw::platform::nrf_softdevice::Flash::ERASE_SIZE];
+                    unsafe { DATABASE.setup(flash, config_start, config_end, &mut READ_BUF, &mut OP_BUF).await; }
+                });
+
+                return false;
+            }
+
+            if cfg!(any(feature = "stm32", feature = "nrf")) {
+                outer.extend(quote! {
+                    use ::rumcake::storage::FlashStorage;
+                    static DATABASE: ::rumcake::storage::StorageService<'static, ::rumcake::hw::platform::Flash, #kb_name> = ::rumcake::storage::StorageService::new();
+                    impl ::rumcake::storage::StorageDevice for #kb_name {
+                        type FlashStorageType = ::rumcake::hw::platform::Flash;
+
+                        fn get_storage_buffer() -> &'static mut [u8] {
+                            static mut STORAGE_BUFFER: [u8; #buffer_size] = [0; #buffer_size];
+                            unsafe { &mut STORAGE_BUFFER }
+                        }
+
+                        fn get_storage_service(
+                        ) -> &'static rumcake::storage::StorageService<'static, Self::FlashStorageType, Self>
+                        where
+                            [(); Self::FlashStorageType::ERASE_SIZE]:,
+                            Self: Sized,
+                        {
+                            &DATABASE
+                        }
+                    }
+                });
+                initialization.extend(quote! {
+                    use ::rumcake::storage::FlashStorage;
+                    let flash = ::rumcake::hw::platform::setup_internal_flash();
+                    let config_start = unsafe { &::rumcake::hw::__config_start as *const u32 as usize };
+                    let config_end = unsafe { &::rumcake::hw::__config_end as *const u32 as usize };
+                    static mut READ_BUF: [u8; ::rumcake::hw::platform::Flash::ERASE_SIZE] = [0; ::rumcake::hw::platform::Flash::ERASE_SIZE];
+                    static mut OP_BUF: [u8; ::rumcake::hw::platform::Flash::ERASE_SIZE] = [0; ::rumcake::hw::platform::Flash::ERASE_SIZE];
+                    unsafe { DATABASE.setup(flash, config_start, config_end, &mut READ_BUF, &mut OP_BUF).await; }
+                });
+
+                return false;
+            }
+
+            if cfg!(feature = "rp") {
+                if config.flash_size.is_none() {
+                    emit_error!(
+                        config.driver,
+                        "You must specify a non-zero size for your flash chip."
+                    );
+
+                    return true;
+                }
+
+                if config.dma.is_none() {
+                    emit_error!(config.driver, "You must specify a `dma` channel.");
+
+                    return true;
+                }
+
+                let lit = config.flash_size.as_ref().unwrap();
+                let dma = config.dma.as_ref().unwrap();
+
+                let size = lit.base10_parse::<usize>().unwrap_or_else(|_| {
+                    abort!(
+                        lit,
+                        "The provided flash size could not be parsed as a usize value."
+                    );
+                });
+
+                if size == 0 {
+                    emit_error!(
+                        config.driver,
+                        "You must specify a non-zero size for your flash chip."
+                    );
+                    return true;
+                }
+
+                outer.extend(quote! {
+                    use ::rumcake::storage::FlashStorage;
+                    static DATABASE: ::rumcake::storage::StorageService<'static, ::rumcake::hw::platform::Flash<#size>, #kb_name> = ::rumcake::storage::StorageService::new();
+                    impl ::rumcake::storage::StorageDevice for #kb_name {
+                        type FlashStorageType = ::rumcake::hw::platform::Flash<'static, #size>;
+
+                        fn get_storage_buffer() -> &'static mut [u8] {
+                            static mut STORAGE_BUFFER: [u8; #buffer_size] = [0; #buffer_size];
+                            unsafe { &mut STORAGE_BUFFER }
+                        }
+
+                        fn get_storage_service(
+                        ) -> &'static rumcake::storage::StorageService<'static, Self::FlashStorageType, Self>
+                        where
+                            [(); Self::FlashStorageType::ERASE_SIZE]:,
+                            Self: Sized,
+                        {
+                            &DATABASE
+                        }
+                    }
+                });
+                initialization.extend(quote! {
+                    let flash = ::rumcake::hw::platform::setup_internal_flash::<#size>(unsafe { ::rumcake::hw::platform::embassy_rp::peripherals::#dma::steal() });
+                    let config_start = unsafe { &::rumcake::hw::__config_start as *const u32 as usize };
+                    let config_end = unsafe { &::rumcake::hw::__config_end as *const u32 as usize };
+                    static mut READ_BUF: [u8; ::rumcake::hw::platform::embassy_rp::flash::ERASE_SIZE] = [0; ::rumcake::hw::platform::embassy_rp::flash::ERASE_SIZE];
+                    static mut OP_BUF: [u8; ::rumcake::hw::platform::embassy_rp::flash::ERASE_SIZE] = [0; ::rumcake::hw::platform::embassy_rp::flash::ERASE_SIZE];
+                    unsafe { DATABASE.setup(flash, config_start, config_end, &mut READ_BUF, &mut OP_BUF).await; }
+                });
+
+                return false;
+            }
+
+            emit_error!(
+                config.driver,
+                "Internal storage driver is not available for your platform."
+            );
+
+            return true;
         }
         _ => (),
     };
 
-    initialization.extend(quote_spanned! {
-        config.driver.span() => compile_error!("Unknown storage driver.");
-    });
+    emit_error!(config.driver, "Unknown storage driver.");
+
+    true
 }
 
 pub(crate) fn keyboard_main(
@@ -331,21 +245,24 @@ pub(crate) fn keyboard_main(
 ) -> TokenStream {
     let mut initialization = TokenStream::new();
     let mut spawning = TokenStream::new();
-    let mut traits: HashMap<String, TokenStream> = HashMap::new();
+    let mut outer = TokenStream::new();
+    let mut error = false;
 
     let uses_bluetooth = keyboard.bluetooth
-        || keyboard
-            .split_peripheral
-            .as_ref()
-            .is_some_and(|args| args.driver == "ble")
-        || keyboard
-            .split_central
-            .as_ref()
-            .is_some_and(|args| args.driver == "ble");
+        || keyboard.split_peripheral.as_ref().is_some_and(|args| {
+            args.driver_type
+                .as_ref()
+                .map_or(false, |d| d.value() == "nrf-ble")
+        })
+        || keyboard.split_central.as_ref().is_some_and(|args| {
+            args.driver_type
+                .as_ref()
+                .map_or(false, |d| d.value() == "nrf-ble")
+        });
 
     // Setup microcontroller
     initialization.extend(quote! {
-        ::rumcake::hw::mcu::initialize_rcc();
+        ::rumcake::hw::platform::initialize_rcc();
     });
 
     if cfg!(feature = "nrf") {
@@ -356,7 +273,7 @@ pub(crate) fn keyboard_main(
 
         if uses_bluetooth {
             initialization.extend(quote! {
-                let sd = ::rumcake::hw::mcu::setup_softdevice::<#kb_name>();
+                let sd = ::rumcake::hw::platform::setup_softdevice::<#kb_name>();
             });
             spawning.extend(quote! {
                 let sd = &*sd;
@@ -377,13 +294,12 @@ pub(crate) fn keyboard_main(
     // Flash setup
     if let Some(ref driver) = keyboard.storage {
         if !cfg!(feature = "storage") {
-            initialization.extend(quote_spanned! {
-                driver.driver.span() => compile_error!("Storage driver was specified, but rumcake's `storage` feature flag is not enabled. Please enable the feature.");
-            });
+            emit_error!(driver.driver, "Storage driver was specified, but rumcake's `storage` feature flag is not enabled. Please enable the feature.");
+            error = true;
         } else {
-            setup_storage_driver(
+            error = setup_storage_driver(
                 &mut initialization,
-                &mut traits,
+                &mut outer,
                 &kb_name,
                 driver,
                 uses_bluetooth,
@@ -392,6 +308,9 @@ pub(crate) fn keyboard_main(
     };
 
     if keyboard.bluetooth || keyboard.usb {
+        outer.extend(quote! {
+            impl ::rumcake::hw::HIDDevice for #kb_name {}
+        });
         spawning.extend(quote! {
             spawner.spawn(::rumcake::layout_collect!(#kb_name)).unwrap();
         });
@@ -414,7 +333,7 @@ pub(crate) fn keyboard_main(
     // USB Configuration
     if keyboard.usb {
         initialization.extend(quote! {
-            let mut builder = ::rumcake::hw::mcu::setup_usb_driver::<#kb_name>();
+            let mut builder = ::rumcake::hw::platform::setup_usb_driver::<#kb_name>();
 
             // HID Class setup
             let kb_class = ::rumcake::usb::setup_usb_hid_nkro_writer(&mut builder);
@@ -427,7 +346,7 @@ pub(crate) fn keyboard_main(
             spawner.spawn(::rumcake::start_usb!(usb)).unwrap();
 
             // HID Keyboard Report sending
-            spawner.spawn(::rumcake::usb_hid_kb_write_task!(kb_class)).unwrap();
+            spawner.spawn(::rumcake::usb_hid_kb_write_task!(#kb_name, kb_class)).unwrap();
         });
 
         if cfg!(feature = "media-keycodes") {
@@ -437,44 +356,42 @@ pub(crate) fn keyboard_main(
             });
             spawning.extend(quote! {
                 // HID Consumer Report sending
-                spawner.spawn(::rumcake::usb_hid_consumer_write_task!(consumer_class)).unwrap();
+                spawner.spawn(::rumcake::usb_hid_consumer_write_task!(#kb_name, consumer_class)).unwrap();
             });
         }
     }
 
     if keyboard.usb && (keyboard.via.is_some() || keyboard.vial.is_some()) {
         initialization.extend(quote! {
+            static VIA_COMMAND_HANDLER: ::rumcake::usb::ViaCommandHandler<#kb_name> = ::rumcake::usb::ViaCommandHandler::new();
             // Via HID setup
             let (via_reader, via_writer) =
-                ::rumcake::usb::setup_usb_via_hid_reader_writer(&mut builder).split();
+                ::rumcake::usb::setup_usb_via_hid_reader_writer(&VIA_COMMAND_HANDLER, &mut builder).split();
         });
         spawning.extend(quote! {
             // HID raw report (for VIA) reading and writing
             spawner
-                .spawn(::rumcake::usb_hid_via_read_task!(via_reader))
+                .spawn(::rumcake::usb_hid_via_read_task!(&VIA_COMMAND_HANDLER, via_reader))
                 .unwrap();
         });
         spawning.extend(quote! {
-            spawner.spawn(::rumcake::usb_hid_via_write_task!(via_writer)).unwrap();
+            spawner.spawn(::rumcake::usb_hid_via_write_task!(#kb_name, via_writer)).unwrap();
         });
     }
 
     if keyboard.via.is_some() && keyboard.vial.is_some() {
-        initialization.extend(quote_spanned! {
-            str.span() => compile_error!("Via and Vial are both specified. Please only choose one.");
-        });
+        emit_error!(
+            str,
+            "Via and Vial are both specified. Please only choose one."
+        );
+        error = true;
     } else if let Some(args) = keyboard.via {
-        let args = args.unwrap_or_default();
-
-        if args.use_storage && keyboard.storage.is_none() {
-            initialization.extend(quote_spanned! {
-                args.use_storage.span() => compile_error!("Via uses storage but no `storage` driver was specified. Either specify a `storage` driver, or remove `use_storage` from your Via settings.");
-            });
-        } else if args.use_storage {
+        if args.use_storage.map_or(false, |b| *b) && keyboard.storage.is_none() {
+            emit_error!(args.use_storage.unwrap().span(), "Via uses storage but no `storage` driver was specified. Either specify a `storage` driver, or remove `use_storage` from your Via settings.");
+            error = true;
+        } else if args.use_storage.map_or(false, |b| *b) {
             spawning.extend(quote! {
-                spawner
-                    .spawn(::rumcake::via_storage_task!(#kb_name, &DATABASE))
-                    .unwrap();
+                ::rumcake::via::initialize_via_data(#kb_name).await;
             });
         }
 
@@ -484,17 +401,12 @@ pub(crate) fn keyboard_main(
                 .unwrap();
         });
     } else if let Some(args) = keyboard.vial {
-        let args = args.unwrap_or_default();
-
-        if args.use_storage && keyboard.storage.is_none() {
-            initialization.extend(quote_spanned! {
-                args.use_storage.span() => compile_error!("Vial uses storage but no `storage` driver was specified. Either specify a `storage` driver, or remove `use_storage` from your Vial settings.");
-            });
-        } else if args.use_storage {
+        if args.use_storage.map_or(false, |b| *b) && keyboard.storage.is_none() {
+            emit_error!(args.use_storage.unwrap().span(), "Vial uses storage but no `storage` driver was specified. Either specify a `storage` driver, or remove `use_storage` from your Vial settings.");
+            error = true;
+        } else if args.use_storage.map_or(false, |b| *b) {
             spawning.extend(quote! {
-                spawner
-                    .spawn(::rumcake::vial_storage_task!(#kb_name, &DATABASE))
-                    .unwrap();
+                ::rumcake::vial::initialize_vial_data(#kb_name).await;
             });
         }
 
@@ -507,181 +419,220 @@ pub(crate) fn keyboard_main(
 
     // Split keyboard setup
     if keyboard.split_peripheral.is_some() && keyboard.split_central.is_some() {
-        initialization.extend(quote_spanned! {
-            str.span() => compile_error!("A device can not be a central device and a peripheral at the same time. Please only choose one.");
-        });
+        emit_error!(str, "A device can not be a central device and a peripheral at the same time. Please only choose one.");
+        error = true;
     } else if keyboard.split_peripheral.is_some() && keyboard.no_matrix {
-        initialization.extend(quote_spanned! {
-            str.span() => compile_error!("A split peripheral must have a matrix. Please remove `no_matrix` or `split_peripheral`.");
-        });
+        emit_error!(str, "A split peripheral must have a matrix. Please remove `no_matrix` or `split_peripheral`.");
+        error = true;
     } else if let Some(args) = keyboard.split_peripheral {
-        if args.driver.is_empty() {
-            initialization.extend(quote_spanned! {
-                args.driver.span() => compile_error!("You must specify a peripheral device driver.");
-            })
-        } else {
-            setup_split_driver(
-                &mut initialization,
-                &mut spawning,
-                &mut traits,
-                &kb_name,
-                SplitSettings::Peripheral(&args),
-            );
-            spawning.extend(quote! {
-                spawner.spawn(::rumcake::peripheral_task!(split_peripheral_driver)).unwrap();
-            });
+        let setup_fn = args.driver_setup_fn;
+        let driver_type = args
+            .driver_type
+            .as_ref()
+            .map_or(String::from("standard"), |v| v.value());
+        match driver_type.as_str() {
+            "standard" => {
+                initialization.extend(quote! {
+                    let split_peripheral_driver = #setup_fn().await;
+                });
+            }
+            "nrf-ble" => {
+                initialization.extend(quote! {
+                    let peripheral_server = ::rumcake::drivers::nrf_ble::peripheral::PeripheralDeviceServer::new(sd).unwrap();
+                    let (split_peripheral_driver, central_address) = #setup_fn().await;
+                });
+                spawning.extend(quote! {
+                    spawner.spawn(::rumcake::nrf_ble_peripheral_task!(central_address, sd, peripheral_server)).unwrap();
+                });
+            }
+            _ => {
+                emit_error!(args.driver_type, "Unknown split peripheral driver type.");
+                error = true;
+            }
         }
+        spawning.extend(quote! {
+            spawner.spawn(::rumcake::peripheral_task!(#kb_name, split_peripheral_driver)).unwrap();
+        });
     }
 
     if let Some(args) = keyboard.split_central {
-        if args.driver.is_empty() {
-            initialization.extend(quote_spanned! {
-                args.driver.span() => compile_error!("You must specify a central device driver.");
-            })
-        } else {
-            setup_split_driver(
-                &mut initialization,
-                &mut spawning,
-                &mut traits,
-                &kb_name,
-                SplitSettings::Central(&args),
-            );
-            spawning.extend(quote! {
-                spawner.spawn(::rumcake::central_task!(split_central_driver)).unwrap();
-            });
+        let setup_fn = args.driver_setup_fn;
+        let driver_type = args
+            .driver_type
+            .as_ref()
+            .map_or(String::from("standard"), |v| v.value());
+        match driver_type.as_str() {
+            "standard" => {
+                initialization.extend(quote! {
+                    let split_central_driver = #setup_fn().await;
+                });
+            }
+            "nrf-ble" => {
+                initialization.extend(quote! {
+                    let (split_central_driver, peripheral_addresses) = #setup_fn().await;
+                });
+                spawning.extend(quote! {
+                    spawner.spawn(::rumcake::nrf_ble_central_task!(peripheral_addresses, sd)).unwrap();
+                });
+            }
+            _ => {
+                emit_error!(args.driver_type, "Unknown split peripheral driver type.");
+                error = true;
+            }
         }
+        spawning.extend(quote! {
+            spawner.spawn(::rumcake::central_task!(#kb_name, split_central_driver)).unwrap();
+        });
     }
 
     // Underglow setup
     if let Some(args) = keyboard.underglow {
-        if args.driver.is_empty() {
-            initialization.extend(quote_spanned! {
-                args.driver.span() => compile_error!("You must specify an underglow driver.");
-            })
-        } else if args.use_storage && keyboard.storage.is_none() {
-            initialization.extend(quote_spanned! {
-                args.driver.span() => compile_error!("Underglow uses storage but no `storage` driver was specified. Either specify a `storage` driver, or remove `use_storage` from your underglow settings.");
-            });
+        if args.use_storage.map_or(false, |b| *b) && keyboard.storage.is_none() {
+            emit_error!(args.use_storage.unwrap().span(), "Underglow uses storage but no `storage` driver was specified. Either specify a `storage` driver, or remove `use_storage` from your underglow settings.");
+            error = true;
         } else {
-            setup_underglow_driver(&mut initialization, &mut traits, &kb_name, &args);
-            if args.use_storage {
+            let setup_fn = args.driver_setup_fn;
+            initialization.extend(quote! {
+                let underglow_driver = #setup_fn().await;
+            });
+            let id = args.id;
+            initialization.extend(quote! {
+                let underglow_animator = ::rumcake::lighting::underglow::UnderglowAnimator::<#id, _>::new(Default::default(), underglow_driver);
+            });
+
+            if args.use_storage.map_or(false, |b| *b) {
+                initialization.extend(quote! {
+                    let underglow_animator_storage = underglow_animator.create_storage_instance();
+                });
                 spawning.extend(quote! {
-                    spawner.spawn(::rumcake::underglow_storage_task!(#kb_name, &DATABASE)).unwrap();
+                    ::rumcake::lighting::initialize_lighting_data(&underglow_animator_storage, &DATABASE).await;
+                    spawner.spawn(::rumcake::lighting_storage_task!(underglow_animator_storage, &DATABASE)).unwrap();
                 });
             }
             spawning.extend(quote! {
-                spawner.spawn(::rumcake::underglow_task!(#kb_name, underglow_driver)).unwrap();
+                spawner.spawn(::rumcake::lighting_task!(underglow_animator, None)).unwrap();
             });
         }
     }
 
     // Backlight setup
     if let Some(args) = keyboard.simple_backlight {
-        if args.driver.is_empty() {
-            initialization.extend(quote_spanned! {
-                args.driver.span() => compile_error!("You must specify a simple backlight driver.");
-            })
-        } else if args.use_storage && keyboard.storage.is_none() {
-            initialization.extend(quote_spanned! {
-                args.driver.span() => compile_error!("Simple backlighting uses storage but no `storage` driver was specified. Either specify a `storage` driver, or remove `use_storage` from your simple backlight settings.");
-            });
+        if args.use_storage.map_or(false, |b| *b) && keyboard.storage.is_none() {
+            emit_error!(args.use_storage.unwrap().span(), "Simple backlighting uses storage but no `storage` driver was specified. Either specify a `storage` driver, or remove `use_storage` from your simple backlight settings.");
+            error = true;
         } else {
-            setup_backlight_driver(
-                &mut initialization,
-                &mut traits,
-                &kb_name,
-                BacklightType::SimpleBacklight,
-                &args,
-            );
-            if args.use_storage {
+            let setup_fn = args.driver_setup_fn;
+            initialization.extend(quote! {
+                let simple_backlight_driver = #setup_fn().await;
+            });
+            let id = args.id;
+            initialization.extend(quote! {
+                let simple_backlight_animator = ::rumcake::lighting::simple_backlight::SimpleBacklightAnimator::<#id, _>::new(Default::default(), simple_backlight_driver);
+            });
+            if args.use_storage.map_or(false, |b| *b) {
+                initialization.extend(quote! {
+                    let simple_backlight_animator_storage = simple_backlight_animator.create_storage_instance();
+                });
                 spawning.extend(quote! {
-                    spawner.spawn(::rumcake::simple_backlight_storage_task!(#kb_name, &DATABASE)).unwrap();
+                    ::rumcake::lighting::initialize_lighting_data(&simple_backlight_animator_storage, &DATABASE).await;
+                    spawner.spawn(::rumcake::lighting_storage_task!(simple_backlight_animator_storage, &DATABASE)).unwrap();
                 });
             }
             spawning.extend(quote! {
-                spawner.spawn(::rumcake::simple_backlight_task!(#kb_name, backlight_driver)).unwrap();
+                spawner.spawn(::rumcake::lighting_task!(simple_backlight_animator, None)).unwrap();
             });
         }
     }
 
     if let Some(args) = keyboard.simple_backlight_matrix {
-        if args.driver.is_empty() {
-            initialization.extend(quote_spanned! {
-                args.driver.span() => compile_error!("You must specify a simple backlight matrix driver.");
-            })
-        } else if args.use_storage && keyboard.storage.is_none() {
-            initialization.extend(quote_spanned! {
-                args.driver.span() => compile_error!("Simple backlight matrix uses storage but no `storage` driver was specified. Either specify a `storage` driver, or remove `use_storage` from your simple backlight matrix settings.");
-            });
+        if args.use_storage.map_or(false, |b| *b) && keyboard.storage.is_none() {
+            emit_error!(args.use_storage.unwrap().span(), "Simple backlight matrix uses storage but no `storage` driver was specified. Either specify a `storage` driver, or remove `use_storage` from your simple backlight matrix settings.");
+            error = true;
         } else {
-            setup_backlight_driver(
-                &mut initialization,
-                &mut traits,
-                &kb_name,
-                BacklightType::SimpleBacklightMatrix,
-                &args,
-            );
-            if args.use_storage {
+            let setup_fn = args.driver_setup_fn;
+            initialization.extend(quote! {
+                let simple_backlight_matrix_driver = #setup_fn().await;
+            });
+            let id = args.id;
+            initialization.extend(quote! {
+                let simple_backlight_matrix_animator = ::rumcake::lighting::simple_backlight_matrix::SimpleBacklightMatrixAnimator::<#id, _>::new(Default::default(), simple_backlight_matrix_driver);
+            });
+            if args.use_storage.map_or(false, |b| *b) {
+                initialization.extend(quote! {
+                    let simple_backlight_matrix_animator_storage = simple_backlight_matrix_animator.create_storage_instance();
+                });
                 spawning.extend(quote! {
-                    spawner.spawn(::rumcake::simple_backlight_matrix_storage_task!(#kb_name, &DATABASE)).unwrap();
+                    ::rumcake::lighting::initialize_lighting_data(&simple_backlight_matrix_animator_storage, &DATABASE).await;
+                    spawner.spawn(::rumcake::lighting_storage_task!(simple_backlight_matrix_animator_storage, &DATABASE)).unwrap();
                 });
             }
             spawning.extend(quote! {
-                spawner.spawn(::rumcake::simple_backlight_matrix_task!(#kb_name, backlight_driver)).unwrap();
+                spawner.spawn(::rumcake::lighting_task!(simple_backlight_matrix_animator, None)).unwrap();
             });
         }
     }
 
     if let Some(args) = keyboard.rgb_backlight_matrix {
-        if args.driver.is_empty() {
-            initialization.extend(quote_spanned! {
-                args.driver.span() => compile_error!("You must specify an RGB backlight matrix driver.");
-            })
-        } else if args.use_storage && keyboard.storage.is_none() {
-            initialization.extend(quote_spanned! {
-                args.driver.span() => compile_error!("RGB backlight matrix uses storage but no `storage` driver was specified. Either specify a `storage` driver, or remove `use_storage` from your RGB backlight matrix settings.");
-            });
+        if args.use_storage.map_or(false, |b| *b) && keyboard.storage.is_none() {
+            emit_error!(args.use_storage.unwrap().span(), "RGB backlight matrix uses storage but no `storage` driver was specified. Either specify a `storage` driver, or remove `use_storage` from your RGB backlight matrix settings.");
+            error = true;
         } else {
-            setup_backlight_driver(
-                &mut initialization,
-                &mut traits,
-                &kb_name,
-                BacklightType::RGBBacklightMatrix,
-                &args,
-            );
-            if args.use_storage {
+            let setup_fn = args.driver_setup_fn;
+            initialization.extend(quote! {
+                let rgb_backlight_matrix_driver = #setup_fn().await;
+            });
+            let id = args.id;
+            initialization.extend(quote! {
+                let rgb_backlight_matrix_animator = ::rumcake::lighting::rgb_backlight_matrix::RGBBacklightMatrixAnimator::<#id, _>::new(Default::default(), rgb_backlight_matrix_driver);
+            });
+            if args.use_storage.map_or(false, |b| *b) {
+                initialization.extend(quote! {
+                    let rgb_backlight_matrix_animator_storage = rgb_backlight_matrix_animator.create_storage_instance();
+                });
                 spawning.extend(quote! {
-                    spawner.spawn(::rumcake::rgb_backlight_matrix_storage_task!(#kb_name, &DATABASE)).unwrap();
+                    ::rumcake::lighting::initialize_lighting_data(&rgb_backlight_matrix_animator_storage, &DATABASE).await;
+                    spawner.spawn(::rumcake::lighting_storage_task!(rgb_backlight_matrix_animator_storage, &DATABASE)).unwrap();
                 });
             }
             spawning.extend(quote! {
-                spawner.spawn(::rumcake::rgb_backlight_matrix_task!(#kb_name, backlight_driver)).unwrap();
+                spawner.spawn(::rumcake::lighting_task!(rgb_backlight_matrix_animator, None)).unwrap();
             });
         }
     }
 
     // Display setup
     if let Some(args) = keyboard.display {
-        if args.driver.is_empty() {
-            initialization.extend(quote_spanned! {
-                args.driver.span() => compile_error!("You must specify a display driver.");
-            })
-        } else {
-            setup_display_driver(&mut initialization, &mut traits, &kb_name, &args);
-            spawning.extend(quote! {
-                spawner.spawn(::rumcake::display_task!(#kb_name, display_driver)).unwrap();
-            });
-        }
+        let setup_fn = args.driver_setup_fn;
+        initialization.extend(quote! {
+            let display_driver = #setup_fn().await;
+        });
+        spawning.extend(quote! {
+            spawner.spawn(::rumcake::display_task!(#kb_name, display_driver)).unwrap();
+        });
     }
 
     if let Some(arg) = keyboard.bootloader_double_tap_reset {
-        let timeout = arg.unwrap_or(200);
+        let timeout: u64 = match arg {
+            Override::Inherit => 200,
+            Override::Explicit(lit) => {
+                let value = lit.base10_parse::<u64>().unwrap_or_else(|_| {
+                    abort!(
+                        lit,
+                        "The provided timeout value could not be parsed as a u64 value."
+                    );
+                });
 
-        if timeout == 0 {
-            initialization.extend(quote! {
-                compile_error!("The timeout for double tapping the reset button should be > 0");
-            })
-        }
+                if value == 0 {
+                    emit_error!(
+                        lit,
+                        "The timeout for double tapping the reset button should be > 0"
+                    );
+                    error = true;
+                }
+
+                value
+            }
+        };
 
         spawning.extend(quote! {
             unsafe {
@@ -690,101 +641,39 @@ pub(crate) fn keyboard_main(
         });
     }
 
-
-    let final_traits = traits.values();
-
-    quote! {
-        #[::embassy_executor::main]
-        async fn main(spawner: ::embassy_executor::Spawner) {
-            #initialization
-            #spawning
+    if error {
+        quote! {
+            #str
         }
+    } else {
+        quote! {
+            #[::embassy_executor::main]
+            async fn main(spawner: ::embassy_executor::Spawner) {
+                #initialization
+                #spawning
+            }
 
-        #(#final_traits)*
+            #outer
 
-        #str
-    }
-}
-
-#[derive(Debug)]
-/// This is the exact same as [`Option<T>`], but has a different [`syn::parse::Parse`] implementation,
-/// where "No" parses to `None`, and anything else that parses as `T` corresponds `Some(T)`
-pub(crate) enum OptionalItem<T> {
-    None,
-    Some(T),
-}
-
-custom_keyword!(No);
-
-impl<T: Parse> Parse for OptionalItem<T> {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let lookahead = input.lookahead1();
-        if lookahead.peek(No) {
-            input.parse::<No>().map(|_| OptionalItem::None)
-        } else {
-            input.parse().map(OptionalItem::Some)
+            #str
         }
     }
 }
 
-impl<T: ToTokens> ToTokens for OptionalItem<T> {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        match self {
-            OptionalItem::None => quote! { None }.to_tokens(tokens),
-            OptionalItem::Some(item) => quote! { Some(#item) }.to_tokens(tokens),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct StandardMatrixDefinition {
-    pub row_brace: syn::token::Brace,
-    pub rows: Vec<Ident>,
-    pub col_brace: syn::token::Brace,
-    pub cols: Vec<Ident>,
-}
-
-impl syn::parse::Parse for StandardMatrixDefinition {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let row_content;
-        let row_brace = braced!(row_content in input);
-        let mut rows = Vec::new();
-        while let Ok(t) = row_content.parse() {
-            rows.push(t)
-        }
-        if !row_content.is_empty() {
-            return Err(syn::Error::new(
-                row_content.span(),
-                "Encountered an invalid token.",
-            ));
-        }
-
-        let col_content;
-        let col_brace = braced!(col_content in input);
-        let mut cols = Vec::new();
-        while let Ok(t) = col_content.parse() {
-            cols.push(t)
-        }
-        if !col_content.is_empty() {
-            return Err(syn::Error::new(
-                row_content.span(),
-                "Encountered an invalid token.",
-            ));
-        }
-
-        Ok(Self {
-            row_brace,
-            rows,
-            col_brace,
-            cols,
-        })
+crate::parse_as_custom_fields! {
+    pub struct StandardMatrixDefinitionBuilder for StandardMatrixDefinition {
+        pub rows: Row<Ident>,
+        pub cols: Row<Ident>,
     }
 }
 
 pub fn build_standard_matrix(input: StandardMatrixDefinition) -> TokenStream {
-    let StandardMatrixDefinition { rows, cols, .. } = input;
-    let row_count = rows.len();
-    let col_count = cols.len();
+    let StandardMatrixDefinition { rows, cols } = input;
+    let row_count = rows.items.len();
+    let col_count = cols.items.len();
+
+    let rows = rows.items.iter();
+    let cols = cols.items.iter();
 
     let hal_name: PathSegment = syn::parse_str(crate::hw::HAL_CRATE).unwrap();
 
@@ -796,8 +685,8 @@ pub fn build_standard_matrix(input: StandardMatrixDefinition) -> TokenStream {
             static MATRIX: ::rumcake::once_cell::sync::OnceCell<
                 ::rumcake::keyboard::PollableMatrix<
                     ::rumcake::keyboard::PollableStandardMatrix<
-                        ::rumcake::hw::mcu::#hal_name::gpio::Input<'static>,
-                        ::rumcake::hw::mcu::#hal_name::gpio::Output<'static>,
+                        ::rumcake::hw::platform::#hal_name::gpio::Input<'static>,
+                        ::rumcake::hw::platform::#hal_name::gpio::Output<'static>,
                         #col_count,
                         #row_count
                     >
@@ -808,12 +697,12 @@ pub fn build_standard_matrix(input: StandardMatrixDefinition) -> TokenStream {
                     ::rumcake::keyboard::setup_standard_keyboard_matrix(
                         [
                             #(
-                                ::rumcake::hw::mcu::input_pin!(#cols)
+                                ::rumcake::hw::platform::input_pin!(#cols)
                             ),*
                         ],
                         [
                             #(
-                                ::rumcake::hw::mcu::output_pin!(#rows)
+                                ::rumcake::hw::platform::output_pin!(#rows)
                             ),*
                         ],
                         Self::DEBOUNCE_MS
@@ -826,10 +715,10 @@ pub fn build_standard_matrix(input: StandardMatrixDefinition) -> TokenStream {
 
 pub fn build_direct_pin_matrix(input: MatrixLike<OptionalItem<Ident>>) -> TokenStream {
     let values = input.rows.iter().map(|row| {
-        let items = row.cols.iter().map(|item| match item {
+        let items = row.items.iter().map(|item| match item {
             OptionalItem::None => quote! { None },
             OptionalItem::Some(pin_ident) => {
-                quote! { Some(::rumcake::hw::mcu::input_pin!(#pin_ident)) }
+                quote! { Some(::rumcake::hw::platform::input_pin!(#pin_ident)) }
             }
         });
         quote! { #(#items),* }
@@ -840,7 +729,7 @@ pub fn build_direct_pin_matrix(input: MatrixLike<OptionalItem<Ident>>) -> TokenS
         .rows
         .first()
         .expect_or_abort("At least one row is required.")
-        .cols
+        .items
         .len();
 
     let hal_name: PathSegment = syn::parse_str(crate::hw::HAL_CRATE).unwrap();
@@ -853,7 +742,7 @@ pub fn build_direct_pin_matrix(input: MatrixLike<OptionalItem<Ident>>) -> TokenS
             static MATRIX: ::rumcake::once_cell::sync::OnceCell<
                 ::rumcake::keyboard::PollableMatrix<
                     ::rumcake::keyboard::PollableDirectPinMatrix<
-                        ::rumcake::hw::mcu::#hal_name::gpio::Input<'static>,
+                        ::rumcake::hw::platform::#hal_name::gpio::Input<'static>,
                         #col_count,
                         #row_count
                     >
@@ -873,41 +762,24 @@ pub fn build_direct_pin_matrix(input: MatrixLike<OptionalItem<Ident>>) -> TokenS
     }
 }
 
-#[derive(Debug)]
-pub struct AnalogMatrixDefinition {
-    pub pos_to_ch_brace: syn::token::Brace,
-    pub pos_to_ch: MatrixLike<OptionalItem<TuplePair>>,
-    pub ranges_brace: syn::token::Brace,
-    pub ranges: MatrixLike<OptionalItem<ExprRange>>,
-}
-
-impl syn::parse::Parse for AnalogMatrixDefinition {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let pos_to_ch_content;
-        let pos_to_ch_brace = braced!(pos_to_ch_content in input);
-        let ranges_content;
-        let ranges_brace = braced!(ranges_content in input);
-
-        Ok(Self {
-            pos_to_ch_brace,
-            pos_to_ch: pos_to_ch_content.parse()?,
-            ranges_brace,
-            ranges: ranges_content.parse()?,
-        })
+crate::parse_as_custom_fields! {
+    pub struct AnalogMatrixDefinitionBuilder for AnalogMatrixDefinition {
+        pub channels: Layer<OptionalItem<TuplePair>>,
+        pub ranges: Layer<OptionalItem<ExprRange>>,
     }
 }
 
 pub fn build_analog_matrix(input: AnalogMatrixDefinition) -> TokenStream {
-    let pos_to_ch = input.pos_to_ch.rows.iter().map(|row| {
-        let items = row.cols.iter().map(|item| match item {
+    let pos_to_ch = input.channels.layer.rows.iter().map(|row| {
+        let items = row.items.iter().map(|item| match item {
             OptionalItem::None => quote! { (0, 0) },
             OptionalItem::Some(tuple) => quote! { #tuple },
         });
         quote! { #(#items),* }
     });
 
-    let ranges = input.ranges.rows.iter().map(|row| {
-        let items = row.cols.iter().map(|item| match item {
+    let ranges = input.ranges.layer.rows.iter().map(|row| {
+        let items = row.items.iter().map(|item| match item {
             OptionalItem::None => quote! { 0..0 },
             OptionalItem::Some(range) => quote! { #range },
         });
@@ -916,11 +788,12 @@ pub fn build_analog_matrix(input: AnalogMatrixDefinition) -> TokenStream {
 
     let row_count = pos_to_ch.len();
     let col_count = input
-        .pos_to_ch
+        .channels
+        .layer
         .rows
         .first()
         .expect_or_abort("At least one row must be specified")
-        .cols
+        .items
         .len();
 
     quote! {
@@ -954,93 +827,6 @@ pub fn build_analog_matrix(input: AnalogMatrixDefinition) -> TokenStream {
     }
 }
 
-#[derive(Debug)]
-pub struct LayoutLike<T> {
-    pub layers: Vec<Layer<T>>,
-}
-
-impl<T: Parse> syn::parse::Parse for LayoutLike<T> {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let mut layers = Vec::new();
-        while let Ok(t) = input.parse() {
-            layers.push(t)
-        }
-        if !input.is_empty() {
-            return Err(syn::Error::new(
-                input.span(),
-                "Encountered tokens that don't look like a layer definition.",
-            ));
-        }
-
-        Ok(Self { layers })
-    }
-}
-
-#[derive(Debug)]
-pub struct Layer<T> {
-    pub layer_brace: syn::token::Brace,
-    pub layer: MatrixLike<T>,
-}
-
-impl<T: Parse> syn::parse::Parse for Layer<T> {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let content;
-        let layer_brace = braced!(content in input);
-
-        Ok(Self {
-            layer_brace,
-            layer: content.parse()?,
-        })
-    }
-}
-
-#[derive(Debug)]
-pub struct MatrixLike<T> {
-    pub rows: Vec<MatrixRow<T>>,
-}
-
-impl<T: Parse> syn::parse::Parse for MatrixLike<T> {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let mut rows = Vec::new();
-        while let Ok(t) = input.parse() {
-            rows.push(t)
-        }
-        if !input.is_empty() {
-            return Err(syn::Error::new(
-                input.span(),
-                "Encountered tokens that don't look like a row definition.",
-            ));
-        }
-
-        Ok(Self { rows })
-    }
-}
-
-#[derive(Debug)]
-pub struct MatrixRow<T> {
-    pub row_bracket: syn::token::Bracket,
-    pub cols: Vec<T>,
-}
-
-impl<T: Parse> syn::parse::Parse for MatrixRow<T> {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let content;
-        let row_bracket = bracketed!(content in input);
-        let mut cols = Vec::new();
-        while let Ok(t) = content.parse() {
-            cols.push(t)
-        }
-        if !content.is_empty() {
-            return Err(syn::Error::new(
-                input.span(),
-                "Encountered an invalid token.",
-            ));
-        }
-
-        Ok(Self { row_bracket, cols })
-    }
-}
-
 pub fn build_layout(raw: TokenStream, layers: LayoutLike<TokenTree>) -> TokenStream {
     let rows = &layers
         .layers
@@ -1055,7 +841,7 @@ pub fn build_layout(raw: TokenStream, layers: LayoutLike<TokenTree>) -> TokenStr
 
     let layer_count = layers.layers.len();
     let row_count = rows.len();
-    let col_count = first_row.cols.len();
+    let col_count = first_row.items.len();
 
     quote! {
         const LAYOUT_COLS: usize = #col_count;
@@ -1071,39 +857,35 @@ pub fn build_layout(raw: TokenStream, layers: LayoutLike<TokenTree>) -> TokenStr
         fn get_layout(
         ) -> &'static ::rumcake::keyboard::Layout<{ Self::LAYOUT_COLS }, { Self::LAYOUT_ROWS }, { Self::LAYERS }> {
             use ::rumcake::keyberon;
-            static KEYBOARD_LAYOUT: ::rumcake::keyboard::Layout<#col_count, #row_count, #layer_count> = ::rumcake::keyboard::Layout::new();
-            static mut LAYERS: ::rumcake::keyberon::layout::Layers<#col_count, #row_count, #layer_count, ::rumcake::keyboard::Keycode> = ::rumcake::keyberon::layout::layout! { #raw };
-            KEYBOARD_LAYOUT.init(unsafe { &mut LAYERS });
-            &KEYBOARD_LAYOUT
+            static KEYBOARD_LAYOUT: ::rumcake::once_cell::sync::OnceCell<
+                ::rumcake::keyboard::Layout<#col_count, #row_count, #layer_count>,
+            > = ::rumcake::once_cell::sync::OnceCell::new();
+            const LAYERS: ::rumcake::keyberon::layout::Layers<#col_count, #row_count, #layer_count, ::rumcake::keyboard::Keycode> = ::rumcake::keyberon::layout::layout! { #raw };
+            KEYBOARD_LAYOUT.get_or_init(|| {
+                static mut LAYERS: ::rumcake::keyberon::layout::Layers<
+                    #col_count,
+                    #row_count,
+                    #layer_count,
+                    ::rumcake::keyboard::Keycode,
+                > = ::rumcake::keyberon::layout::layout! { #raw };
+                ::rumcake::keyboard::Layout::new(::rumcake::keyberon::layout::Layout::new(
+                    unsafe { &mut LAYERS }
+                ))
+            })
         }
     }
 }
 
-pub struct RemapMacroInput {
-    pub original_matrix_brace: syn::token::Brace,
-    pub original_matrix: MatrixLike<OptionalItem<Ident>>,
-    pub remapped_matrix_brace: syn::token::Brace,
-    pub remapped_matrix: MatrixLike<Ident>,
-}
-
-impl Parse for RemapMacroInput {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let original_matrix_content;
-        let original_matrix_brace = braced!(original_matrix_content in input);
-        let remapped_matrix_content;
-        let remapped_matrix_brace = braced!(remapped_matrix_content in input);
-        Ok(RemapMacroInput {
-            original_matrix_brace,
-            original_matrix: original_matrix_content.parse()?,
-            remapped_matrix_brace,
-            remapped_matrix: remapped_matrix_content.parse()?,
-        })
+crate::parse_as_custom_fields! {
+    pub struct RemapMacroInputBuilder for RemapMacroInput {
+        pub original: Layer<OptionalItem<Ident>>,
+        pub remapped: Layer<Ident>,
     }
 }
 
 pub fn remap_matrix(input: RemapMacroInput) -> TokenStream {
-    let old = input.original_matrix.rows.iter().map(|row| {
-        let items = row.cols.iter().map(|col| match col {
+    let old = input.original.layer.rows.iter().map(|row| {
+        let items = row.items.iter().map(|col| match col {
             OptionalItem::None => quote! { No },
             OptionalItem::Some(ident) => quote! { $#ident },
         });
@@ -1111,27 +893,70 @@ pub fn remap_matrix(input: RemapMacroInput) -> TokenStream {
         quote! { [ #(#items)* ] }
     });
     let old2 = old.clone();
+    let old3 = old.clone();
 
-    let new = input.remapped_matrix.rows.iter().map(|row| {
-        let items = row.cols.iter().map(|col| quote! { $#col:tt });
+    let new = input.remapped.layer.rows.iter().map(|row| {
+        let items = row.items.iter().map(|col| quote! { $#col:tt });
         quote! { [ #(#items)* ] }
     });
     let new2 = new.clone();
+    let new3 = new.clone();
 
     quote! {
         macro_rules! remap {
-            ($macro:ident! { $({ #(#new)* })* }) => {
+            ($macro:ident! { $({ #(#new2)* })* }) => {
                 $macro! {
                     $(
                         {
-                            #(#old)*
+                            #(#old2)*
                         }
                     )*
                 }
             };
-            ($macro:ident! { #(#new2)* }) => {
+            ($macro:ident! { #(#new3)* }) => {
                 $macro! {
-                    #(#old2)*
+                    #(#old3)*
+                }
+            };
+            ($macro:ident! { [ $field_name:ident: { #(#new)* } $(, $($rest:tt)*)? ] -> [$($processed:tt)*] }) => {
+                remap! { $macro! {
+                        [
+                            $(
+                                $($rest)*
+                            )?
+                        ] -> [
+                            $($processed)*
+                            $field_name: { #(#old)* },
+                        ]
+                    }
+                }
+            };
+            ($macro:ident! { [ $field_name:ident: $($value:tt)* $(, $($rest:tt)*)? ] -> [$($processed:tt)*] }) => {
+                remap! { $macro! {
+                        [
+                            $(
+                                $($rest)*
+                            )?
+                        ] -> [
+                            $($processed)*
+                            $field_name: $($value)*,
+                        ]
+                    }
+                }
+            };
+            ($macro:ident! { [] -> [$($processed:tt)*] }) => {
+                $macro! {
+                    $($processed)*
+                }
+            };
+            ($macro:ident! { $($all:tt)* }) => {
+                remap! { $macro! {
+                        [
+                            $(
+                                $all
+                            )*
+                        ] -> []
+                    }
                 }
             };
         }

@@ -1,8 +1,8 @@
 //! Utilities for interfacing with the hardware, specific to STM32-based MCUs.
 //!
-//! Note that the contents of this STM32-version of `mcu` module may share some of the same members
-//! of other versions of the `mcu` module. This is the case so that parts of `rumcake` can remain
-//! hardware-agnostic.
+//! Note that the contents of this STM32-version of `platform` module may share some of the same
+//! members of other versions of the `platform` module. This is the case so that parts of `rumcake`
+//! can remain hardware-agnostic.
 
 use core::cell::RefCell;
 use core::future::poll_fn;
@@ -24,7 +24,9 @@ use embassy_sync::blocking_mutex::ThreadModeMutex;
 use static_cell::StaticCell;
 
 pub use rumcake_macros::{
-    input_pin, output_pin, setup_adc_sampler, setup_buffered_uart, setup_i2c,
+    stm32_input_pin as input_pin, stm32_output_pin as output_pin,
+    stm32_setup_adc_sampler as setup_adc_sampler, stm32_setup_buffered_uart as setup_buffered_uart,
+    stm32_setup_i2c as setup_i2c,
 };
 
 pub use embassy_stm32;

@@ -1,7 +1,7 @@
-use crate::keyboard::{LayoutLike, MatrixLike, OptionalItem};
+use crate::common::{Layer, MatrixLike, OptionalItem};
 use proc_macro2::{Ident, TokenStream};
-use proc_macro_error::OptionExt;
 use quote::quote;
+use syn::{Expr, LitInt};
 
 fn render_optional_item_to_led(item: &OptionalItem<Ident>) -> TokenStream {
     match item {
@@ -14,7 +14,7 @@ fn render_optional_item_to_led(item: &OptionalItem<Ident>) -> TokenStream {
 
 pub fn get_led_from_matrix_coordinates(input: MatrixLike<OptionalItem<Ident>>) -> TokenStream {
     let values = input.rows.iter().map(|row| {
-        let items = row.cols.iter().map(render_optional_item_to_led);
+        let items = row.items.iter().map(render_optional_item_to_led);
         quote! { #(#items),* }
     });
 
@@ -29,40 +29,29 @@ pub fn get_led_from_matrix_coordinates(input: MatrixLike<OptionalItem<Ident>>) -
     }
 }
 
-pub fn get_led_from_rgb_matrix_coordinates(input: LayoutLike<OptionalItem<Ident>>) -> TokenStream {
-    // let convert_to_
-    let red_values = input
-        .layers
-        .first()
-        .expect_or_abort("Red LED positions not specified.")
-        .layer
-        .rows
-        .iter();
+crate::parse_as_custom_fields! {
+    pub struct IS31FL3731RgbMatrixLedArgsBuilder for IS31FL3731RgbMatrixLedArgs {
+        red: Layer<OptionalItem<Ident>>,
+        green: Layer<OptionalItem<Ident>>,
+        blue: Layer<OptionalItem<Ident>>,
+    }
+}
 
-    let green_values = input
-        .layers
-        .get(1)
-        .expect_or_abort("Green LEDs positions not specified.")
-        .layer
-        .rows
-        .iter();
-
-    let blue_values = input
-        .layers
-        .get(2)
-        .expect_or_abort("Blue LEDs positions not specified.")
-        .layer
-        .rows
-        .iter();
+pub fn get_led_from_rgb_matrix_coordinates(
+    IS31FL3731RgbMatrixLedArgs { red, green, blue }: IS31FL3731RgbMatrixLedArgs,
+) -> TokenStream {
+    let red_values = red.layer.rows.iter();
+    let green_values = green.layer.rows.iter();
+    let blue_values = blue.layer.rows.iter();
 
     let rows =
         red_values
             .zip(green_values)
             .zip(blue_values)
             .map(|((red_row, green_row), blue_row)| {
-                let red_leds = red_row.cols.iter().map(render_optional_item_to_led);
-                let green_leds = green_row.cols.iter().map(render_optional_item_to_led);
-                let blue_leds = blue_row.cols.iter().map(render_optional_item_to_led);
+                let red_leds = red_row.items.iter().map(render_optional_item_to_led);
+                let green_leds = green_row.items.iter().map(render_optional_item_to_led);
+                let blue_leds = blue_row.items.iter().map(render_optional_item_to_led);
                 quote! { #(#red_leds),*, #(#green_leds),*, #(#blue_leds),* }
             });
 
@@ -77,17 +66,28 @@ pub fn get_led_from_rgb_matrix_coordinates(input: LayoutLike<OptionalItem<Ident>
     }
 }
 
-pub fn driver_trait() -> TokenStream {
-    quote! {
-        /// A trait that must be implemented to set up the IS31FL3731 driver.
-        pub(crate) trait IS31FL3731DriverSettings {
-            /// I2C Address for the IS31FL3731 driver. Consult the datasheet for more information.
-            const LED_DRIVER_ADDR: u8;
+crate::parse_as_custom_fields! {
+    pub struct IS31FL3731ArgsBuilder for IS31FL3731Args {
+        device: Ident,
+        i2c: Expr,
+        address: LitInt,
+    }
+}
 
-            /// Setup the I2C peripheral to communicate with the IS31FL3731 chip.
-            ///
-            /// It is recommended to use [`rumcake::hw::mcu::setup_i2c`] to implement this function.
-            fn setup_i2c() -> impl ::rumcake::embedded_hal_async::i2c::I2c<Error = impl core::fmt::Debug>;
-        }
+pub fn setup_is31fl3731(
+    IS31FL3731Args {
+        device,
+        i2c,
+        address,
+    }: IS31FL3731Args,
+) -> TokenStream {
+    quote! {
+        ::rumcake::drivers::is31fl3731::setup_driver(
+            #i2c,
+            #address,
+            <#device as ::rumcake::lighting::BacklightMatrixDevice>::LIGHTING_COLS as u8,
+            <#device as ::rumcake::lighting::BacklightMatrixDevice>::LIGHTING_ROWS as u8,
+            <#device as ::rumcake::drivers::is31fl3731::IS31FL3731BacklightDriver>::get_led_from_matrix_coordinates
+        ).await
     }
 }

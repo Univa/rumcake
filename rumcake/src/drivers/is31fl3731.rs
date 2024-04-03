@@ -1,13 +1,14 @@
 //! Rumcake driver implementations for [gleich's IS31FL3731 driver](`is31fl3731`).
 //!
 //! This driver provides implementations for
-//! [`SimpleBacklightDriver`](`crate::backlight::drivers::SimpleBacklightDriver`),
-//! [`SimpleBacklightMatrixDriver`](`crate::backlight::drivers::SimpleBacklightMatrixDriver`), and
-//! [`RGBBacklightMatrixDriver`](`crate::backlight::drivers::RGBBacklightMatrixDriver`)
+//! [`SimpleBacklightDriver`](`crate::lighting::simple_backlight::SimpleBacklightDriver`),
+//! [`SimpleBacklightMatrixDriver`](`crate::lighting::simple_backlight_matrix::SimpleBacklightMatrixDriver`),
+//! and
+//! [`RGBBacklightMatrixDriver`](`crate::lighting::rgb_backlight_matrix::RGBBacklightMatrixDriver`)
 //!
 //! To use this driver for backlighting, keyboards must implement
-//! [`IS31FL3731BacklightDriver`](backlight::IS31FL3731BacklightDriver). The result of
-//! [`setup_driver`] should be passed to a backlight task.
+//! [`IS31FL3731BacklightDriver`](IS31FL3731BacklightDriver). The result of [`setup_driver`] should
+//! be passed to a backlight task.
 
 pub use is31fl3731 as driver;
 
@@ -172,7 +173,14 @@ pub enum Position {
 use core::fmt::Debug;
 use embassy_time::Delay;
 use embedded_hal_async::i2c::I2c;
-use is31fl3731::IS31FL3731;
+use is31fl3731::{gamma, Error, IS31FL3731};
+use smart_leds::RGB8;
+
+pub use rumcake_macros::{
+    is31fl3731_get_led_from_matrix_coordinates as get_led_from_matrix_coordinates,
+    is31fl3731_get_led_from_rgb_matrix_coordinates as get_led_from_rgb_matrix_coordinates,
+    setup_is31fl3731,
+};
 
 /// Create an instance of the IS31FL3731 driver with the provided I2C peripheral, and address.
 pub async fn setup_driver(
@@ -189,150 +197,144 @@ pub async fn setup_driver(
     driver
 }
 
-#[cfg(feature = "_backlight")]
-/// IS31FL3731 backlight driver implementations
-pub mod backlight {
-    use is31fl3731::{gamma, Error, IS31FL3731};
+/// A trait that keyboards must implement to use the IS31FL3731 driver for backlighting.
+pub trait IS31FL3731BacklightDriver {
+    /// Convert matrix coordinates in the form of (col, row) to an IS31FL3731 [`Position`](super::Position).
+    ///
+    /// It is recommended to use [`is31fl3731_get_led_from_matrix_coordinates`] to implement this function.
+    fn get_led_from_matrix_coordinates(x: u8, y: u8) -> u8;
+}
 
-    use core::fmt::Debug;
-    use embedded_hal_async::i2c::I2c;
-    use smart_leds::RGB8;
+#[cfg(feature = "simple-backlight")]
+impl<
+        I2CError: Debug,
+        I2C: I2c<Error = I2CError>,
+        K: IS31FL3731BacklightDriver + crate::lighting::simple_backlight::SimpleBacklightDevice,
+    > crate::lighting::simple_backlight::SimpleBacklightDriver<K> for IS31FL3731<I2C>
+{
+    type DriverWriteError = Error<I2CError>;
 
-    use crate::backlight::drivers::SimpleBacklightDriver;
-    use crate::backlight::drivers::{RGBBacklightMatrixDriver, SimpleBacklightMatrixDriver};
-    use crate::backlight::BacklightMatrixDevice;
+    async fn write(&mut self, brightness: u8) -> Result<(), Self::DriverWriteError> {
+        let payload = [gamma(brightness); 144];
 
-    pub use rumcake_macros::{
-        is31fl3731_get_led_from_matrix_coordinates as get_led_from_matrix_coordinates,
-        is31fl3731_get_led_from_rgb_matrix_coordinates as get_led_from_rgb_matrix_coordinates,
-    };
+        self.all_pixels(&payload).await?;
 
-    /// A trait that keyboards must implement to use the IS31FL3731 driver for backlighting.
-    pub trait IS31FL3731BacklightDriver: BacklightMatrixDevice {
-        /// Convert matrix coordinates in the form of (col, row) to an IS31FL3731 [`Position`](super::Position).
-        ///
-        /// It is recommended to use [`is31fl3731_get_led_from_matrix_coordinates`] to implement this function.
-        fn get_led_from_matrix_coordinates(x: u8, y: u8) -> u8;
+        Ok(())
     }
 
-    impl<I2CError: Debug, I2C: I2c<Error = I2CError>, K: IS31FL3731BacklightDriver>
-        SimpleBacklightDriver<K> for IS31FL3731<I2C>
-    {
-        type DriverWriteError = Error<I2CError>;
+    type DriverEnableError = Error<I2CError>;
 
-        async fn write(&mut self, brightness: u8) -> Result<(), Self::DriverWriteError> {
-            let payload = [gamma(brightness); 144];
+    async fn turn_on(&mut self) -> Result<(), Self::DriverEnableError> {
+        self.sleep(false).await?;
 
-            self.all_pixels(&payload).await?;
-
-            Ok(())
-        }
-
-        type DriverEnableError = Error<I2CError>;
-
-        async fn turn_on(&mut self) -> Result<(), Self::DriverEnableError> {
-            self.sleep(false).await?;
-
-            Ok(())
-        }
-
-        type DriverDisableError = Error<I2CError>;
-
-        async fn turn_off(&mut self) -> Result<(), Self::DriverDisableError> {
-            self.sleep(true).await?;
-
-            Ok(())
-        }
+        Ok(())
     }
 
-    impl<I2CError: Debug, I2C: I2c<Error = I2CError>, K: IS31FL3731BacklightDriver>
-        SimpleBacklightMatrixDriver<K> for IS31FL3731<I2C>
-    {
-        type DriverWriteError = Error<I2CError>;
+    type DriverDisableError = Error<I2CError>;
 
-        async fn write(
-            &mut self,
-            buf: &[[u8; K::LIGHTING_COLS]; K::LIGHTING_ROWS],
-        ) -> Result<(), Self::DriverWriteError> {
-            let mut payload = [0; 144];
+    async fn turn_off(&mut self) -> Result<(), Self::DriverDisableError> {
+        self.sleep(true).await?;
 
-            // Map the frame data to LED offsets and set the brightness of the LED in the payload
-            for (row_num, row) in buf.iter().enumerate() {
-                for (col_num, val) in row.iter().enumerate() {
-                    let offset = K::get_led_from_matrix_coordinates(col_num as u8, row_num as u8);
+        Ok(())
+    }
+}
+
+#[cfg(feature = "simple-backlight-matrix")]
+impl<
+        I2CError: Debug,
+        I2C: I2c<Error = I2CError>,
+        K: IS31FL3731BacklightDriver
+            + crate::lighting::simple_backlight_matrix::SimpleBacklightMatrixDevice,
+    > crate::lighting::simple_backlight_matrix::SimpleBacklightMatrixDriver<K> for IS31FL3731<I2C>
+{
+    type DriverWriteError = Error<I2CError>;
+
+    async fn write(
+        &mut self,
+        buf: &[[u8; K::LIGHTING_COLS]; K::LIGHTING_ROWS],
+    ) -> Result<(), Self::DriverWriteError> {
+        let mut payload = [0; 144];
+
+        // Map the frame data to LED offsets and set the brightness of the LED in the payload
+        for (row_num, row) in buf.iter().enumerate() {
+            for (col_num, val) in row.iter().enumerate() {
+                let offset = K::get_led_from_matrix_coordinates(col_num as u8, row_num as u8);
+                if offset != 255 {
+                    payload[offset as usize] = gamma(*val);
+                }
+            }
+        }
+
+        self.all_pixels(&payload).await?;
+
+        Ok(())
+    }
+
+    type DriverEnableError = Error<I2CError>;
+
+    async fn turn_on(&mut self) -> Result<(), Self::DriverEnableError> {
+        self.sleep(false).await?;
+
+        Ok(())
+    }
+
+    type DriverDisableError = Error<I2CError>;
+
+    async fn turn_off(&mut self) -> Result<(), Self::DriverDisableError> {
+        self.sleep(true).await?;
+
+        Ok(())
+    }
+}
+
+#[cfg(feature = "rgb-backlight-matrix")]
+impl<
+        I2CError: Debug,
+        I2C: I2c<Error = I2CError>,
+        K: IS31FL3731BacklightDriver + crate::lighting::rgb_backlight_matrix::RGBBacklightMatrixDevice,
+    > crate::lighting::rgb_backlight_matrix::RGBBacklightMatrixDriver<K> for IS31FL3731<I2C>
+{
+    type DriverWriteError = Error<I2CError>;
+
+    async fn write(
+        &mut self,
+        buf: &[[RGB8; K::LIGHTING_COLS]; K::LIGHTING_ROWS],
+    ) -> Result<(), Self::DriverWriteError> {
+        let mut payload = [0; 144];
+
+        // Map the frame data to LED offsets and set the brightness of the LED in the payload
+        for (row_num, row) in buf.iter().enumerate() {
+            for (col_num, color) in row.iter().enumerate() {
+                for (component, val) in color.iter().enumerate() {
+                    let offset = K::get_led_from_matrix_coordinates(
+                        col_num as u8 + (component * K::LIGHTING_COLS) as u8,
+                        row_num as u8,
+                    );
                     if offset != 255 {
-                        payload[offset as usize] = gamma(*val);
+                        payload[offset as usize] = gamma(val);
                     }
                 }
             }
-
-            self.all_pixels(&payload).await?;
-
-            Ok(())
         }
 
-        type DriverEnableError = Error<I2CError>;
+        self.all_pixels(&payload).await?;
 
-        async fn turn_on(&mut self) -> Result<(), Self::DriverEnableError> {
-            self.sleep(false).await?;
-
-            Ok(())
-        }
-
-        type DriverDisableError = Error<I2CError>;
-
-        async fn turn_off(&mut self) -> Result<(), Self::DriverDisableError> {
-            self.sleep(true).await?;
-
-            Ok(())
-        }
+        Ok(())
     }
 
-    impl<I2CError: Debug, I2C: I2c<Error = I2CError>, K: IS31FL3731BacklightDriver>
-        RGBBacklightMatrixDriver<K> for IS31FL3731<I2C>
-    {
-        type DriverWriteError = Error<I2CError>;
+    type DriverEnableError = Error<I2CError>;
 
-        async fn write(
-            &mut self,
-            buf: &[[RGB8; K::LIGHTING_COLS]; K::LIGHTING_ROWS],
-        ) -> Result<(), Self::DriverWriteError> {
-            let mut payload = [0; 144];
+    async fn turn_on(&mut self) -> Result<(), Self::DriverEnableError> {
+        self.sleep(false).await?;
 
-            // Map the frame data to LED offsets and set the brightness of the LED in the payload
-            for (row_num, row) in buf.iter().enumerate() {
-                for (col_num, color) in row.iter().enumerate() {
-                    for (component, val) in color.iter().enumerate() {
-                        let offset = K::get_led_from_matrix_coordinates(
-                            col_num as u8 + (component * K::LIGHTING_COLS) as u8,
-                            row_num as u8,
-                        );
-                        if offset != 255 {
-                            payload[offset as usize] = gamma(val);
-                        }
-                    }
-                }
-            }
+        Ok(())
+    }
 
-            self.all_pixels(&payload).await?;
+    type DriverDisableError = Error<I2CError>;
 
-            Ok(())
-        }
+    async fn turn_off(&mut self) -> Result<(), Self::DriverDisableError> {
+        self.sleep(true).await?;
 
-        type DriverEnableError = Error<I2CError>;
-
-        async fn turn_on(&mut self) -> Result<(), Self::DriverEnableError> {
-            self.sleep(false).await?;
-
-            Ok(())
-        }
-
-        type DriverDisableError = Error<I2CError>;
-
-        async fn turn_off(&mut self) -> Result<(), Self::DriverDisableError> {
-            self.sleep(true).await?;
-
-            Ok(())
-        }
+        Ok(())
     }
 }

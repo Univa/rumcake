@@ -8,7 +8,7 @@ use core::ops::Range;
 
 use defmt::{debug, info, warn, Debug2Format};
 use embassy_sync::channel::Channel;
-use embassy_sync::mutex::{Mutex, MutexGuard};
+use embassy_sync::mutex::Mutex;
 use embassy_sync::pubsub::{PubSubBehavior, PubSubChannel};
 use embassy_time::{Duration, Ticker, Timer};
 use embedded_hal::digital::v2::{InputPin, OutputPin};
@@ -26,8 +26,8 @@ use usbd_human_interface_device::{
 #[cfg(feature = "media-keycodes")]
 pub use usbd_human_interface_device::page::Consumer;
 
-use crate::hw::mcu::RawMutex;
-use crate::hw::CURRENT_OUTPUT_STATE;
+use crate::hw::platform::RawMutex;
+use crate::hw::{HIDDevice, CURRENT_OUTPUT_STATE};
 
 pub use rumcake_macros::{
     build_analog_matrix, build_direct_pin_matrix, build_layout, build_standard_matrix, remap_matrix,
@@ -53,6 +53,14 @@ pub trait Keyboard {
 
 /// A trait that must be implemented on a device that communicates with the host device.
 pub trait KeyboardLayout {
+    /// Get a reference to a channel that can receive matrix events from other tasks to be
+    /// processed into keycodes.
+    fn get_matrix_events_channel() -> &'static Channel<RawMutex, Event, 1> {
+        static POLLED_EVENTS_CHANNEL: Channel<RawMutex, Event, 1> = Channel::new();
+
+        &POLLED_EVENTS_CHANNEL
+    }
+
     const NUM_ENCODERS: usize = 0; // Only for VIA compatibility, no proper encoder support. This is the default if not set in QMK
 
     /// Number of columns in the layout.
@@ -89,33 +97,46 @@ pub trait KeyboardLayout {
     /// `press` is set to `true` if the event was a key press. Otherwise, it will be `false`. `id`
     /// corresponds to the `id` used in your keyboard layout.
     fn on_custom_keycode(_id: u8, _press: bool) {}
+
+    #[cfg(feature = "simple-backlight")]
+    type SimpleBacklightDeviceType: crate::lighting::simple_backlight::private::MaybeSimpleBacklightDevice =
+        crate::lighting::private::EmptyLightingDevice;
+
+    #[cfg(feature = "simple-backlight-matrix")]
+    type SimpleBacklightMatrixDeviceType: crate::lighting::simple_backlight_matrix::private::MaybeSimpleBacklightMatrixDevice = crate::lighting::private::EmptyLightingDevice;
+
+    #[cfg(feature = "rgb-backlight-matrix")]
+    type RGBBacklightMatrixDeviceType: crate::lighting::rgb_backlight_matrix::private::MaybeRGBBacklightMatrixDevice = crate::lighting::private::EmptyLightingDevice;
+
+    #[cfg(feature = "underglow")]
+    type UnderglowDeviceType: crate::lighting::underglow::private::MaybeUnderglowDevice =
+        crate::lighting::private::EmptyLightingDevice;
 }
 
 /// A mutex-guaraded [`keyberon::layout::Layout`]. This also stores the original layout, so that it
 /// can be reset to it's initial state if modifications are made to it.
 pub struct Layout<const C: usize, const R: usize, const L: usize> {
-    layout: once_cell::sync::OnceCell<Mutex<RawMutex, KeyberonLayout<C, R, L, Keycode>>>,
+    pub(crate) layout: Mutex<RawMutex, KeyberonLayout<C, R, L, Keycode>>,
 }
 
 impl<const C: usize, const R: usize, const L: usize> Layout<C, R, L> {
-    pub const fn new() -> Self {
+    pub const fn new(layout: KeyberonLayout<C, R, L, Keycode>) -> Self {
         Self {
-            layout: once_cell::sync::OnceCell::new(),
+            layout: Mutex::new(layout),
         }
-    }
-
-    pub fn init(&self, layers: &'static mut Layers<C, R, L, Keycode>) {
-        self.layout
-            .get_or_init(|| Mutex::new(KeyberonLayout::new(layers)));
-    }
-
-    pub async fn lock(&self) -> MutexGuard<RawMutex, KeyberonLayout<C, R, L, Keycode>> {
-        self.layout.get().unwrap().lock().await
     }
 }
 
 /// A trait that must be implemented for any device that needs to poll a switch matrix.
 pub trait KeyboardMatrix {
+    /// The layout to send matrix events to.
+    type Layout: private::MaybeKeyboardLayout = private::EmptyKeyboardLayout;
+
+    #[cfg(feature = "split-peripheral")]
+    /// The peripheral device in a split keyboard setup to send matrix events to.
+    type PeripheralDeviceType: crate::split::peripheral::private::MaybePeripheralDevice =
+        crate::split::peripheral::private::EmptyPeripheralDevice;
+
     /// Debounce setting.
     const DEBOUNCE_MS: u16 = 5;
 
@@ -195,37 +216,40 @@ pub fn setup_analog_keyboard_matrix<S: MatrixSampler, const CS: usize, const RS:
 ///
 /// These can be used in your keyboard layout, defined in [`KeyboardLayout::get_layout`]
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
+#[repr(u8)]
 pub enum Keycode {
     /// Custom keycode, which can be used to run custom code. You can use
     /// [`KeyboardLayout::on_custom_keycode`] to handle it.
-    Custom(u8),
+    Custom(u8) = 0,
+
+    /// Hardware keycode, which can be any variant in [`crate::hw::HardwareCommand`]
+    Hardware(crate::hw::HardwareCommand) = 1,
 
     #[cfg(feature = "media-keycodes")]
     /// Media keycode, which can be any variant in [`usbd_human_interface_device::page::Consumer`]
-    Media(usbd_human_interface_device::page::Consumer),
-
-    #[cfg(feature = "underglow")]
-    /// Underglow keycode, which can be any variant in [`crate::underglow::animations::UnderglowCommand`]
-    Underglow(crate::underglow::animations::UnderglowCommand),
+    Media(usbd_human_interface_device::page::Consumer) = 2,
 
     #[cfg(feature = "simple-backlight")]
     /// Keycode used to control a simple backlight system, which can be any variant in
-    /// [`crate::backlight::simple_backlight::animations::BacklightCommand`]
-    SimpleBacklight(crate::backlight::simple_backlight::animations::BacklightCommand),
+    /// [`crate::lighting::simple_backlight::SimpleBacklightCommand`]
+    SimpleBacklight(crate::lighting::simple_backlight::SimpleBacklightCommand) = 3,
 
     #[cfg(feature = "simple-backlight-matrix")]
     /// Keycode used to control a simple backlight matrix system, which can be any variant in
-    /// [`crate::backlight::simple_backlight_matrix::animations::BacklightCommand`]
-    SimpleBacklightMatrix(crate::backlight::simple_backlight_matrix::animations::BacklightCommand),
+    /// [`crate::lighting::simple_backlight_matrix::SimpleBacklightMatrixCommand`]
+    SimpleBacklightMatrix(crate::lighting::simple_backlight_matrix::SimpleBacklightMatrixCommand) =
+        4,
 
     #[cfg(feature = "rgb-backlight-matrix")]
     /// Keycode used to control an RGB backlight matrix system, which can be any variant in
-    /// [`crate::backlight::rgb_backlight_matrix::animations::BacklightCommand`]
-    RGBBacklightMatrix(crate::backlight::rgb_backlight_matrix::animations::BacklightCommand),
+    /// [`crate::lighting::rgb_backlight_matrix::RGBBacklightMatrixCommand`]
+    RGBBacklightMatrix(crate::lighting::rgb_backlight_matrix::RGBBacklightMatrixCommand) = 5,
 
-    #[cfg(feature = "bluetooth")]
-    /// Bluetooth keycode, which can be any variant in [`crate::bluetooth::BluetoothCommand`]
-    Bluetooth(crate::bluetooth::BluetoothCommand),
+    #[cfg(feature = "underglow")]
+    /// Underglow keycode, which can be any variant in
+    /// [`crate::lighting::underglow::UnderglowCommand`]
+    Underglow(crate::lighting::underglow::UnderglowCommand) = 6,
 }
 
 pub struct PollableMatrix<T> {
@@ -336,15 +360,13 @@ where
     }
 }
 
-/// Channel with keyboard events polled from the swtich matrix
-///
-/// The coordinates received will be remapped according to the implementation of
-/// [`KeyboardMatrix::remap_to_layout`].
-pub(crate) static POLLED_EVENTS_CHANNEL: Channel<RawMutex, Event, 1> = Channel::new();
-
 #[rumcake_macros::task]
 pub async fn matrix_poll<K: KeyboardMatrix + 'static>(_k: K) {
     let matrix = K::get_matrix();
+    let layout_channel = <K::Layout as private::MaybeKeyboardLayout>::get_matrix_events_channel();
+
+    #[cfg(feature = "split-peripheral")]
+    let peripheral_channel = <K::PeripheralDeviceType as crate::split::peripheral::private::MaybePeripheralDevice>::get_matrix_events_channel();
 
     loop {
         {
@@ -366,7 +388,14 @@ pub async fn matrix_poll<K: KeyboardMatrix + 'static>(_k: K) {
                     Debug2Format(&remapped_event)
                 );
 
-                POLLED_EVENTS_CHANNEL.send(remapped_event).await;
+                if let Some(layout_channel) = layout_channel {
+                    layout_channel.send(remapped_event).await
+                };
+
+                #[cfg(feature = "split-peripheral")]
+                if let Some(peripheral_channel) = peripheral_channel {
+                    peripheral_channel.send(remapped_event).await
+                };
             }
         }
         Timer::after(Duration::from_micros(500)).await;
@@ -382,24 +411,8 @@ pub async fn matrix_poll<K: KeyboardMatrix + 'static>(_k: K) {
 /// slots will be used.
 pub static MATRIX_EVENTS: PubSubChannel<RawMutex, Event, 4, 4, 1> = PubSubChannel::new();
 
-/// Channel for sending NKRO HID keyboard reports.
-///
-/// Channel messages should be consumed by the bluetooth task or USB task, so user-level code
-/// should **not** attempt to receive messages from the channel, otherwise commands may not be
-/// processed appropriately. You should only send to this channel.
-pub static KEYBOARD_REPORT_HID_SEND_CHANNEL: Channel<RawMutex, NKROBootKeyboardReport, 1> =
-    Channel::new();
-
-/// Channel for sending consumer HID reports.
-///
-/// Channel messages should be consumed by the bluetooth task or USB task, so user-level code
-/// should **not** attempt to receive messages from the channel, otherwise commands may not be
-/// processed appropriately. You should only send to this channel.
-pub static CONSUMER_REPORT_HID_SEND_CHANNEL: Channel<RawMutex, MultipleConsumerReport, 1> =
-    Channel::new();
-
 #[rumcake_macros::task]
-pub async fn layout_collect<K: KeyboardLayout + 'static>(_k: K)
+pub async fn layout_collect<K: KeyboardLayout + HIDDevice + 'static>(_k: K)
 where
     [(); K::LAYERS]:,
     [(); K::LAYOUT_COLS]:,
@@ -412,12 +425,18 @@ where
     let mut codes = [Consumer::Unassigned; 4];
 
     let mut ticker = Ticker::every(Duration::from_millis(1));
+    let matrix_channel = K::get_matrix_events_channel();
+
+    #[cfg(feature = "media-keycodes")]
+    let consumer_report_channel = K::get_consumer_report_send_channel();
+
+    let keyboard_report = K::get_keyboard_report_send_channel();
 
     loop {
         let keys = {
-            let mut layout = layout.lock().await;
+            let mut layout = layout.layout.lock().await;
 
-            if let Ok(event) = POLLED_EVENTS_CHANNEL.try_receive() {
+            if let Ok(event) = matrix_channel.try_receive() {
                 layout.event(event);
                 MATRIX_EVENTS.publish_immediate(event); // Just immediately publish since we don't want to hold up any key events to be converted into keycodes.
             };
@@ -439,53 +458,49 @@ where
                         {
                             *c = keycode;
                         }
-                        CONSUMER_REPORT_HID_SEND_CHANNEL
+                        consumer_report_channel
                             .send(MultipleConsumerReport { codes })
                             .await;
                     }
                     #[cfg(feature = "underglow")]
                     Keycode::Underglow(command) => {
-                        crate::underglow::UNDERGLOW_COMMAND_CHANNEL
-                            .send(command)
-                            .await;
-                        #[cfg(feature = "storage")]
-                        crate::underglow::UNDERGLOW_COMMAND_CHANNEL
-                            .send(crate::underglow::animations::UnderglowCommand::SaveConfig)
-                            .await;
+                        if let Some(channel) = <K::UnderglowDeviceType as crate::lighting::underglow::private::MaybeUnderglowDevice>::get_command_channel() {
+                            channel.send(command).await;
+                            #[cfg(feature = "storage")]
+                            channel
+                                .send(crate::lighting::underglow::UnderglowCommand::SaveConfig)
+                                .await;
+                        }
                     }
                     #[cfg(feature = "simple-backlight")]
                     Keycode::SimpleBacklight(command) => {
-                        crate::backlight::simple_backlight::BACKLIGHT_COMMAND_CHANNEL
-                            .send(command)
+                        if let Some(channel) = <K::SimpleBacklightDeviceType as crate::lighting::simple_backlight::private::MaybeSimpleBacklightDevice>::get_command_channel() {
+                            channel.send(command).await;
+                            #[cfg(feature = "storage")]
+                            channel.send(crate::lighting::simple_backlight::SimpleBacklightCommand::SaveConfig)
                             .await;
-                        #[cfg(feature = "storage")]
-                        crate::backlight::simple_backlight::BACKLIGHT_COMMAND_CHANNEL
-                            .send(crate::backlight::simple_backlight::animations::BacklightCommand::SaveConfig)
-                            .await;
+                        }
                     }
                     #[cfg(feature = "simple-backlight-matrix")]
                     Keycode::SimpleBacklightMatrix(command) => {
-                        crate::backlight::simple_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
-                            .send(command)
+                        if let Some(channel) = <K::SimpleBacklightMatrixDeviceType as crate::lighting::simple_backlight_matrix::private::MaybeSimpleBacklightMatrixDevice>::get_command_channel() {
+                            channel.send(command).await;
+                            #[cfg(feature = "storage")]
+                            channel.send(crate::lighting::simple_backlight_matrix::SimpleBacklightMatrixCommand::SaveConfig)
                             .await;
-                        #[cfg(feature = "storage")]
-                        crate::backlight::simple_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
-                            .send(crate::backlight::simple_backlight_matrix::animations::BacklightCommand::SaveConfig)
-                            .await;
+                        }
                     }
                     #[cfg(feature = "rgb-backlight-matrix")]
                     Keycode::RGBBacklightMatrix(command) => {
-                        crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
-                            .send(command)
+                        if let Some(channel) = <K::RGBBacklightMatrixDeviceType as crate::lighting::rgb_backlight_matrix::private::MaybeRGBBacklightMatrixDevice>::get_command_channel() {
+                            channel.send(command).await;
+                            #[cfg(feature = "storage")]
+                            channel.send(crate::lighting::rgb_backlight_matrix::RGBBacklightMatrixCommand::SaveConfig)
                             .await;
-                        #[cfg(feature = "storage")]
-                        crate::backlight::rgb_backlight_matrix::BACKLIGHT_COMMAND_CHANNEL
-                            .send(crate::backlight::rgb_backlight_matrix::animations::BacklightCommand::SaveConfig)
-                            .await;
+                        }
                     }
-                    #[cfg(feature = "bluetooth")]
-                    Keycode::Bluetooth(command) => {
-                        crate::bluetooth::BLUETOOTH_COMMAND_CHANNEL
+                    Keycode::Hardware(command) => {
+                        crate::hw::HARDWARE_COMMAND_CHANNEL
                             .send(command)
                             .await;
                     }
@@ -499,7 +514,7 @@ where
                         if let Some(c) = codes.iter_mut().find(|c| **c == keycode) {
                             *c = Consumer::Unassigned;
                         }
-                        CONSUMER_REPORT_HID_SEND_CHANNEL
+                        consumer_report_channel
                             .send(MultipleConsumerReport { codes })
                             .await;
                     }
@@ -530,7 +545,7 @@ where
             // are both not connected, this channel can become filled, so we discard the report in
             // that case.
             if CURRENT_OUTPUT_STATE.get().await.is_some() {
-                KEYBOARD_REPORT_HID_SEND_CHANNEL
+                keyboard_report
                     .send(NKROBootKeyboardReport::new(keys))
                     .await;
             } else {
@@ -539,5 +554,29 @@ where
         }
 
         ticker.next().await;
+    }
+}
+
+pub(crate) mod private {
+    use embassy_sync::channel::Channel;
+    use keyberon::layout::Event;
+
+    use crate::hw::platform::RawMutex;
+
+    use super::KeyboardLayout;
+
+    pub struct EmptyKeyboardLayout;
+    impl MaybeKeyboardLayout for EmptyKeyboardLayout {}
+
+    pub trait MaybeKeyboardLayout {
+        fn get_matrix_events_channel() -> Option<&'static Channel<RawMutex, Event, 1>> {
+            None
+        }
+    }
+
+    impl<T: KeyboardLayout> MaybeKeyboardLayout for T {
+        fn get_matrix_events_channel() -> Option<&'static Channel<RawMutex, Event, 1>> {
+            Some(T::get_matrix_events_channel())
+        }
     }
 }

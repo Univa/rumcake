@@ -8,7 +8,7 @@
 use embassy_sync::mutex::{Mutex, MutexGuard};
 use embassy_sync::signal::Signal;
 
-use crate::hw::mcu::RawMutex;
+use crate::hw::platform::RawMutex;
 
 pub(crate) trait StaticArray {
     const LEN: usize;
@@ -109,12 +109,6 @@ impl<'a, T: Clone + PartialEq> State<'a, T> {
     }
 }
 
-// TODO: remove re-exports
-
-pub use embedded_hal;
-pub use embedded_hal_async;
-pub use embedded_io_async;
-pub use embedded_storage_async;
 pub use keyberon;
 pub use once_cell;
 
@@ -126,11 +120,8 @@ mod math;
 #[cfg(feature = "storage")]
 pub mod storage;
 
-#[cfg(feature = "underglow")]
-pub mod underglow;
-
-#[cfg(feature = "_backlight")]
-pub mod backlight;
+#[cfg(feature = "lighting")]
+pub mod lighting;
 
 #[cfg(feature = "usb")]
 pub mod usb;
@@ -158,25 +149,10 @@ pub mod tasks {
     pub use crate::hw::__output_switcher;
     pub use crate::keyboard::{__layout_collect, __matrix_poll};
 
-    #[cfg(feature = "simple-backlight")]
-    pub use crate::backlight::simple_backlight::__simple_backlight_task;
-    #[cfg(all(feature = "storage", feature = "simple-backlight"))]
-    pub use crate::backlight::simple_backlight::storage::__simple_backlight_storage_task;
-
-    #[cfg(feature = "simple-backlight-matrix")]
-    pub use crate::backlight::simple_backlight_matrix::__simple_backlight_matrix_task;
-    #[cfg(all(feature = "storage", feature = "simple-backlight-matrix"))]
-    pub use crate::backlight::simple_backlight_matrix::storage::__simple_backlight_matrix_storage_task;
-
-    #[cfg(feature = "rgb-backlight-matrix")]
-    pub use crate::backlight::rgb_backlight_matrix::__rgb_backlight_matrix_task;
-    #[cfg(all(feature = "storage", feature = "rgb-backlight-matrix"))]
-    pub use crate::backlight::rgb_backlight_matrix::storage::__rgb_backlight_matrix_storage_task;
-
-    #[cfg(feature = "underglow")]
-    pub use crate::underglow::__underglow_task;
-    #[cfg(all(feature = "underglow", feature = "storage"))]
-    pub use crate::underglow::storage::__underglow_storage_task;
+    #[cfg(all(feature = "lighting", feature = "storage"))]
+    pub use crate::lighting::__lighting_storage_task;
+    #[cfg(feature = "lighting")]
+    pub use crate::lighting::__lighting_task;
 
     #[cfg(feature = "display")]
     pub use crate::display::__display_task;
@@ -190,13 +166,9 @@ pub mod tasks {
     pub use crate::usb::__usb_hid_via_write_task;
     #[cfg(feature = "via")]
     pub use crate::via::__via_process_task;
-    #[cfg(all(feature = "via", feature = "storage"))]
-    pub use crate::via::storage::__via_storage_task;
 
     #[cfg(feature = "vial")]
     pub use crate::vial::__vial_process_task;
-    #[cfg(all(feature = "vial", feature = "storage"))]
-    pub use crate::vial::storage::__vial_storage_task;
 
     #[cfg(feature = "split-central")]
     pub use crate::split::central::__central_task;
@@ -205,10 +177,10 @@ pub mod tasks {
     pub use crate::split::peripheral::__peripheral_task;
 
     #[cfg(feature = "nrf")]
-    pub use crate::hw::mcu::__adc_task;
+    pub use crate::hw::platform::__adc_task;
 
     #[cfg(feature = "nrf-ble")]
-    pub use crate::hw::mcu::__softdevice_task;
+    pub use crate::hw::platform::__softdevice_task;
 
     #[cfg(all(feature = "nrf", feature = "bluetooth"))]
     pub use crate::bluetooth::nrf_ble::__nrf_ble_task;

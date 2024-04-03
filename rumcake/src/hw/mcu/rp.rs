@@ -1,8 +1,8 @@
 //! Utilities for interfacing with the hardware, specific to RP-based MCUs.
 //!
-//! Note that the contents of this RP-version of `mcu` module may share some of the same members
-//! of other versions of the `mcu` module. This is the case so that parts of `rumcake` can remain
-//! hardware-agnostic.
+//! Note that the contents of this RP-version of `platform` module may share some of the same
+//! members of other versions of the `platform` module. This is the case so that parts of `rumcake`
+//! can remain hardware-agnostic.
 
 use core::cell::RefCell;
 use core::ops::DerefMut;
@@ -21,7 +21,9 @@ use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::blocking_mutex::ThreadModeMutex;
 
 pub use rumcake_macros::{
-    input_pin, output_pin, setup_adc_sampler, setup_buffered_uart, setup_dma_channel, setup_i2c,
+    rp_input_pin as input_pin, rp_output_pin as output_pin,
+    rp_setup_adc_sampler as setup_adc_sampler, rp_setup_buffered_uart as setup_buffered_uart,
+    rp_setup_i2c as setup_i2c,
 };
 
 pub use embassy_rp;
@@ -182,8 +184,9 @@ pub type Flash<'a, const FLASH_SIZE: usize> = HALFlash<'a, FLASH, Async, FLASH_S
 /// Construct an instance of [`Flash`]. This usually needs to be passed to
 /// [`crate::storage::Database::setup`], so that your device can use storage features.
 pub fn setup_internal_flash<'a, const FLASH_SIZE: usize>(
-    channel: impl crate::hw::mcu::embassy_rp::Peripheral<P = impl crate::hw::mcu::embassy_rp::dma::Channel>
-        + 'a,
+    channel: impl crate::hw::platform::embassy_rp::Peripheral<
+            P = impl crate::hw::platform::embassy_rp::dma::Channel,
+        > + 'a,
 ) -> Flash<'a, FLASH_SIZE> {
     unsafe { Flash::new(FLASH::steal(), channel) }
 }

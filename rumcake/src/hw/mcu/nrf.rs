@@ -1,8 +1,8 @@
 //! Utilities for interfacing with the hardware, specific to nRF5x-based MCUs.
 //!
-//! Note that the contents of this nRF5x-version of `mcu` module may share some of the same members
-//! of other versions of the `mcu` module. This is the case so that parts of `rumcake` can remain
-//! hardware-agnostic.
+//! Note that the contents of this nRF5x-version of `platform` module may share some of the same
+//! members of other versions of the `platform` module. This is the case so that parts of `rumcake`
+//! can remain hardware-agnostic.
 
 use core::cell::RefCell;
 use core::mem::MaybeUninit;
@@ -30,7 +30,9 @@ use crate::hw::BATTERY_LEVEL_STATE;
 use crate::keyboard::MatrixSampler;
 
 pub use rumcake_macros::{
-    input_pin, output_pin, setup_adc_sampler, setup_buffered_uarte, setup_i2c, setup_i2c_blocking,
+    nrf_input_pin as input_pin, nrf_output_pin as output_pin,
+    nrf_setup_adc_sampler as setup_adc_sampler, nrf_setup_buffered_uarte as setup_buffered_uarte,
+    nrf_setup_i2c as setup_i2c,
 };
 
 pub use embassy_nrf;

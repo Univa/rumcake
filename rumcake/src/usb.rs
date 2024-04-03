@@ -2,6 +2,8 @@
 //!
 //! To use USB host communication, keyboards must implement [`USBKeyboard`].
 
+use core::marker::PhantomData;
+
 use defmt::{error, info, Debug2Format};
 use embassy_futures::select::{self, select};
 use embassy_sync::signal::Signal;
@@ -20,18 +22,16 @@ use usbd_human_interface_device::device::keyboard::{
     NKROBootKeyboardReport, NKRO_BOOT_KEYBOARD_REPORT_DESCRIPTOR,
 };
 
-use crate::hw::mcu::RawMutex;
-use crate::hw::{HIDOutput, CURRENT_OUTPUT_STATE};
-use crate::keyboard::{
-    Keyboard, KeyboardLayout, CONSUMER_REPORT_HID_SEND_CHANNEL, KEYBOARD_REPORT_HID_SEND_CHANNEL,
-};
+use crate::hw::platform::RawMutex;
+use crate::hw::{HIDDevice, HIDOutput, CURRENT_OUTPUT_STATE};
+use crate::keyboard::Keyboard;
 use crate::{State, StaticArray};
 
 pub(crate) static USB_RUNNING_STATE: State<bool> =
     State::new(false, &[&crate::hw::USB_RUNNING_STATE_LISTENER]);
 
 /// A trait that keyboards must implement to communicate with host devices over USB.
-pub trait USBKeyboard: Keyboard + KeyboardLayout {
+pub trait USBKeyboard: Keyboard + HIDDevice {
     /// Vendor ID for the keyboard.
     const USB_VID: u16;
 
@@ -129,17 +129,20 @@ macro_rules! usb_task_inner {
 pub(crate) static KB_CURRENT_OUTPUT_STATE_LISTENER: Signal<RawMutex, ()> = Signal::new();
 
 #[rumcake_macros::task]
-pub async fn usb_hid_kb_write_task(
+pub async fn usb_hid_kb_write_task<K: HIDDevice>(
+    _k: K,
     mut hid: HidWriter<
         'static,
         impl Driver<'static>,
         { <<NKROBootKeyboardReport as PackedStruct>::ByteArray as StaticArray>::LEN },
     >,
 ) {
+    let channel = K::get_via_hid_send_channel();
+
     usb_task_inner!(
         hid,
         KB_CURRENT_OUTPUT_STATE_LISTENER,
-        KEYBOARD_REPORT_HID_SEND_CHANNEL,
+        channel,
         "[USB] Writing NKRO HID keyboard report to USB: {:?}",
         "[USB] Couldn't write HID keyboard report: {:?}"
     )
@@ -148,37 +151,52 @@ pub async fn usb_hid_kb_write_task(
 pub(crate) static CONSUMER_CURRENT_OUTPUT_STATE_LISTENER: Signal<RawMutex, ()> = Signal::new();
 
 #[rumcake_macros::task]
-pub async fn usb_hid_consumer_write_task(
+pub async fn usb_hid_consumer_write_task<K: HIDDevice>(
+    _k: K,
     mut hid: HidWriter<
         'static,
         impl Driver<'static>,
         { <<MultipleConsumerReport as PackedStruct>::ByteArray as StaticArray>::LEN },
     >,
 ) {
+    let channel = K::get_via_hid_send_channel();
+
     usb_task_inner!(
         hid,
         CONSUMER_CURRENT_OUTPUT_STATE_LISTENER,
-        CONSUMER_REPORT_HID_SEND_CHANNEL,
+        channel,
         "[USB] Writing consumer HID report to USB: {:?}",
         "[USB] Couldn't write consumer HID report: {:?}"
     );
 }
 
 #[cfg(feature = "via")]
-struct ViaCommandHandler;
+pub struct ViaCommandHandler<T> {
+    _phantom: PhantomData<T>,
+}
+
+#[cfg(feature = "via")]
+impl<T> ViaCommandHandler<T> {
+    pub const fn new() -> Self {
+        Self {
+            _phantom: PhantomData,
+        }
+    }
+}
 
 #[cfg(feature = "via")]
 /// Configure the HID report reader and writer for Via/Vial packets.
 ///
 /// The reader should be passed to [`usb_hid_via_read_task`], and the writer should be passed to
 /// [`usb_hid_via_write_task`].
-pub fn setup_usb_via_hid_reader_writer(
+pub fn setup_usb_via_hid_reader_writer<T: HIDDevice + 'static>(
+    command_handler: &'static ViaCommandHandler<T>,
     builder: &mut Builder<'static, impl Driver<'static>>,
 ) -> HidReaderWriter<'static, impl Driver<'static>, 32, 32> {
     static VIA_STATE: StaticCell<UsbState> = StaticCell::new();
     let via_state = VIA_STATE.init(UsbState::new());
     let via_hid_config = Config {
-        request_handler: Some(&VIA_COMMAND_HANDLER),
+        request_handler: Some(command_handler),
         report_descriptor: crate::via::VIA_REPORT_DESCRIPTOR,
         poll_ms: 1,
         max_packet_size: 32,
@@ -187,10 +205,7 @@ pub fn setup_usb_via_hid_reader_writer(
 }
 
 #[cfg(feature = "via")]
-static VIA_COMMAND_HANDLER: ViaCommandHandler = ViaCommandHandler;
-
-#[cfg(feature = "via")]
-impl RequestHandler for ViaCommandHandler {
+impl<T: HIDDevice> RequestHandler for ViaCommandHandler<T> {
     fn get_report(&self, _id: ReportId, _buf: &mut [u8]) -> Option<usize> {
         None
     }
@@ -199,7 +214,9 @@ impl RequestHandler for ViaCommandHandler {
         let mut data: [u8; 32] = [0; 32];
         data.copy_from_slice(buf);
 
-        if let Err(err) = crate::via::VIA_REPORT_HID_RECEIVE_CHANNEL.try_send(data) {
+        let channel = T::get_via_hid_receive_channel();
+
+        if let Err(err) = channel.try_send(data) {
             error!(
                 "[VIA] Could not queue the Via command to be processed: {:?}",
                 err
@@ -218,8 +235,11 @@ impl RequestHandler for ViaCommandHandler {
 
 #[cfg(feature = "via")]
 #[rumcake_macros::task]
-pub async fn usb_hid_via_read_task(hid: HidReader<'static, impl Driver<'static>, 32>) {
-    hid.run(false, &VIA_COMMAND_HANDLER).await;
+pub async fn usb_hid_via_read_task<T: HIDDevice>(
+    command_handler: &ViaCommandHandler<T>,
+    hid: HidReader<'static, impl Driver<'static>, 32>,
+) {
+    hid.run(false, command_handler).await;
 }
 
 #[cfg(feature = "via")]
@@ -227,11 +247,16 @@ pub(crate) static VIA_CURRENT_OUTPUT_STATE_LISTENER: Signal<RawMutex, ()> = Sign
 
 #[cfg(feature = "via")]
 #[rumcake_macros::task]
-pub async fn usb_hid_via_write_task(mut hid: HidWriter<'static, impl Driver<'static>, 32>) {
+pub async fn usb_hid_via_write_task<K: HIDDevice>(
+    _k: K,
+    mut hid: HidWriter<'static, impl Driver<'static>, 32>,
+) {
+    let channel = K::get_via_hid_send_channel();
+
     usb_task_inner!(
         hid,
         VIA_CURRENT_OUTPUT_STATE_LISTENER,
-        crate::via::VIA_REPORT_HID_SEND_CHANNEL,
+        channel,
         "[USB] Writing HID via report: {:?}",
         "[USB] Couldn't write HID via report: {:?}"
     )

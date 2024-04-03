@@ -11,6 +11,7 @@
 use core::cell::{Cell, RefCell};
 use core::fmt::Debug;
 use core::hash::{Hash, Hasher, SipHasher};
+use core::marker::PhantomData;
 
 use defmt::{assert, debug};
 use defmt::{error, info, warn, Debug2Format};
@@ -26,7 +27,7 @@ use serde::Serialize;
 use tickv::success_codes::SuccessCode;
 use tickv::{AsyncTicKV, ErrorCode, FlashController, MAIN_KEY};
 
-use crate::hw::mcu::RawMutex;
+use crate::hw::platform::RawMutex;
 
 fn get_hashed_key(key: &[u8]) -> u64 {
     let mut hasher = SipHasher::new();
@@ -38,13 +39,13 @@ fn get_hashed_key(key: &[u8]) -> u64 {
 #[derive(Debug, FromPrimitive, Copy, Clone)]
 #[repr(u8)]
 pub enum StorageKey {
-    /// Key to store [`crate::backlight::simple_backlight::animations::BacklightConfig`].
+    /// Key to store [`crate::lighting::simple_backlight::SimpleBacklightConfig`].
     SimpleBacklightConfig = 0x00,
-    /// Key to store [`crate::backlight::simple_backlight_matrix::animations::BacklightConfig`].
+    /// Key to store [`crate::lighting::simple_backlight_matrix::SimpleBacklightMatrixConfig`].
     SimpleBacklightMatrixConfig = 0x01,
-    /// Key to store [`crate::backlight::rgb_backlight_matrix::animations::BacklightConfig`].
+    /// Key to store [`crate::lighting::rgb_backlight_matrix::RGBBacklightMatrixConfig`].
     RGBBacklightMatrixConfig = 0x02,
-    /// Key to store [`crate::underglow::animations::UnderglowConfig`].
+    /// Key to store [`crate::lighting::underglow::UnderglowConfig`].
     UnderglowConfig = 0x10,
     /// Key to store bluetooth profiles, used by the `nrf-ble` implementation of bluetooth host communication.
     BluetoothProfiles = 0x20,
@@ -72,14 +73,15 @@ enum StorageKeyType {
 
 /// A wrapper around a TicKV instance which allows you to receive requests to read, write or delete
 /// data from a storage peripheral.
-pub struct StorageService<'a, F: FlashStorage>
+pub struct StorageService<'a, F: FlashStorage, S>
 where
     [(); F::ERASE_SIZE]:,
 {
     database: OnceCell<Mutex<RawMutex, AsyncTicKV<'a, FlashDevice<'a, F>, { F::ERASE_SIZE }>>>,
+    _phantom: PhantomData<S>,
 }
 
-impl<'a, F: FlashStorage> StorageService<'a, F>
+impl<'a, F: FlashStorage, S: StorageDevice> StorageService<'a, F, S>
 where
     [(); F::ERASE_SIZE]:,
 {
@@ -88,6 +90,7 @@ where
     pub const fn new() -> Self {
         StorageService {
             database: OnceCell::new(),
+            _phantom: PhantomData,
         }
     }
 
@@ -126,11 +129,11 @@ where
     /// update the metadata.
     pub(crate) async fn check_metadata(
         &self,
-        buffer: &'static mut [u8],
         key: StorageKey,
         current_metadata: &[u8],
     ) -> Result<(), ()> {
         let mut database = self.get_database().await;
+        let buffer = S::get_storage_buffer();
 
         // Verify if the underlying data type has changed since last boot
         let (will_reset, buf) = match get_key(
@@ -195,12 +198,9 @@ where
 
     /// Read and deserialize data from the storage peripheral, using the given
     /// key to look it up. Uses [`postcard`] for deserialization.
-    pub async fn read<T: DeserializeOwned>(
-        &self,
-        buffer: &'static mut [u8],
-        key: StorageKey,
-    ) -> Result<T, ()> {
+    pub async fn read<T: DeserializeOwned>(&self, key: StorageKey) -> Result<T, ()> {
         let mut database = self.get_database().await;
+        let buffer = S::get_storage_buffer();
 
         info!(
             "[STORAGE] Reading {} data.",
@@ -238,12 +238,9 @@ where
 
     /// Read data from the storage peripheral, using the given key to look it up. This skips the
     /// deserialization step, returning raw bytes.
-    pub async fn read_raw(
-        &self,
-        buffer: &'static mut [u8],
-        key: StorageKey,
-    ) -> Result<(&[u8], usize), ()> {
+    pub async fn read_raw(&self, key: StorageKey) -> Result<(&[u8], usize), ()> {
         let mut database = self.get_database().await;
+        let buffer = S::get_storage_buffer();
 
         info!(
             "[STORAGE] Reading {} data.",
@@ -270,13 +267,9 @@ where
 
     /// Write data to the storage peripheral, at the given key. This will serialize the given data
     /// using [`postcard`] before storing it.
-    pub async fn write<T: Serialize>(
-        &self,
-        buffer: &'static mut [u8],
-        key: StorageKey,
-        data: T,
-    ) -> Result<(), ()> {
+    pub async fn write<T: Serialize>(&self, key: StorageKey, data: T) -> Result<(), ()> {
         let mut database = self.get_database().await;
+        let buffer = S::get_storage_buffer();
 
         info!(
             "[STORAGE] Writing new {} data.",
@@ -321,13 +314,9 @@ where
 
     /// Write data to the storage peripheral, at the given key. This skips the serialization step,
     /// allowing you to write raw bytes to storage.
-    pub async fn write_raw(
-        &self,
-        buffer: &'static mut [u8],
-        key: StorageKey,
-        data: &[u8],
-    ) -> Result<(), ()> {
+    pub async fn write_raw(&self, key: StorageKey, data: &[u8]) -> Result<(), ()> {
         let mut database = self.get_database().await;
+        let buffer = S::get_storage_buffer();
 
         info!(
             "[STORAGE] Writing new {} data.",
@@ -539,6 +528,13 @@ pub trait StorageDevice {
         static mut STORAGE_BUFFER: [u8; 1024] = [0; 1024];
         unsafe { &mut STORAGE_BUFFER }
     }
+
+    type FlashStorageType: FlashStorage;
+
+    fn get_storage_service() -> &'static StorageService<'static, Self::FlashStorageType, Self>
+    where
+        [(); Self::FlashStorageType::ERASE_SIZE]:,
+        Self: Sized;
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -797,5 +793,45 @@ impl<'a, F: FlashStorage> FlashController<{ F::ERASE_SIZE }> for FlashDevice<'a,
         self.pending
             .set(Some(PendingOperation::Delete(region_number)));
         Err(tickv::ErrorCode::EraseNotReady(region_number))
+    }
+}
+
+pub(crate) mod private {
+    use super::{FlashStorage, StorageDevice, StorageService};
+
+    pub struct EmptyFlashDevice;
+    impl FlashStorage for EmptyFlashDevice {
+        type Error = ();
+
+        const ERASE_SIZE: usize = 0;
+
+        async fn erase(&mut self, _from: u32, _to: u32) -> Result<(), Self::Error> {
+            unreachable!()
+        }
+
+        async fn write(&mut self, _offset: u32, _bytes: &[u8]) -> Result<(), Self::Error> {
+            unreachable!()
+        }
+
+        async fn read(&mut self, _offset: u32, _bytes: &mut [u8]) -> Result<(), Self::Error> {
+            unreachable!()
+        }
+
+        fn blocking_read(&mut self, _offset: u32, _bytes: &mut [u8]) -> Result<(), Self::Error> {
+            unreachable!()
+        }
+    }
+
+    pub struct EmptyStorageDevice;
+    impl StorageDevice for EmptyStorageDevice {
+        type FlashStorageType = EmptyFlashDevice;
+
+        fn get_storage_service() -> &'static StorageService<'static, Self::FlashStorageType, Self>
+        where
+            [(); Self::FlashStorageType::ERASE_SIZE]:,
+            Self: Sized,
+        {
+            unreachable!()
+        }
     }
 }

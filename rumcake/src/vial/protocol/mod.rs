@@ -1,5 +1,7 @@
 use super::VialKeyboard;
-use crate::backlight::BacklightMatrixDevice;
+use crate::keyboard::KeyboardLayout;
+use crate::lighting::BacklightMatrixDevice;
+use crate::storage::{FlashStorage, StorageDevice};
 use crate::via::handlers::{dynamic_keymap_get_encoder, dynamic_keymap_set_encoder};
 use crate::vial::handlers::*;
 use defmt::{info, warn, Debug2Format};
@@ -60,12 +62,16 @@ pub(crate) async fn process_vial_command<K: VialKeyboard + 'static>(
     vial_state: &mut VialState,
     via_state: &mut via::ViaState<K>,
 ) where
-    [(); K::BacklightMatrixDevice::LIGHTING_COLS]:,
-    [(); K::BacklightMatrixDevice::LIGHTING_ROWS]:,
-    [(); (K::LAYOUT_COLS + u8::BITS as usize - 1) / u8::BITS as usize * K::LAYOUT_ROWS]:,
-    [(); K::LAYERS]:,
-    [(); K::LAYOUT_ROWS]:,
-    [(); K::LAYOUT_COLS]:,
+    [(); <<K::StorageType as StorageDevice>::FlashStorageType as FlashStorage>::ERASE_SIZE]:,
+    [(); K::DYNAMIC_KEYMAP_LAYER_COUNT * K::Layout::LAYOUT_COLS * K::Layout::LAYOUT_ROWS * 2]:,
+    [(); K::DYNAMIC_KEYMAP_LAYER_COUNT * K::Layout::NUM_ENCODERS * 2 * 2]:,
+    [(); K::RGBBacklightMatrixDevice::LIGHTING_COLS]:,
+    [(); K::RGBBacklightMatrixDevice::LIGHTING_ROWS]:,
+    [(); (K::Layout::LAYOUT_COLS + u8::BITS as usize - 1) / u8::BITS as usize
+        * K::Layout::LAYOUT_ROWS]:,
+    [(); K::Layout::LAYERS]:,
+    [(); K::Layout::LAYOUT_ROWS]:,
+    [(); K::Layout::LAYOUT_COLS]:,
     [(); K::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize]:,
     [(); K::DYNAMIC_KEYMAP_MACRO_COUNT as usize]:,
 {

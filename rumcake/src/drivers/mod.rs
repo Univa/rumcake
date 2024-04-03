@@ -23,61 +23,61 @@ pub struct SerialSplitDriver<D: Write + Read> {
 }
 
 #[cfg(feature = "split-central")]
-impl<D: Write + Read> crate::split::drivers::CentralDeviceDriver for SerialSplitDriver<D> {
+impl<D: Write + Read> crate::split::central::CentralDeviceDriver for SerialSplitDriver<D> {
     type DriverError = D::Error;
 
     async fn receive_message_from_peripherals(
         &mut self,
     ) -> Result<
         crate::split::MessageToCentral,
-        crate::split::drivers::CentralDeviceError<Self::DriverError>,
+        crate::split::central::CentralDeviceError<Self::DriverError>,
     > {
         let mut buffer = [0; crate::split::MESSAGE_TO_CENTRAL_BUFFER_SIZE];
         self.serial.read_exact(&mut buffer).await?;
         postcard::from_bytes_cobs(&mut buffer)
-            .map_err(crate::split::drivers::CentralDeviceError::DeserializationError)
+            .map_err(crate::split::central::CentralDeviceError::DeserializationError)
     }
 
     async fn broadcast_message_to_peripherals(
         &mut self,
         message: crate::split::MessageToPeripheral,
-    ) -> Result<(), crate::split::drivers::CentralDeviceError<Self::DriverError>> {
+    ) -> Result<(), crate::split::central::CentralDeviceError<Self::DriverError>> {
         let mut buffer = [0; crate::split::MESSAGE_TO_PERIPHERAL_BUFFER_SIZE];
         postcard::to_slice_cobs(&message, &mut buffer)
-            .map_err(crate::split::drivers::CentralDeviceError::SerializationError)?;
+            .map_err(crate::split::central::CentralDeviceError::SerializationError)?;
         self.serial
             .write_all(&buffer)
             .await
-            .map_err(crate::split::drivers::CentralDeviceError::DriverError)
+            .map_err(crate::split::central::CentralDeviceError::DriverError)
     }
 }
 
 #[cfg(feature = "split-peripheral")]
-impl<D: Write + Read> crate::split::drivers::PeripheralDeviceDriver for SerialSplitDriver<D> {
+impl<D: Write + Read> crate::split::peripheral::PeripheralDeviceDriver for SerialSplitDriver<D> {
     type DriverError = D::Error;
 
     async fn send_message_to_central(
         &mut self,
         event: crate::split::MessageToCentral,
-    ) -> Result<(), crate::split::drivers::PeripheralDeviceError<Self::DriverError>> {
+    ) -> Result<(), crate::split::peripheral::PeripheralDeviceError<Self::DriverError>> {
         let mut buffer = [0; crate::split::MESSAGE_TO_CENTRAL_BUFFER_SIZE];
         postcard::to_slice_cobs(&event, &mut buffer)
-            .map_err(crate::split::drivers::PeripheralDeviceError::SerializationError)?;
+            .map_err(crate::split::peripheral::PeripheralDeviceError::SerializationError)?;
         self.serial
             .write_all(&buffer)
             .await
-            .map_err(crate::split::drivers::PeripheralDeviceError::DriverError)
+            .map_err(crate::split::peripheral::PeripheralDeviceError::DriverError)
     }
 
     async fn receive_message_from_central(
         &mut self,
     ) -> Result<
         crate::split::MessageToPeripheral,
-        crate::split::drivers::PeripheralDeviceError<Self::DriverError>,
+        crate::split::peripheral::PeripheralDeviceError<Self::DriverError>,
     > {
         let mut buffer = [0; crate::split::MESSAGE_TO_PERIPHERAL_BUFFER_SIZE];
         self.serial.read_exact(&mut buffer).await?;
         postcard::from_bytes_cobs(&mut buffer)
-            .map_err(crate::split::drivers::PeripheralDeviceError::DeserializationError)
+            .map_err(crate::split::peripheral::PeripheralDeviceError::DeserializationError)
     }
 }

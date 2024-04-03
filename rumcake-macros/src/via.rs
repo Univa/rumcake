@@ -1,19 +1,20 @@
-use proc_macro2::{Literal, TokenStream};
-use proc_macro_error::{abort, OptionExt};
+use proc_macro2::{Ident, TokenStream};
 use quote::quote;
-use syn::punctuated::Punctuated;
-use syn::Token;
+use syn::LitInt;
 
-pub fn setup_macro_buffer(args: Punctuated<Literal, Token![,]>) -> TokenStream {
-    let mut args = args.iter();
-
-    let buffer_size = args.next().expect_or_abort("Missing buffer size argument.");
-    let macro_count = args.next().expect_or_abort("Missing macro count argument.");
-
-    if let Some(literal) = args.next() {
-        abort!(literal.span(), "Unexpected extra arguments.")
+crate::parse_as_custom_fields! {
+    pub struct MacroBufferArgsBuilder for MacroBufferArgs {
+        buffer_size: LitInt,
+        macro_count: LitInt,
     }
+}
 
+pub fn setup_macro_buffer(
+    MacroBufferArgs {
+        buffer_size,
+        macro_count,
+    }: MacroBufferArgs,
+) -> TokenStream {
     quote! {
         const DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE: u16 = #buffer_size;
         const DYNAMIC_KEYMAP_MACRO_COUNT: u8 = #macro_count;
@@ -28,6 +29,24 @@ pub fn setup_macro_buffer(args: Punctuated<Literal, Token![,]>) -> TokenStream {
             static mut MACRO_BUFFER: ::rumcake::via::MacroBuffer<'static, #buffer_size, #macro_count> =
                 ::rumcake::via::MacroBuffer::new();
             Some(unsafe { &mut MACRO_BUFFER })
+        }
+    }
+}
+
+pub fn connect_storage_service(ident: Ident) -> TokenStream {
+    quote! {
+        type StorageType = #ident;
+        fn get_storage_service() -> Option<
+            &'static ::rumcake::storage::StorageService<
+                'static,
+                <Self::StorageType as ::rumcake::storage::StorageDevice>::FlashStorageType,
+                Self::StorageType,
+            >,
+        >
+        where
+            [(); <<Self::StorageType as ::rumcake::storage::StorageDevice>::FlashStorageType as ::rumcake::storage::FlashStorage>::ERASE_SIZE]:,
+        {
+            Some(<Self::StorageType as ::rumcake::storage::StorageDevice>::get_storage_service())
         }
     }
 }

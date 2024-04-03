@@ -4,16 +4,15 @@ use keyberon::layout::Event;
 use postcard::experimental::max_size::MaxSize;
 use serde::{Deserialize, Serialize};
 
-pub mod drivers;
-
 #[cfg(feature = "split-central")]
 pub mod central;
 
 #[cfg(feature = "split-peripheral")]
 pub mod peripheral;
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, MaxSize)]
 /// Possible messages that can be sent to a central device.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, MaxSize)]
+#[repr(u8)]
 pub enum MessageToCentral {
     /// Key press in the form of (row, col).
     KeyPress(u8, u8),
@@ -44,29 +43,32 @@ impl TryFrom<MessageToCentral> for Event {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, MaxSize)]
 /// Possible messages that can be sent to a peripheral device.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, MaxSize)]
+#[non_exhaustive]
+#[repr(u8)]
 pub enum MessageToPeripheral {
     #[cfg(feature = "simple-backlight")]
-    /// A [`BacklightCommand`](crate::backlight::simple_backlight::animations::BacklightCommand) to
+    /// A [`SimpleBacklightCommand`](crate::lighting::simple_backlight::SimpleBacklightCommand) to
     /// be processed by the peripheral's simple backlight animator.
-    SimpleBacklight(crate::backlight::simple_backlight::animations::BacklightCommand),
+    SimpleBacklight(crate::lighting::simple_backlight::SimpleBacklightCommand) = 3,
 
     #[cfg(feature = "simple-backlight-matrix")]
     /// A
-    /// [`BacklightCommand`](crate::backlight::simple_backlight_matrix::animations::BacklightCommand)
+    /// [`SimpleBacklightMatrixCommand`](crate::lighting::simple_backlight_matrix::SimpleBacklightMatrixCommand)
     /// to be processed by the peripheral's simple backlight matrix animator.
-    SimpleBacklightMatrix(crate::backlight::simple_backlight_matrix::animations::BacklightCommand),
+    SimpleBacklightMatrix(crate::lighting::simple_backlight_matrix::SimpleBacklightMatrixCommand) =
+        4,
 
     #[cfg(feature = "rgb-backlight-matrix")]
     /// A
-    /// [`BacklightCommand`](crate::backlight::rgb_backlight_matrix::animations::BacklightCommand)
+    /// [`RGBBacklightMatrixCommand`](crate::lighting::rgb_backlight_matrix::RGBBacklightMatrixCommand)
     /// to be processed by the peripheral's RGB backlight matrix animator.
-    RGBBacklightMatrix(crate::backlight::rgb_backlight_matrix::animations::BacklightCommand),
+    RGBBacklightMatrix(crate::lighting::rgb_backlight_matrix::RGBBacklightMatrixCommand) = 5,
 
     #[cfg(feature = "underglow")]
-    /// An [`UnderglowCommand`](crate::underglow::animations::UnderglowCommand) to be processed by the peripheral's backlight animator.
-    Underglow(crate::underglow::animations::UnderglowCommand),
+    /// An [`UnderglowCommand`](crate::lighting::underglow::UnderglowCommand) to be processed by the peripheral's backlight animator.
+    Underglow(crate::lighting::underglow::UnderglowCommand) = 6,
 }
 
 /// Size of buffer used when sending messages to a peripheral device

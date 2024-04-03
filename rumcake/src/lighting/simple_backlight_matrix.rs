@@ -1,69 +1,203 @@
-use crate::backlight::drivers::SimpleBacklightMatrixDriver;
-use crate::backlight::{
-    get_led_layout_bounds, BacklightDevice, BacklightMatrixDevice, LEDFlags, LayoutBounds,
-};
-use crate::math::{atan2f, cos, scale, sin, sqrtf};
-use crate::{Cycle, LEDEffect};
-use rumcake_macros::{generate_items_from_enum_variants, Cycle, LEDEffect};
-
 use core::f32::consts::PI;
+use core::fmt::Debug;
 use core::u8;
+
 use defmt::{error, warn, Debug2Format};
+use embassy_sync::channel::Channel;
 use keyberon::layout::Event;
 use num_derive::FromPrimitive;
 use postcard::experimental::max_size::MaxSize;
 use rand::rngs::SmallRng;
 use rand_core::{RngCore, SeedableRng};
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
+use rumcake_macros::{generate_items_from_enum_variants, Cycle, LEDEffect};
 use serde::{Deserialize, Serialize};
 
+use crate::hw::platform::RawMutex;
+use crate::lighting::{
+    get_led_layout_bounds, Animator, BacklightMatrixDevice, LEDFlags, LayoutBounds,
+};
+use crate::math::{atan2f, cos, scale, sin, sqrtf};
+use crate::{Cycle, LEDEffect, State};
+
+/// A trait that keyboards must implement to use backlight features.
+pub trait SimpleBacklightMatrixDevice: BacklightMatrixDevice {
+    /// How fast the LEDs refresh to display a new animation frame.
+    ///
+    /// It is recommended to set this value to a value that your driver can handle,
+    /// otherwise your animations will appear to be slowed down.
+    ///
+    /// **This does not have any effect if the selected animation is static.**
+    const FPS: usize = 20;
+
+    /// Get a reference to a channel that can receive commands to control the underglow animator
+    /// from other tasks.
+    #[inline(always)]
+    fn get_command_channel() -> &'static Channel<RawMutex, SimpleBacklightMatrixCommand, 2> {
+        static SIMPLE_BACKLIGHT_MATRIX_COMMAND_CHANNEL: Channel<
+            RawMutex,
+            SimpleBacklightMatrixCommand,
+            2,
+        > = Channel::new();
+
+        &SIMPLE_BACKLIGHT_MATRIX_COMMAND_CHANNEL
+    }
+
+    /// Get a reference to a state object that can be used to notify other tasks about changes to
+    /// the underglow configuration. Note that updating the state object will not control the
+    /// output of the underglow animator.
+    #[inline(always)]
+    fn get_state() -> &'static State<'static, SimpleBacklightMatrixConfig> {
+        static SIMPLE_BACKLIGHT_MATRIX_CONFIG_STATE: State<SimpleBacklightMatrixConfig> =
+            State::new(
+                SimpleBacklightMatrixConfig::default(),
+                &[
+                    #[cfg(feature = "storage")]
+                    &SIMPLE_BACKLIGHT_MATRIX_CONFIG_STATE_LISTENER,
+                ],
+            );
+
+        &SIMPLE_BACKLIGHT_MATRIX_CONFIG_STATE
+    }
+
+    #[cfg(feature = "storage")]
+    #[inline(always)]
+    fn get_state_listener() -> &'static embassy_sync::signal::Signal<RawMutex, ()> {
+        &SIMPLE_BACKLIGHT_MATRIX_CONFIG_STATE_LISTENER
+    }
+
+    #[cfg(feature = "storage")]
+    #[inline(always)]
+    fn get_save_signal() -> &'static embassy_sync::signal::Signal<RawMutex, ()> {
+        &SIMPLE_BACKLIGHT_MATRIX_SAVE_SIGNAL
+    }
+
+    #[cfg(feature = "split-central")]
+    type CentralDevice: crate::split::central::private::MaybeCentralDevice =
+        crate::split::central::private::EmptyCentralDevice;
+
+    simple_backlight_matrix_effect_items!();
+}
+
+pub(crate) mod private {
+    use embassy_sync::channel::Channel;
+
+    use crate::hw::platform::RawMutex;
+    use crate::lighting::BacklightMatrixDevice;
+    use crate::State;
+
+    use super::{
+        SimpleBacklightMatrixCommand, SimpleBacklightMatrixConfig, SimpleBacklightMatrixDevice,
+    };
+
+    pub trait MaybeSimpleBacklightMatrixDevice: BacklightMatrixDevice {
+        #[inline(always)]
+        fn get_command_channel(
+        ) -> Option<&'static Channel<RawMutex, SimpleBacklightMatrixCommand, 2>> {
+            None
+        }
+
+        #[inline(always)]
+        fn get_state() -> Option<&'static State<'static, SimpleBacklightMatrixConfig>> {
+            None
+        }
+    }
+
+    impl<T: SimpleBacklightMatrixDevice> MaybeSimpleBacklightMatrixDevice for T {
+        #[inline(always)]
+        fn get_command_channel(
+        ) -> Option<&'static Channel<RawMutex, SimpleBacklightMatrixCommand, 2>> {
+            Some(T::get_command_channel())
+        }
+
+        #[inline(always)]
+        fn get_state() -> Option<&'static State<'static, SimpleBacklightMatrixConfig>> {
+            Some(T::get_state())
+        }
+    }
+}
+
+/// A trait that a driver must implement in order to support a simple (no color) backlighting matrix scheme.
+pub trait SimpleBacklightMatrixDriver<K: SimpleBacklightMatrixDevice> {
+    /// The type of error that the driver will return if [`SimpleBacklightMatrixDriver::write`] fails.
+    type DriverWriteError: Debug;
+
+    /// Render out a frame buffer using the driver.
+    async fn write(
+        &mut self,
+        buf: &[[u8; K::LIGHTING_COLS]; K::LIGHTING_ROWS],
+    ) -> Result<(), Self::DriverWriteError>;
+
+    /// The type of error that the driver will return if [`SimpleBacklightMatrixDriver::turn_on`] fails.
+    type DriverEnableError: Debug;
+
+    /// Turn the LEDs on using the driver when the animator gets enabled.
+    ///
+    /// The animator's [`tick()`](super::animations::BacklightAnimator::tick) method gets called
+    /// directly after this, and subsequently [`SimpleBacklightMatrixDriver::write`]. So, if your
+    /// driver doesn't need do anything special to turn the LEDs on, you may simply return
+    /// `Ok(())`.
+    async fn turn_on(&mut self) -> Result<(), Self::DriverEnableError>;
+
+    /// The type of error that the driver will return if [`SimpleBacklightMatrixDriver::turn_off`] fails.
+    type DriverDisableError: Debug;
+
+    /// Turn the LEDs off using the driver when the animator is disabled.
+    ///
+    /// The animator's [`tick()`](super::animations::BacklightAnimator::tick) method gets called
+    /// directly after this. However, the tick method will not call
+    /// [`SimpleBacklightMatrixDriver::write`] due to the animator being disabled, so you will need to
+    /// turn off the LEDs somehow. For example, you can write a brightness of 0 to all LEDs.
+    async fn turn_off(&mut self) -> Result<(), Self::DriverDisableError>;
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, MaxSize)]
-pub struct BacklightConfig {
+pub struct SimpleBacklightMatrixConfig {
     pub enabled: bool,
-    pub effect: BacklightEffect,
+    pub effect: SimpleBacklightMatrixEffect,
     pub val: u8,
     pub speed: u8,
 }
 
-impl BacklightConfig {
+impl SimpleBacklightMatrixConfig {
     pub const fn default() -> Self {
-        BacklightConfig {
+        SimpleBacklightMatrixConfig {
             enabled: true,
-            effect: BacklightEffect::Solid,
+            effect: SimpleBacklightMatrixEffect::Solid,
             val: 255,
             speed: 86,
         }
     }
 }
 
-impl Default for BacklightConfig {
+impl Default for SimpleBacklightMatrixConfig {
     fn default() -> Self {
         Self::default()
     }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, MaxSize)]
-pub enum BacklightCommand {
-    Toggle,
-    TurnOn,
-    TurnOff,
-    NextEffect,
-    PrevEffect,
-    SetEffect(BacklightEffect),
-    SetValue(u8),
-    IncreaseValue(u8),
-    DecreaseValue(u8),
-    SetSpeed(u8),
-    IncreaseSpeed(u8),
-    DecreaseSpeed(u8),
+#[non_exhaustive]
+#[repr(u8)]
+pub enum SimpleBacklightMatrixCommand {
+    Toggle = 0,
+    TurnOn = 1,
+    TurnOff = 2,
+    NextEffect = 3,
+    PrevEffect = 4,
+    SetEffect(SimpleBacklightMatrixEffect) = 5,
+    SetValue(u8) = 6,
+    IncreaseValue(u8) = 7,
+    DecreaseValue(u8) = 8,
+    SetSpeed(u8) = 9,
+    IncreaseSpeed(u8) = 10,
+    DecreaseSpeed(u8) = 11,
     #[cfg(feature = "storage")]
-    SaveConfig,
-    ResetTime, // normally used internally for syncing LEDs for split keyboards
+    SaveConfig = 12,
+    ResetTime = 13, // normally used internally for syncing LEDs for split keyboards
 }
 
-#[generate_items_from_enum_variants(
-    "const SIMPLE_BACKLIGHT_MATRIX_{variant_shouty_snake_case}_ENABLED: bool = true"
-)]
+#[generate_items_from_enum_variants("const {variant_shouty_snake_case}_ENABLED: bool = true")]
 #[derive(
     FromPrimitive,
     Serialize,
@@ -77,7 +211,7 @@ pub enum BacklightCommand {
     Eq,
     MaxSize,
 )]
-pub enum BacklightEffect {
+pub enum SimpleBacklightMatrixEffect {
     Solid,
     AlphasMods,
     GradientUpDown,
@@ -137,62 +271,63 @@ pub enum BacklightEffect {
     ReactiveSplash,
 }
 
-impl BacklightEffect {
-    pub(crate) fn is_enabled<D: BacklightDevice>(&self) -> bool {
+impl SimpleBacklightMatrixEffect {
+    pub(crate) fn is_enabled<D: SimpleBacklightMatrixDevice>(&self) -> bool {
         match self {
-            BacklightEffect::Solid => D::SIMPLE_BACKLIGHT_MATRIX_SOLID_ENABLED,
-            BacklightEffect::AlphasMods => D::SIMPLE_BACKLIGHT_MATRIX_ALPHAS_MODS_ENABLED,
-            BacklightEffect::GradientUpDown => D::SIMPLE_BACKLIGHT_MATRIX_GRADIENT_UP_DOWN_ENABLED,
-            BacklightEffect::GradientLeftRight => {
-                D::SIMPLE_BACKLIGHT_MATRIX_GRADIENT_LEFT_RIGHT_ENABLED
-            }
-            BacklightEffect::Breathing => D::SIMPLE_BACKLIGHT_MATRIX_BREATHING_ENABLED,
-            BacklightEffect::Band => D::SIMPLE_BACKLIGHT_MATRIX_BAND_ENABLED,
-            BacklightEffect::BandPinWheel => D::SIMPLE_BACKLIGHT_MATRIX_BAND_PIN_WHEEL_ENABLED,
-            BacklightEffect::BandSpiral => D::SIMPLE_BACKLIGHT_MATRIX_BAND_SPIRAL_ENABLED,
-            BacklightEffect::CycleLeftRight => D::SIMPLE_BACKLIGHT_MATRIX_CYCLE_LEFT_RIGHT_ENABLED,
-            BacklightEffect::CycleUpDown => D::SIMPLE_BACKLIGHT_MATRIX_CYCLE_UP_DOWN_ENABLED,
-            BacklightEffect::CycleOutIn => D::SIMPLE_BACKLIGHT_MATRIX_CYCLE_OUT_IN_ENABLED,
-            BacklightEffect::Raindrops => D::SIMPLE_BACKLIGHT_MATRIX_RAINDROPS_ENABLED,
-            BacklightEffect::DualBeacon => D::SIMPLE_BACKLIGHT_MATRIX_DUAL_BEACON_ENABLED,
-            BacklightEffect::WaveLeftRight => D::SIMPLE_BACKLIGHT_MATRIX_WAVE_LEFT_RIGHT_ENABLED,
-            BacklightEffect::WaveUpDown => D::SIMPLE_BACKLIGHT_MATRIX_WAVE_UP_DOWN_ENABLED,
-            BacklightEffect::Reactive => D::SIMPLE_BACKLIGHT_MATRIX_REACTIVE_ENABLED,
-            BacklightEffect::ReactiveWide => D::SIMPLE_BACKLIGHT_MATRIX_REACTIVE_WIDE_ENABLED,
-            BacklightEffect::ReactiveCross => D::SIMPLE_BACKLIGHT_MATRIX_REACTIVE_CROSS_ENABLED,
-            BacklightEffect::ReactiveNexus => D::SIMPLE_BACKLIGHT_MATRIX_REACTIVE_NEXUS_ENABLED,
-            BacklightEffect::ReactiveSplash => D::SIMPLE_BACKLIGHT_MATRIX_REACTIVE_SPLASH_ENABLED,
+            SimpleBacklightMatrixEffect::Solid => D::SOLID_ENABLED,
+            SimpleBacklightMatrixEffect::AlphasMods => D::ALPHAS_MODS_ENABLED,
+            SimpleBacklightMatrixEffect::GradientUpDown => D::GRADIENT_UP_DOWN_ENABLED,
+            SimpleBacklightMatrixEffect::GradientLeftRight => D::GRADIENT_LEFT_RIGHT_ENABLED,
+            SimpleBacklightMatrixEffect::Breathing => D::BREATHING_ENABLED,
+            SimpleBacklightMatrixEffect::Band => D::BAND_ENABLED,
+            SimpleBacklightMatrixEffect::BandPinWheel => D::BAND_PIN_WHEEL_ENABLED,
+            SimpleBacklightMatrixEffect::BandSpiral => D::BAND_SPIRAL_ENABLED,
+            SimpleBacklightMatrixEffect::CycleLeftRight => D::CYCLE_LEFT_RIGHT_ENABLED,
+            SimpleBacklightMatrixEffect::CycleUpDown => D::CYCLE_UP_DOWN_ENABLED,
+            SimpleBacklightMatrixEffect::CycleOutIn => D::CYCLE_OUT_IN_ENABLED,
+            SimpleBacklightMatrixEffect::Raindrops => D::RAINDROPS_ENABLED,
+            SimpleBacklightMatrixEffect::DualBeacon => D::DUAL_BEACON_ENABLED,
+            SimpleBacklightMatrixEffect::WaveLeftRight => D::WAVE_LEFT_RIGHT_ENABLED,
+            SimpleBacklightMatrixEffect::WaveUpDown => D::WAVE_UP_DOWN_ENABLED,
+            SimpleBacklightMatrixEffect::Reactive => D::REACTIVE_ENABLED,
+            SimpleBacklightMatrixEffect::ReactiveWide => D::REACTIVE_WIDE_ENABLED,
+            SimpleBacklightMatrixEffect::ReactiveCross => D::REACTIVE_CROSS_ENABLED,
+            SimpleBacklightMatrixEffect::ReactiveNexus => D::REACTIVE_NEXUS_ENABLED,
+            SimpleBacklightMatrixEffect::ReactiveSplash => D::REACTIVE_SPLASH_ENABLED,
         }
     }
 }
 
-pub(super) struct BacklightAnimator<K: BacklightMatrixDevice, D: SimpleBacklightMatrixDriver<K>>
-where
-    [(); K::LIGHTING_COLS]:,
-    [(); K::LIGHTING_ROWS]:,
+pub struct SimpleBacklightMatrixAnimator<
+    D: SimpleBacklightMatrixDevice,
+    R: SimpleBacklightMatrixDriver<D>,
+> where
+    [(); D::LIGHTING_COLS]:,
+    [(); D::LIGHTING_ROWS]:,
 {
-    pub(super) config: BacklightConfig,
-    pub(super) buf: [[u8; K::LIGHTING_COLS]; K::LIGHTING_ROWS], // Stores the brightness/value of each LED
-    pub(super) last_presses: ConstGenericRingBuffer<((u8, u8), u32), 8>, // Stores the row and col of the last 8 key presses, and the time (in ticks) it was pressed
-    pub(super) tick: u32,
-    pub(super) driver: D,
-    pub(super) bounds: LayoutBounds,
-    pub(super) rng: SmallRng,
+    config: SimpleBacklightMatrixConfig,
+    buf: [[u8; D::LIGHTING_COLS]; D::LIGHTING_ROWS], // Stores the brightness/value of each LED
+    last_presses: ConstGenericRingBuffer<((u8, u8), u32), 8>, // Stores the row and col of the last 8 key presses, and the time (in ticks) it was pressed
+    tick: u32,
+    driver: R,
+    bounds: LayoutBounds,
+    rng: SmallRng,
 }
 
-impl<K: BacklightMatrixDevice + 'static, D: SimpleBacklightMatrixDriver<K>> BacklightAnimator<K, D>
+impl<D: SimpleBacklightMatrixDevice + 'static, R: SimpleBacklightMatrixDriver<D>>
+    SimpleBacklightMatrixAnimator<D, R>
 where
-    [(); K::LIGHTING_COLS]:,
-    [(); K::LIGHTING_ROWS]:,
+    [(); D::LIGHTING_COLS]:,
+    [(); D::LIGHTING_ROWS]:,
 {
-    pub fn new(config: BacklightConfig, driver: D) -> Self {
+    pub fn new(config: SimpleBacklightMatrixConfig, driver: R) -> Self {
         Self {
             config,
             tick: 0,
             driver,
-            buf: [[0; K::LIGHTING_COLS]; K::LIGHTING_ROWS],
+            buf: [[0; D::LIGHTING_COLS]; D::LIGHTING_ROWS],
             last_presses: ConstGenericRingBuffer::new(),
-            bounds: get_led_layout_bounds::<K>(),
+            bounds: get_led_layout_bounds::<D>(),
             rng: SmallRng::seed_from_u64(1337),
         }
     }
@@ -209,55 +344,55 @@ where
         };
     }
 
-    pub async fn process_command(&mut self, command: BacklightCommand) {
+    pub fn process_command(&mut self, command: SimpleBacklightMatrixCommand) {
         match command {
-            BacklightCommand::Toggle => {
+            SimpleBacklightMatrixCommand::Toggle => {
                 self.config.enabled = !self.config.enabled;
             }
-            BacklightCommand::TurnOn => {
+            SimpleBacklightMatrixCommand::TurnOn => {
                 self.config.enabled = true;
             }
-            BacklightCommand::TurnOff => {
+            SimpleBacklightMatrixCommand::TurnOff => {
                 self.config.enabled = false;
             }
-            BacklightCommand::NextEffect => {
+            SimpleBacklightMatrixCommand::NextEffect => {
                 while {
                     self.config.effect.increment();
-                    self.config.effect.is_enabled::<K>()
+                    !self.config.effect.is_enabled::<D>()
                 } {}
             }
-            BacklightCommand::PrevEffect => {
+            SimpleBacklightMatrixCommand::PrevEffect => {
                 while {
                     self.config.effect.decrement();
-                    self.config.effect.is_enabled::<K>()
+                    !self.config.effect.is_enabled::<D>()
                 } {}
             }
-            BacklightCommand::SetEffect(effect) => {
+            SimpleBacklightMatrixCommand::SetEffect(effect) => {
                 self.config.effect = effect;
             }
-            BacklightCommand::SetValue(val) => {
+            SimpleBacklightMatrixCommand::SetValue(val) => {
                 self.config.val = val;
             }
-            BacklightCommand::IncreaseValue(amount) => {
+            SimpleBacklightMatrixCommand::IncreaseValue(amount) => {
                 self.config.val = self.config.val.saturating_add(amount);
             }
-            BacklightCommand::DecreaseValue(amount) => {
+            SimpleBacklightMatrixCommand::DecreaseValue(amount) => {
                 self.config.val = self.config.val.saturating_sub(amount);
             }
-            BacklightCommand::SetSpeed(speed) => {
+            SimpleBacklightMatrixCommand::SetSpeed(speed) => {
                 self.config.speed = speed;
             }
-            BacklightCommand::IncreaseSpeed(amount) => {
+            SimpleBacklightMatrixCommand::IncreaseSpeed(amount) => {
                 self.config.speed = self.config.speed.saturating_add(amount);
             }
-            BacklightCommand::DecreaseSpeed(amount) => {
+            SimpleBacklightMatrixCommand::DecreaseSpeed(amount) => {
                 self.config.speed = self.config.speed.saturating_sub(amount);
             }
             #[cfg(feature = "storage")]
-            BacklightCommand::SaveConfig => {
-                super::storage::BACKLIGHT_SAVE_SIGNAL.signal(());
+            SimpleBacklightMatrixCommand::SaveConfig => {
+                // storage::BACKLIGHT_SAVE_SIGNAL.signal(());
             }
-            BacklightCommand::ResetTime => {
+            SimpleBacklightMatrixCommand::ResetTime => {
                 self.tick = 0;
             }
         };
@@ -268,12 +403,12 @@ where
         calc: impl Fn(&mut Self, u32, (u8, u8), (u8, u8)) -> u8,
     ) {
         let time = (self.tick << 8)
-            / (((K::FPS as u32) << 8)
+            / (((D::FPS as u32) << 8)
                 / (self.config.speed as u32 + 128 + (self.config.speed as u32 >> 1))); // `time` should increment by 255 every second
 
-        for row in 0..K::LIGHTING_ROWS {
-            for col in 0..K::LIGHTING_COLS {
-                if let Some(position) = K::get_backlight_matrix().layout[row][col] {
+        for row in 0..D::LIGHTING_ROWS {
+            for col in 0..D::LIGHTING_COLS {
+                if let Some(position) = D::get_backlight_matrix().layout[row][col] {
                     self.buf[row][col] = scale(
                         calc(self, time, (row as u8, col as u8), position),
                         self.config.val,
@@ -285,7 +420,7 @@ where
 
     pub fn register_event(&mut self, event: Event) {
         let time = (self.tick << 8)
-            / (((K::FPS as u32) << 8)
+            / (((D::FPS as u32) << 8)
                 / (self.config.speed as u32 + 128 + (self.config.speed as u32 >> 1)));
 
         match event {
@@ -301,7 +436,7 @@ where
                     }
                     None => {
                         // Check if the matrix position corresponds to a LED position before pushing
-                        if K::get_backlight_matrix()
+                        if D::get_backlight_matrix()
                             .layout
                             .get(row as usize)
                             .and_then(|row| row.get(col as usize))
@@ -323,15 +458,15 @@ where
         }
 
         match self.config.effect {
-            BacklightEffect::Solid => {
-                if K::SIMPLE_BACKLIGHT_MATRIX_SOLID_ENABLED {
+            SimpleBacklightMatrixEffect::Solid => {
+                if D::SOLID_ENABLED {
                     self.set_brightness_for_each_led(|_animator, _time, _coord, _pos| u8::MAX)
                 }
             }
-            BacklightEffect::AlphasMods => {
-                if K::SIMPLE_BACKLIGHT_MATRIX_ALPHAS_MODS_ENABLED {
+            SimpleBacklightMatrixEffect::AlphasMods => {
+                if D::ALPHAS_MODS_ENABLED {
                     self.set_brightness_for_each_led(|animator, _time, (row, col), _pos| {
-                        if K::get_backlight_matrix().flags[row as usize][col as usize]
+                        if D::get_backlight_matrix().flags[row as usize][col as usize]
                             .contains(LEDFlags::ALPHA)
                         {
                             u8::MAX
@@ -341,8 +476,8 @@ where
                     })
                 }
             }
-            BacklightEffect::GradientUpDown => {
-                if K::SIMPLE_BACKLIGHT_MATRIX_GRADIENT_UP_DOWN_ENABLED {
+            SimpleBacklightMatrixEffect::GradientUpDown => {
+                if D::GRADIENT_UP_DOWN_ENABLED {
                     let size = self.bounds.max.1 - self.bounds.min.1;
                     self.set_brightness_for_each_led(|animator, _time, _coord, (_x, y)| {
                         // Calculate the brightness for each LED based on it's Y position
@@ -355,8 +490,8 @@ where
                     })
                 }
             }
-            BacklightEffect::GradientLeftRight => {
-                if K::SIMPLE_BACKLIGHT_MATRIX_GRADIENT_LEFT_RIGHT_ENABLED {
+            SimpleBacklightMatrixEffect::GradientLeftRight => {
+                if D::GRADIENT_LEFT_RIGHT_ENABLED {
                     let size = self.bounds.max.0 - self.bounds.min.0;
                     self.set_brightness_for_each_led(|animator, _time, _coord, (x, _y)| {
                         // Calculate the brightness for each LED based on it's X position
@@ -369,15 +504,15 @@ where
                     })
                 }
             }
-            BacklightEffect::Breathing => {
-                if K::SIMPLE_BACKLIGHT_MATRIX_BREATHING_ENABLED {
+            SimpleBacklightMatrixEffect::Breathing => {
+                if D::BREATHING_ENABLED {
                     self.set_brightness_for_each_led(|_animator, time, _coord, _pos| {
                         sin((time >> 2) as u8) // 4 seconds for one full cycle
                     })
                 }
             }
-            BacklightEffect::Band => {
-                if K::SIMPLE_BACKLIGHT_MATRIX_BAND_ENABLED {
+            SimpleBacklightMatrixEffect::Band => {
+                if D::BAND_ENABLED {
                     let size = self.bounds.max.0 - self.bounds.min.0;
                     self.set_brightness_for_each_led(|animator, time, _coord, (x, _y)| {
                         let pos = scale(time as u8, size);
@@ -385,8 +520,8 @@ where
                     })
                 }
             }
-            BacklightEffect::BandPinWheel => {
-                if K::SIMPLE_BACKLIGHT_MATRIX_BAND_PIN_WHEEL_ENABLED {
+            SimpleBacklightMatrixEffect::BandPinWheel => {
+                if D::BAND_PIN_WHEEL_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, _coord, (x, y)| {
                         // Base speed: 1 half-cycle every second
                         let pos = time as u8;
@@ -396,8 +531,8 @@ where
                     })
                 }
             }
-            BacklightEffect::BandSpiral => {
-                if K::SIMPLE_BACKLIGHT_MATRIX_BAND_SPIRAL_ENABLED {
+            SimpleBacklightMatrixEffect::BandSpiral => {
+                if D::BAND_SPIRAL_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, _coord, (x, y)| {
                         // Base speed: 1 half-cycle every second
                         let pos = time as u8;
@@ -410,24 +545,24 @@ where
                     })
                 }
             }
-            BacklightEffect::CycleLeftRight => {
-                if K::SIMPLE_BACKLIGHT_MATRIX_CYCLE_LEFT_RIGHT_ENABLED {
+            SimpleBacklightMatrixEffect::CycleLeftRight => {
+                if D::CYCLE_LEFT_RIGHT_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, _coord, (x, _y)| {
                         // Base speed: 1 cycle every second
                         (x - animator.bounds.min.0).wrapping_sub(time as u8)
                     })
                 }
             }
-            BacklightEffect::CycleUpDown => {
-                if K::SIMPLE_BACKLIGHT_MATRIX_CYCLE_UP_DOWN_ENABLED {
+            SimpleBacklightMatrixEffect::CycleUpDown => {
+                if D::CYCLE_UP_DOWN_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, _coord, (_x, y)| {
                         // Base speed: 1 cycle every second
                         (y - animator.bounds.min.1).wrapping_sub(time as u8)
                     })
                 }
             }
-            BacklightEffect::CycleOutIn => {
-                if K::SIMPLE_BACKLIGHT_MATRIX_CYCLE_OUT_IN_ENABLED {
+            SimpleBacklightMatrixEffect::CycleOutIn => {
+                if D::CYCLE_OUT_IN_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, _coord, (x, y)| {
                         // Base speed: 1 cycle every second
                         let d = sqrtf(
@@ -440,17 +575,17 @@ where
                     })
                 }
             }
-            BacklightEffect::Raindrops => {
-                if K::SIMPLE_BACKLIGHT_MATRIX_RAINDROPS_ENABLED {
-                    let adjusted_fps = (((K::FPS as u32) << 8)
+            SimpleBacklightMatrixEffect::Raindrops => {
+                if D::RAINDROPS_ENABLED {
+                    let adjusted_fps = (((D::FPS as u32) << 8)
                         / (self.config.speed as u32 + 128 + (self.config.speed as u32 >> 1)))
                         as u8;
 
                     // Randomly choose an LED to light up every 0.05 seconds
                     if self.tick % (1 + scale(adjusted_fps, 13)) as u32 == 0 {
                         let rand = self.rng.next_u32();
-                        let row = rand as u8 % K::LIGHTING_ROWS as u8;
-                        let col = (rand >> 8) as u8 % K::LIGHTING_COLS as u8;
+                        let row = rand as u8 % D::LIGHTING_ROWS as u8;
+                        let col = (rand >> 8) as u8 % D::LIGHTING_COLS as u8;
                         self.buf[row as usize][col as usize] = u8::MAX
                     }
 
@@ -461,8 +596,8 @@ where
                     })
                 }
             }
-            BacklightEffect::DualBeacon => {
-                if K::SIMPLE_BACKLIGHT_MATRIX_DUAL_BEACON_ENABLED {
+            SimpleBacklightMatrixEffect::DualBeacon => {
+                if D::DUAL_BEACON_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, _coord, (x, y)| {
                         // Base speed: 1 cycle every second
                         let pos = time as u8;
@@ -474,8 +609,8 @@ where
                     })
                 }
             }
-            BacklightEffect::WaveLeftRight => {
-                if K::SIMPLE_BACKLIGHT_MATRIX_WAVE_LEFT_RIGHT_ENABLED {
+            SimpleBacklightMatrixEffect::WaveLeftRight => {
+                if D::WAVE_LEFT_RIGHT_ENABLED {
                     let size = self.bounds.max.0 - self.bounds.min.0;
                     self.set_brightness_for_each_led(|animator, time, _coord, (x, _y)| {
                         // Base speed: 1 cycle every second
@@ -486,8 +621,8 @@ where
                     })
                 }
             }
-            BacklightEffect::WaveUpDown => {
-                if K::SIMPLE_BACKLIGHT_MATRIX_WAVE_UP_DOWN_ENABLED {
+            SimpleBacklightMatrixEffect::WaveUpDown => {
+                if D::WAVE_UP_DOWN_ENABLED {
                     let size = self.bounds.max.1 - self.bounds.min.1;
                     self.set_brightness_for_each_led(|animator, time, _coord, (_x, y)| {
                         // Base speed: 1 cycle every second
@@ -498,8 +633,8 @@ where
                     })
                 }
             }
-            BacklightEffect::Reactive => {
-                if K::SIMPLE_BACKLIGHT_MATRIX_REACTIVE_ENABLED {
+            SimpleBacklightMatrixEffect::Reactive => {
+                if D::REACTIVE_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, (row, col), _pos| {
                         // Base speed: LED fades after one second
                         let time_of_last_press = animator.last_presses.iter().find(
@@ -516,14 +651,14 @@ where
                     })
                 }
             }
-            BacklightEffect::ReactiveWide => {
-                if K::SIMPLE_BACKLIGHT_MATRIX_REACTIVE_WIDE_ENABLED {
+            SimpleBacklightMatrixEffect::ReactiveWide => {
+                if D::REACTIVE_WIDE_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, _coord, (led_x, led_y)| {
                         animator.last_presses.iter().fold(
                             0,
                             |brightness: u8, ((pressed_row, pressed_col), press_time)| {
                                 // Base speed: LED fades after one second
-                                if let Some((key_x, key_y)) = K::get_backlight_matrix().layout
+                                if let Some((key_x, key_y)) = D::get_backlight_matrix().layout
                                     [*pressed_row as usize]
                                     [*pressed_col as usize]
                                 {
@@ -545,13 +680,13 @@ where
                     })
                 }
             }
-            BacklightEffect::ReactiveCross => {
-                if K::SIMPLE_BACKLIGHT_MATRIX_REACTIVE_CROSS_ENABLED {
+            SimpleBacklightMatrixEffect::ReactiveCross => {
+                if D::REACTIVE_CROSS_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, _coord, (led_x, led_y)| {
                         animator.last_presses.iter().fold(
                             0,
                             |brightness: u8, ((pressed_row, pressed_col), press_time)| {
-                                if let Some((key_x, key_y)) = K::get_backlight_matrix().layout
+                                if let Some((key_x, key_y)) = D::get_backlight_matrix().layout
                                     [*pressed_row as usize]
                                     [*pressed_col as usize]
                                 {
@@ -574,13 +709,13 @@ where
                     })
                 }
             }
-            BacklightEffect::ReactiveNexus => {
-                if K::SIMPLE_BACKLIGHT_MATRIX_REACTIVE_NEXUS_ENABLED {
+            SimpleBacklightMatrixEffect::ReactiveNexus => {
+                if D::REACTIVE_NEXUS_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, _coord, (led_x, led_y)| {
                         animator.last_presses.iter().fold(
                             0,
                             |brightness: u8, ((pressed_row, pressed_col), press_time)| {
-                                if let Some((key_x, key_y)) = K::get_backlight_matrix().layout
+                                if let Some((key_x, key_y)) = D::get_backlight_matrix().layout
                                     [*pressed_row as usize]
                                     [*pressed_col as usize]
                                 {
@@ -609,13 +744,13 @@ where
                     })
                 }
             }
-            BacklightEffect::ReactiveSplash => {
-                if K::SIMPLE_BACKLIGHT_MATRIX_REACTIVE_SPLASH_ENABLED {
+            SimpleBacklightMatrixEffect::ReactiveSplash => {
+                if D::REACTIVE_SPLASH_ENABLED {
                     self.set_brightness_for_each_led(|animator, time, _coord, (led_x, led_y)| {
                         animator.last_presses.iter().fold(
                             0,
                             |brightness: u8, ((pressed_row, pressed_col), press_time)| {
-                                if let Some((key_x, key_y)) = K::get_backlight_matrix().layout
+                                if let Some((key_x, key_y)) = D::get_backlight_matrix().layout
                                     [*pressed_row as usize]
                                     [*pressed_col as usize]
                                 {
@@ -651,5 +786,150 @@ where
         };
 
         self.tick += 1;
+    }
+
+    #[cfg(feature = "storage")]
+    pub fn create_storage_instance(&self) -> SimpleBacklightMatrixStorage<D, R> {
+        SimpleBacklightMatrixStorage {
+            _device_phantom: core::marker::PhantomData,
+            _driver_phantom: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<D: SimpleBacklightMatrixDevice + 'static, R: SimpleBacklightMatrixDriver<D>> Animator
+    for SimpleBacklightMatrixAnimator<D, R>
+where
+    [(); D::LIGHTING_COLS]:,
+    [(); D::LIGHTING_ROWS]:,
+{
+    type CommandType = SimpleBacklightMatrixCommand;
+
+    type ConfigType = SimpleBacklightMatrixConfig;
+
+    type BufferUpdateArgs = ();
+
+    const FPS: usize = D::FPS;
+
+    async fn initialize(&mut self) {
+        self.config = D::get_state().get().await;
+
+        match self.config.enabled {
+            true => self.turn_on().await,
+            false => self.turn_off().await,
+        }
+    }
+
+    async fn tick(&mut self) {
+        self.tick().await
+    }
+
+    fn is_waiting_for_command(&self) -> bool {
+        !(self.config.enabled && self.config.effect.is_animated())
+    }
+
+    fn process_command(&mut self, command: Self::CommandType) {
+        self.process_command(command)
+    }
+
+    async fn handle_state_change(&mut self) {
+        // Update the config state, after updating the animator's own copy, and check if it was enabled/disabled
+        let toggled = D::get_state()
+            .update(|config| {
+                let toggled = config.enabled != self.config.enabled;
+                **config = self.config;
+                toggled
+            })
+            .await;
+
+        if toggled {
+            match self.config.enabled {
+                true => self.turn_on().await,
+                false => self.turn_off().await,
+            }
+        }
+
+        // Send commands to be consumed by the split peripherals
+        #[cfg(feature = "split-central")]
+        {
+            use crate::split::central::private::MaybeCentralDevice;
+            if let Some(channel) = D::CentralDevice::get_message_to_peripheral_channel() {
+                channel
+                    .send(crate::split::MessageToPeripheral::SimpleBacklightMatrix(
+                        SimpleBacklightMatrixCommand::ResetTime,
+                    ))
+                    .await;
+                channel
+                    .send(crate::split::MessageToPeripheral::SimpleBacklightMatrix(
+                        SimpleBacklightMatrixCommand::SetEffect(self.config.effect),
+                    ))
+                    .await;
+                channel
+                    .send(crate::split::MessageToPeripheral::SimpleBacklightMatrix(
+                        SimpleBacklightMatrixCommand::SetValue(self.config.val),
+                    ))
+                    .await;
+                channel
+                    .send(crate::split::MessageToPeripheral::SimpleBacklightMatrix(
+                        SimpleBacklightMatrixCommand::SetSpeed(self.config.speed),
+                    ))
+                    .await;
+            }
+        }
+    }
+
+    #[inline(always)]
+    fn get_command_channel() -> &'static Channel<RawMutex, Self::CommandType, 2> {
+        D::get_command_channel()
+    }
+
+    #[inline(always)]
+    fn get_state() -> &'static State<'static, Self::ConfigType> {
+        D::get_state()
+    }
+}
+
+#[cfg(feature = "storage")]
+use storage::*;
+
+#[cfg(feature = "storage")]
+mod storage {
+    use embassy_sync::signal::Signal;
+
+    use crate::hw::platform::RawMutex;
+
+    use super::{
+        SimpleBacklightMatrixAnimator, SimpleBacklightMatrixDevice, SimpleBacklightMatrixDriver,
+    };
+
+    pub(super) static SIMPLE_BACKLIGHT_MATRIX_CONFIG_STATE_LISTENER: Signal<RawMutex, ()> =
+        Signal::new();
+    pub(super) static SIMPLE_BACKLIGHT_MATRIX_SAVE_SIGNAL: Signal<RawMutex, ()> = Signal::new();
+
+    pub struct SimpleBacklightMatrixStorage<A, D> {
+        pub(super) _driver_phantom: core::marker::PhantomData<A>,
+        pub(super) _device_phantom: core::marker::PhantomData<D>,
+    }
+
+    impl<D: SimpleBacklightMatrixDevice + 'static, R: SimpleBacklightMatrixDriver<D>>
+        crate::lighting::AnimatorStorage for SimpleBacklightMatrixStorage<D, R>
+    where
+        [(); D::LIGHTING_COLS]:,
+        [(); D::LIGHTING_ROWS]:,
+    {
+        type Animator = SimpleBacklightMatrixAnimator<D, R>;
+
+        const STORAGE_KEY: crate::storage::StorageKey =
+            crate::storage::StorageKey::SimpleBacklightMatrixConfig;
+
+        #[inline(always)]
+        fn get_state_listener() -> &'static Signal<RawMutex, ()> {
+            D::get_state_listener()
+        }
+
+        #[inline(always)]
+        fn get_save_signal() -> &'static Signal<RawMutex, ()> {
+            D::get_save_signal()
+        }
     }
 }

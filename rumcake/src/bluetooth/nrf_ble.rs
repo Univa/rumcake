@@ -1,7 +1,6 @@
 use core::cell::{Cell, RefCell};
 
 use defmt::{debug, error, info, warn, Debug2Format};
-use embassy_futures::join;
 use embassy_futures::select::{self, select3, select4};
 use heapless::Vec;
 use nrf_softdevice::ble::gatt_server::builder::ServiceBuilder;
@@ -21,15 +20,12 @@ use static_cell::StaticCell;
 use usbd_human_interface_device::device::consumer::MultipleConsumerReport;
 use usbd_human_interface_device::device::keyboard::NKROBootKeyboardReport;
 
-use crate::hw::mcu::BLUETOOTH_ADVERTISING_MUTEX;
-use crate::hw::{
-    HIDOutput, OutputMode, BATTERY_LEVEL_STATE, CURRENT_OUTPUT_STATE, OUTPUT_MODE_STATE,
-};
-use crate::keyboard::{CONSUMER_REPORT_HID_SEND_CHANNEL, KEYBOARD_REPORT_HID_SEND_CHANNEL};
+use crate::hw::platform::BLUETOOTH_ADVERTISING_MUTEX;
+use crate::hw::{HIDOutput, BATTERY_LEVEL_STATE, CURRENT_OUTPUT_STATE};
 
 use crate::bluetooth::{
-    BluetoothCommand, BluetoothKeyboard, BATTERY_LEVEL_LISTENER, BLUETOOTH_COMMAND_CHANNEL,
-    BLUETOOTH_CONNECTED_STATE, CURRENT_OUTPUT_STATE_LISTENER,
+    BluetoothKeyboard, BATTERY_LEVEL_LISTENER, BLUETOOTH_CONNECTED_STATE,
+    CURRENT_OUTPUT_STATE_LISTENER,
 };
 
 #[derive(Clone, Copy)]
@@ -739,48 +735,49 @@ where
     static BONDER: StaticCell<Bonder> = StaticCell::new();
     let bonder = BONDER.init(Bonder::default());
 
-    let connection_fut = async {
-        loop {
-            let advertisement = ConnectableAdvertisement::ScannableUndirected {
-                adv_data: &adv_data,
-                scan_data: &scan_data,
-            };
+    loop {
+        let advertisement = ConnectableAdvertisement::ScannableUndirected {
+            adv_data: &adv_data,
+            scan_data: &scan_data,
+        };
 
-            let connection = {
-                let _lock = BLUETOOTH_ADVERTISING_MUTEX.lock().await;
-                match advertise_pairable(sd, advertisement, &Default::default(), bonder).await {
-                    Ok(connection) => {
-                        info!("[BT_HID] Connection established with host device");
-                        BLUETOOTH_CONNECTED_STATE.set(true).await;
-                        connection
-                    }
-                    Err(error) => {
-                        warn!("[BT_HID] BLE advertising error: {}", Debug2Format(&error));
-                        continue;
-                    }
+        let connection = {
+            let _lock = BLUETOOTH_ADVERTISING_MUTEX.lock().await;
+            match advertise_pairable(sd, advertisement, &Default::default(), bonder).await {
+                Ok(connection) => {
+                    info!("[BT_HID] Connection established with host device");
+                    BLUETOOTH_CONNECTED_STATE.set(true).await;
+                    connection
                 }
-            };
+                Err(error) => {
+                    warn!("[BT_HID] BLE advertising error: {}", Debug2Format(&error));
+                    continue;
+                }
+            }
+        };
 
-            let conn_fut = run(&connection, &server, |event| match event {
-                ServerEvent::Bas(bas_event) => match bas_event {
-                    BatteryServiceEvent::BatteryLevelCccdWrite { notifications } => {
-                        debug!("[BT_HID] Battery value CCCD updated: {}", notifications);
-                    }
-                },
-                ServerEvent::Dis(dis_event) => match dis_event {},
-                ServerEvent::Hids(hids_event) => match hids_event {
-                    HIDServiceEvent::KeyboardReportCccdWrite { notifications } => {
-                        debug!("[BT_HID] Keyboard report CCCD updated: {}", notifications);
-                    }
-                    HIDServiceEvent::ConsumerReportCccdWrite { notifications } => {
-                        debug!("[BT_HID] Consumer report CCCD updated: {}", notifications);
-                    }
-                    HIDServiceEvent::ViaReportCccdWrite { notifications } => {
-                        debug!("[BT_HID] Via report CCCD updated: {}", notifications);
-                    }
-                    HIDServiceEvent::ViaReportWrite(report) => {
-                        #[cfg(feature = "via")]
-                        match crate::via::VIA_REPORT_HID_RECEIVE_CHANNEL.try_send(report) {
+        let conn_fut = run(&connection, &server, |event| match event {
+            ServerEvent::Bas(bas_event) => match bas_event {
+                BatteryServiceEvent::BatteryLevelCccdWrite { notifications } => {
+                    debug!("[BT_HID] Battery value CCCD updated: {}", notifications);
+                }
+            },
+            ServerEvent::Dis(dis_event) => match dis_event {},
+            ServerEvent::Hids(hids_event) => match hids_event {
+                HIDServiceEvent::KeyboardReportCccdWrite { notifications } => {
+                    debug!("[BT_HID] Keyboard report CCCD updated: {}", notifications);
+                }
+                HIDServiceEvent::ConsumerReportCccdWrite { notifications } => {
+                    debug!("[BT_HID] Consumer report CCCD updated: {}", notifications);
+                }
+                HIDServiceEvent::ViaReportCccdWrite { notifications } => {
+                    debug!("[BT_HID] Via report CCCD updated: {}", notifications);
+                }
+                HIDServiceEvent::ViaReportWrite(report) => {
+                    #[cfg(feature = "via")]
+                    {
+                        let channel = K::get_via_hid_receive_channel();
+                        match channel.try_send(report) {
                             Ok(()) => {
                                 debug!("[BT_HID] Received Via report: {}", report);
                             }
@@ -792,196 +789,171 @@ where
                                 );
                             }
                         }
-
-                        #[cfg(not(feature = "via"))]
-                        warn!("[BT_HID] Via is not enabled. Ignoring report: {}", report);
                     }
-                    HIDServiceEvent::HidControlWrite(val) => {
-                        debug!("[BT_HID] Received HID control value: {=u8}", val);
+
+                    #[cfg(not(feature = "via"))]
+                    warn!("[BT_HID] Via is not enabled. Ignoring report: {}", report);
+                }
+                HIDServiceEvent::HidControlWrite(val) => {
+                    debug!("[BT_HID] Received HID control value: {=u8}", val);
+                }
+            },
+        });
+
+        let adc_fut = async {
+            loop {
+                BATTERY_LEVEL_LISTENER.wait().await;
+                let pct = BATTERY_LEVEL_STATE.get().await;
+
+                match server.bas.battery_level_notify(&connection, &pct) {
+                    Ok(_) => {
+                        debug!(
+                            "[BT_HID] Notified connection of new battery level: {=u8}",
+                            pct
+                        );
                     }
-                },
-            });
-
-            let adc_fut = async {
-                loop {
-                    BATTERY_LEVEL_LISTENER.wait().await;
-                    let pct = BATTERY_LEVEL_STATE.get().await;
-
-                    match server.bas.battery_level_notify(&connection, &pct) {
-                        Ok(_) => {
-                            debug!(
-                                "[BT_HID] Notified connection of new battery level: {=u8}",
-                                pct
-                            );
-                        }
-                        Err(error) => {
-                            error!(
-                                "[BT_HID] Could not notify connection of new battery level ({=u8}): {}",
-                                pct,
-                                Debug2Format(&error)
-                            );
-                        }
+                    Err(error) => {
+                        error!(
+                            "[BT_HID] Could not notify connection of new battery level ({=u8}): {}",
+                            pct,
+                            Debug2Format(&error)
+                        );
                     }
-                }
-            };
-
-            let hid_fut = async {
-                // Discard any reports that haven't been processed due to lack of a connection
-                while KEYBOARD_REPORT_HID_SEND_CHANNEL.try_receive().is_ok() {}
-                while CONSUMER_REPORT_HID_SEND_CHANNEL.try_receive().is_ok() {}
-
-                #[cfg(feature = "via")]
-                while crate::via::VIA_REPORT_HID_SEND_CHANNEL
-                    .try_receive()
-                    .is_ok()
-                {}
-
-                loop {
-                    if matches!(CURRENT_OUTPUT_STATE.get().await, Some(HIDOutput::Bluetooth)) {
-                        #[cfg(feature = "via")]
-                        match select4(
-                            CURRENT_OUTPUT_STATE_LISTENER.wait(),
-                            KEYBOARD_REPORT_HID_SEND_CHANNEL.receive(),
-                            CONSUMER_REPORT_HID_SEND_CHANNEL.receive(),
-                            crate::via::VIA_REPORT_HID_SEND_CHANNEL.receive(),
-                        )
-                        .await
-                        {
-                            select::Either4::First(()) => {}
-                            select::Either4::Second(report) => {
-                                info!(
-                                    "[BT_HID] Writing NKRO HID report to bluetooth: {:?}",
-                                    Debug2Format(&report)
-                                );
-
-                                if let Err(err) =
-                                    server.hids.keyboard_report_notify(&connection, report)
-                                {
-                                    error!(
-                                        "[BT_HID] Couldn't write NKRO HID report: {:?}",
-                                        Debug2Format(&err)
-                                    );
-                                };
-                            }
-                            select::Either4::Third(report) => {
-                                info!(
-                                    "[BT_HID] Writing consumer HID report to bluetooth: {:?}",
-                                    Debug2Format(&report)
-                                );
-
-                                if let Err(err) =
-                                    server.hids.consumer_report_notify(&connection, report)
-                                {
-                                    error!(
-                                        "[BT_HID] Couldn't write consumer HID report: {:?}",
-                                        Debug2Format(&err)
-                                    );
-                                };
-                            }
-                            select::Either4::Fourth(report) => {
-                                info!(
-                                    "[BT_HID] Writing Via HID report to bluetooth: {:?}",
-                                    Debug2Format(&report)
-                                );
-
-                                if let Err(err) = server.hids.via_report_notify(&connection, report)
-                                {
-                                    error!(
-                                        "[BT_HID] Couldn't write Via HID report: {:?}",
-                                        Debug2Format(&err)
-                                    );
-                                };
-                            }
-                        };
-
-                        #[cfg(not(feature = "via"))]
-                        match select3(
-                            CURRENT_OUTPUT_STATE_LISTENER.wait(),
-                            KEYBOARD_REPORT_HID_SEND_CHANNEL.receive(),
-                            CONSUMER_REPORT_HID_SEND_CHANNEL.receive(),
-                        )
-                        .await
-                        {
-                            select::Either3::First(()) => {}
-                            select::Either3::Second(report) => {
-                                info!(
-                                    "[BT_HID] Writing NKRO HID report to bluetooth: {:?}",
-                                    Debug2Format(&report)
-                                );
-
-                                if let Err(err) =
-                                    server.hids.keyboard_report_notify(&connection, report)
-                                {
-                                    error!(
-                                        "[BT_HID] Couldn't write NKRO HID report: {:?}",
-                                        Debug2Format(&err)
-                                    );
-                                };
-                            }
-                            select::Either3::Third(report) => {
-                                info!(
-                                    "[BT_HID] Writing consumer HID report to bluetooth: {:?}",
-                                    Debug2Format(&report)
-                                );
-
-                                if let Err(err) =
-                                    server.hids.consumer_report_notify(&connection, report)
-                                {
-                                    error!(
-                                        "[BT_HID] Couldn't write consumer HID report: {:?}",
-                                        Debug2Format(&err)
-                                    );
-                                };
-                            }
-                        };
-                    } else {
-                        CURRENT_OUTPUT_STATE_LISTENER.wait().await;
-                    }
-                }
-            };
-
-            match select3(conn_fut, adc_fut, hid_fut).await {
-                select::Either3::First(error) => {
-                    warn!(
-                        "[BT_HID] Connection has been lost: {}",
-                        Debug2Format(&error)
-                    );
-                    BLUETOOTH_CONNECTED_STATE.set(false).await;
-                }
-                select::Either3::Second(_) => {
-                    error!("[BT_HID] Battery task failed. This should not happen.");
-                }
-                select::Either3::Third(_) => {
-                    error!("[BT_HID] HID task failed. This should not happen.");
-                }
-            };
-        }
-    };
-
-    let command_fut = async {
-        loop {
-            let command = BLUETOOTH_COMMAND_CHANNEL.receive().await;
-            match command {
-                #[cfg(feature = "usb")]
-                BluetoothCommand::ToggleOutput => {
-                    OUTPUT_MODE_STATE
-                        .set(match OUTPUT_MODE_STATE.get().await {
-                            OutputMode::Usb => OutputMode::Bluetooth,
-                            OutputMode::Bluetooth => OutputMode::Usb,
-                        })
-                        .await;
-                }
-                #[cfg(feature = "usb")]
-                BluetoothCommand::OutputUSB => {
-                    OUTPUT_MODE_STATE.set(OutputMode::Usb).await;
-                }
-                #[cfg(feature = "usb")]
-                BluetoothCommand::OutputBluetooth => {
-                    OUTPUT_MODE_STATE.set(OutputMode::Bluetooth).await;
                 }
             }
-        }
-    };
+        };
 
-    join::join(command_fut, connection_fut).await;
+        let hid_fut = async {
+            let keyboard_report_channel = K::get_keyboard_report_send_channel();
+            let consumer_report_channel = K::get_consumer_report_send_channel();
+
+            // Discard any reports that haven't been processed due to lack of a connection
+            while keyboard_report_channel.try_receive().is_ok() {}
+            while consumer_report_channel.try_receive().is_ok() {}
+
+            #[cfg(feature = "via")]
+            let via_report_channel = K::get_via_hid_send_channel();
+
+            #[cfg(feature = "via")]
+            while via_report_channel.try_receive().is_ok() {}
+
+            loop {
+                if matches!(CURRENT_OUTPUT_STATE.get().await, Some(HIDOutput::Bluetooth)) {
+                    #[cfg(feature = "via")]
+                    match select4(
+                        CURRENT_OUTPUT_STATE_LISTENER.wait(),
+                        keyboard_report_channel.receive(),
+                        consumer_report_channel.receive(),
+                        via_report_channel.receive(),
+                    )
+                    .await
+                    {
+                        select::Either4::First(()) => {}
+                        select::Either4::Second(report) => {
+                            info!(
+                                "[BT_HID] Writing NKRO HID report to bluetooth: {:?}",
+                                Debug2Format(&report)
+                            );
+
+                            if let Err(err) =
+                                server.hids.keyboard_report_notify(&connection, report)
+                            {
+                                error!(
+                                    "[BT_HID] Couldn't write NKRO HID report: {:?}",
+                                    Debug2Format(&err)
+                                );
+                            };
+                        }
+                        select::Either4::Third(report) => {
+                            info!(
+                                "[BT_HID] Writing consumer HID report to bluetooth: {:?}",
+                                Debug2Format(&report)
+                            );
+
+                            if let Err(err) =
+                                server.hids.consumer_report_notify(&connection, report)
+                            {
+                                error!(
+                                    "[BT_HID] Couldn't write consumer HID report: {:?}",
+                                    Debug2Format(&err)
+                                );
+                            };
+                        }
+                        select::Either4::Fourth(report) => {
+                            info!(
+                                "[BT_HID] Writing Via HID report to bluetooth: {:?}",
+                                Debug2Format(&report)
+                            );
+
+                            if let Err(err) = server.hids.via_report_notify(&connection, report) {
+                                error!(
+                                    "[BT_HID] Couldn't write Via HID report: {:?}",
+                                    Debug2Format(&err)
+                                );
+                            };
+                        }
+                    };
+
+                    #[cfg(not(feature = "via"))]
+                    match select3(
+                        CURRENT_OUTPUT_STATE_LISTENER.wait(),
+                        keyboard_report_channel.receive(),
+                        consumer_report_channel.receive(),
+                    )
+                    .await
+                    {
+                        select::Either3::First(()) => {}
+                        select::Either3::Second(report) => {
+                            info!(
+                                "[BT_HID] Writing NKRO HID report to bluetooth: {:?}",
+                                Debug2Format(&report)
+                            );
+
+                            if let Err(err) =
+                                server.hids.keyboard_report_notify(&connection, report)
+                            {
+                                error!(
+                                    "[BT_HID] Couldn't write NKRO HID report: {:?}",
+                                    Debug2Format(&err)
+                                );
+                            };
+                        }
+                        select::Either3::Third(report) => {
+                            info!(
+                                "[BT_HID] Writing consumer HID report to bluetooth: {:?}",
+                                Debug2Format(&report)
+                            );
+
+                            if let Err(err) =
+                                server.hids.consumer_report_notify(&connection, report)
+                            {
+                                error!(
+                                    "[BT_HID] Couldn't write consumer HID report: {:?}",
+                                    Debug2Format(&err)
+                                );
+                            };
+                        }
+                    };
+                } else {
+                    CURRENT_OUTPUT_STATE_LISTENER.wait().await;
+                }
+            }
+        };
+
+        match select3(conn_fut, adc_fut, hid_fut).await {
+            select::Either3::First(error) => {
+                warn!(
+                    "[BT_HID] Connection has been lost: {}",
+                    Debug2Format(&error)
+                );
+                BLUETOOTH_CONNECTED_STATE.set(false).await;
+            }
+            select::Either3::Second(_) => {
+                error!("[BT_HID] Battery task failed. This should not happen.");
+            }
+            select::Either3::Third(_) => {
+                error!("[BT_HID] HID task failed. This should not happen.");
+            }
+        };
+    }
 }

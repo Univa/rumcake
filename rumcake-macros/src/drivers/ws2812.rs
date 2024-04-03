@@ -1,10 +1,10 @@
-use crate::keyboard::{MatrixLike, OptionalItem};
+use crate::common::{MatrixLike, OptionalItem};
 use proc_macro2::{Literal, TokenStream};
 use quote::quote;
 
 pub fn get_led_from_matrix_coordinates(input: MatrixLike<OptionalItem<Literal>>) -> TokenStream {
     let values = input.rows.iter().map(|row| {
-        let items = &row.cols;
+        let items = &row.items;
         quote! {#(#items),*}
     });
 
@@ -21,27 +21,33 @@ pub fn get_led_from_matrix_coordinates(input: MatrixLike<OptionalItem<Literal>>)
 
 pub mod bitbang {
     use proc_macro2::{Ident, TokenStream};
+    use proc_macro_error::abort;
     use quote::quote;
+    use syn::LitInt;
 
-    pub fn driver_trait() -> TokenStream {
-        quote! {
-            /// A trait that must be implemented to set up the WS2812 driver.
-            pub(crate) trait WS2812BitbangDriverSettings {
-                /// Setup the GPIO pin used to send data to the WS2812 LEDs.
-                ///
-                /// It is recommended to use
-                /// [`rumcake::drivers::ws2812_bitbang::ws2812_bitbang_pin`] to implement this
-                /// function.
-                fn ws2812_pin() -> impl ::rumcake::embedded_hal::digital::v2::OutputPin;
-            }
+    crate::parse_as_custom_fields! {
+        pub struct WS2812BitbangArgsBuilder for WS2812BitbangArgs {
+            pin: Ident,
+            fudge: Option<LitInt>
         }
     }
 
-    pub fn pin(input: Ident) -> TokenStream {
+    pub fn setup_ws2812_bitbang(
+        WS2812BitbangArgs { pin, fudge }: WS2812BitbangArgs,
+    ) -> TokenStream {
+        let fudge = if let Some(lit) = fudge {
+            lit.base10_parse::<u8>().unwrap_or_else(|_| {
+                abort!(
+                    lit,
+                    "The provided fudge value could not be parsed as a u8 value."
+                )
+            })
+        } else {
+            60
+        };
+
         quote! {
-            fn ws2812_pin() -> impl ::rumcake::embedded_hal::digital::v2::OutputPin {
-                ::rumcake::hw::mcu::output_pin!(#input)
-            }
+            ::rumcake::drivers::ws2812_bitbang::setup_driver::<{ ::rumcake::hw::platform::SYSCLK }, #fudge>(::rumcake::hw::platform::output_pin!(#pin))
         }
     }
 }

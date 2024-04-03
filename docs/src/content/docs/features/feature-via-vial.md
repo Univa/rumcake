@@ -36,7 +36,8 @@ You must enable the following `rumcake` features:
 
 ## Required code
 
-To set up Via and Vial support, your keyboard must implement the `ViaKeyboard` trait, and add `via` to your `keyboard` macro invocation.
+To set up Via and Vial support, you must add a new type to implement the `ViaKeyboard` trait on.
+Then, you can add `via(id = <type>)` to your `keyboard` macro invocation.
 
 Certain Via features need to be configured manually as well:
 
@@ -48,23 +49,32 @@ Certain Via features need to be configured manually as well:
 
 For other configurable Via options, see the [`ViaKeyboard` trait](/rumcake/api/nrf52840/rumcake/via/trait.ViaKeyboard.html).
 
-```rust ins={5,9-17}
+```rust ins={5-7,16-26}
 use rumcake::keyboard;
 
 #[keyboard(
     // somewhere in your keyboard macro invocation ...
-    via
+    via(
+        id = MyKeyboardVia
+    )
 )]
 struct MyKeyboard;
 
+impl KeyboardLayout for MyKeyboard {
+    /* ... */
+}
+
 // Via setup
 use rumcake::via::{BacklightType, setup_macro_buffer, ViaKeyboard};
-impl ViaKeyboard for MyKeyboard {
+struct MyKeyboardVia;
+impl ViaKeyboard for MyKeyboardVia {
+    type Layout = MyKeyboard; // Must be a type that implements `KeyboardLayout`
+
     // OPTIONAL, this example assumes you are using simple-backlight-matrix.
     const BACKLIGHT_TYPE: Option<BacklightType> = Some(BacklightType::SimpleBacklightMatrix)
 
     // OPTIONAL, include this if you want to create macros using the Via app.
-    setup_macro_buffer!(512, 16) // Max number of bytes that can be taken up by macros, followed by the max number of macros that can be created.
+    setup_macro_buffer!(buffer_size: 512, macro_count: 16) // Max number of bytes that can be taken up by macros, followed by the max number of macros that can be created.
 }
 ```
 
@@ -74,18 +84,28 @@ lighting settings, etc.) will **NOT** be saved by default.
 
 Optionally, you can add `use_storage`, and a `storage` driver to save Via data.
 
-```rust del={5} ins={6-9,22-23}
+Additionally, you will need to call `connect_storage_service` in your `ViaKeyboard` implementation.
+
+```rust del={5} ins={6-10,18}
 use rumcake::keyboard;
 
 #[keyboard(
     // somewhere in your keyboard macro invocation ...
     via,
     via(
+        id = MyKeyboardVia,
         use_storage // Optional, if you want to save Via configuration
     ),
     storage(driver = "internal") // You need to specify a storage driver if you specified `use_storage`. See feature-storage.md for more information.
 )]
 struct MyKeyboard;
+
+//...
+use rumcake::via::connect_storage_service;
+impl ViaKeyboard for MyKeyboardVia {
+    //...
+    connect_storage_service!(MyKeyboard)
+}
 ```
 
 You will need to do additional setup for your selected storage driver as well.
@@ -100,15 +120,19 @@ implement `KEYBOARD_DEFINITION`. Please follow the instructions in the [Vial Def
 
 For other configurable Vial options, see the [`VialKeyboard` trait](/rumcake/api/nrf52840/rumcake/vial/trait.VialKeyboard.html)
 
-```rust del={7} ins={1-3,8,24-30}
+```rust del={7} ins={1-3,10,30-35}
 // GENERATED_KEYBOARD_DEFINITION comes from _generated.rs, which is made by the build.rs script.
 #[cfg(vial)]
 include!(concat!(env!("OUT_DIR"), "/_generated.rs"));
 
 #[keyboard(
     // somewhere in your keyboard macro invocation ...
-    via
-    vial
+    via(
+        id = MyKeyboardVia
+    )
+    vial(
+        id = MyKeyboardVia
+    )
 )]
 struct MyKeyboard;
 
@@ -117,11 +141,13 @@ struct MyKeyboard;
 // Via setup
 use rumcake::via::{setup_macro_buffer, ViaKeyboard};
 impl ViaKeyboard for MyKeyboard {
+    type Layout = MyKeyboard; // Must be a type that implements `KeyboardLayout`
+
     // OPTIONAL, this example assumes you are using simple-backlight-matrix.
     const BACKLIGHT_TYPE: Option<BacklightType> = Some(BacklightType::SimpleBacklightMatrix)
 
     // OPTIONAL, include this if you want to create macros using the Via app.
-    setup_macro_buffer!(512, 16) // Max number of bytes that can be taken up by macros, followed by the max number of macros that can be created.
+    setup_macro_buffer!(buffer_size: 512, macro_count: 16) // Max number of bytes that can be taken up by macros, followed by the max number of macros that can be created.
 }
 
 use rumcake::vial::VialKeyboard;
@@ -133,20 +159,29 @@ impl VialKeyboard for MyKeyboard {
 ```
 
 :::caution
-Similarly to the previous caution, you need to specify `use_storage`, to save Vial data:
+Similarly to the previous caution, you need to specify `use_storage`, to save Vial data.
+`connect_storage_service!` is still implemented inside `ViaKeyboard`:
 
-```rust del={5} ins={6-9,22-23}
+```rust del={5} ins={6-10,18}
 use rumcake::keyboard;
 
 #[keyboard(
     // somewhere in your keyboard macro invocation ...
     vial,
     vial(
+        id = MyKeyboardVia,
         use_storage // Optional, if you want to save Vial configuration
     ),
     storage = "internal" // You need to specify a storage driver if you specified `use_storage`. See feature-storage.md for more information.
 )]
 struct MyKeyboard;
+
+//...
+use rumcake::via::connect_storage_service;
+impl ViaKeyboard for MyKeyboardVia {
+    //...
+    connect_storage_service!(MyKeyboard)
+}
 ```
 
 :::

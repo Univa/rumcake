@@ -2,15 +2,20 @@
 //!
 //! To use Vial, you will need to implement [`ViaKeyboard`] and [`VialKeyboard`].
 
-use crate::backlight::{BacklightMatrixDevice, EmptyBacklightMatrix};
 use defmt::assert;
 use embassy_futures::join;
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use smart_leds::RGB8;
 
-use crate::hw::mcu::RawMutex;
-use crate::via::{ViaKeyboard, VIA_REPORT_HID_RECEIVE_CHANNEL, VIA_REPORT_HID_SEND_CHANNEL};
+use crate::hw::platform::RawMutex;
+use crate::hw::HIDDevice;
+use crate::keyboard::KeyboardLayout;
+use crate::lighting::private::EmptyLightingDevice;
+use crate::lighting::rgb_backlight_matrix::private::MaybeRGBBacklightMatrixDevice;
+use crate::lighting::BacklightMatrixDevice;
+use crate::storage::{FlashStorage, StorageDevice, StorageKey};
+use crate::via::ViaKeyboard;
 
 mod handlers;
 
@@ -47,11 +52,11 @@ pub trait VialKeyboard: ViaKeyboard {
     const VIAL_KEY_OVERRIDE_ENTRIES: u8 = 0; // TODO: Change when key override is implemented
 
     // TODO: replace with specialization if it doesn't cause an ICE
-    type BacklightMatrixDevice: BacklightMatrixDevice = EmptyBacklightMatrix;
+    type RGBBacklightMatrixDevice: MaybeRGBBacklightMatrixDevice = EmptyLightingDevice;
     fn get_backlight_matrix() -> Option<
-        crate::backlight::BacklightMatrix<
-            { <Self::BacklightMatrixDevice as BacklightMatrixDevice>::LIGHTING_COLS },
-            { <Self::BacklightMatrixDevice as BacklightMatrixDevice>::LIGHTING_ROWS },
+        crate::lighting::BacklightMatrix<
+            { <Self::RGBBacklightMatrixDevice as BacklightMatrixDevice>::LIGHTING_COLS },
+            { <Self::RGBBacklightMatrixDevice as BacklightMatrixDevice>::LIGHTING_ROWS },
         >,
     > {
         None
@@ -59,25 +64,27 @@ pub trait VialKeyboard: ViaKeyboard {
 }
 
 /// Channel used to update the frame buffer for the
-/// [`crate::backlight::rgb_backlight_matrix::animations::BacklightEffect::DirectSet`] effect.
+/// [`crate::lighting::rgb_backlight_matrix::RGBBacklightMatrixEffect::DirectSet`] effect.
 pub(crate) static VIAL_DIRECT_SET_CHANNEL: Channel<RawMutex, (u8, RGB8), 4> = Channel::new();
 
 #[rumcake_macros::task]
-pub async fn vial_process_task<K: VialKeyboard + 'static>(_k: K)
+pub async fn vial_process_task<K: VialKeyboard + HIDDevice + 'static>(_k: K)
 where
-    [(); K::BacklightMatrixDevice::LIGHTING_COLS]:,
-    [(); K::BacklightMatrixDevice::LIGHTING_ROWS]:,
-    [(); (K::LAYOUT_COLS + u8::BITS as usize - 1) / u8::BITS as usize * K::LAYOUT_ROWS]:,
-    [(); K::LAYERS]:,
-    [(); K::LAYOUT_ROWS]:,
-    [(); K::LAYOUT_COLS]:,
+    [(); <<K::StorageType as StorageDevice>::FlashStorageType as FlashStorage>::ERASE_SIZE]:,
+    [(); K::DYNAMIC_KEYMAP_LAYER_COUNT * K::Layout::LAYOUT_COLS * K::Layout::LAYOUT_ROWS * 2]:,
+    [(); K::DYNAMIC_KEYMAP_LAYER_COUNT * K::Layout::NUM_ENCODERS * 2 * 2]:,
+    [(); K::RGBBacklightMatrixDevice::LIGHTING_COLS]:,
+    [(); K::RGBBacklightMatrixDevice::LIGHTING_ROWS]:,
+    [(); (K::Layout::LAYOUT_COLS + u8::BITS as usize - 1) / u8::BITS as usize
+        * K::Layout::LAYOUT_ROWS]:,
+    [(); K::Layout::LAYERS]:,
     [(); K::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE as usize]:,
     [(); K::DYNAMIC_KEYMAP_MACRO_COUNT as usize]:,
 {
-    assert!(K::DYNAMIC_KEYMAP_LAYER_COUNT <= K::LAYERS);
+    assert!(K::DYNAMIC_KEYMAP_LAYER_COUNT <= K::Layout::LAYERS);
     assert!(K::DYNAMIC_KEYMAP_LAYER_COUNT <= 16);
     assert!(K::VIAL_UNLOCK_COMBO.len() < 15);
-    if K::get_macro_buffer().is_some() {
+    if <K as ViaKeyboard>::get_macro_buffer().is_some() {
         assert!(
             K::DYNAMIC_KEYMAP_MACRO_BUFFER_SIZE > 0,
             "Macro buffer size must be greater than 0 if you are using Via macros."
@@ -95,6 +102,8 @@ where
 
     let vial_state: Mutex<RawMutex, protocol::VialState> = Mutex::new(Default::default());
     let via_state: Mutex<RawMutex, protocol::via::ViaState<K>> = Mutex::new(Default::default());
+    let receive_channel = K::get_via_hid_receive_channel();
+    let send_channel = K::get_via_hid_send_channel();
 
     if K::VIAL_INSECURE {
         vial_state.lock().await.unlocked = true;
@@ -102,7 +111,7 @@ where
 
     let report_fut = async {
         loop {
-            let mut report = VIA_REPORT_HID_RECEIVE_CHANNEL.receive().await;
+            let mut report = receive_channel.receive().await;
 
             if K::VIAL_ENABLED && K::VIA_ENABLED {
                 {
@@ -116,7 +125,7 @@ where
                     .await;
                 }
 
-                VIA_REPORT_HID_SEND_CHANNEL.send(report).await;
+                send_channel.send(report).await;
             }
         }
     };
@@ -124,114 +133,27 @@ where
     join::join(report_fut, protocol::via::background_task::<K>(&via_state)).await;
 }
 
-#[cfg(feature = "storage")]
-pub mod storage {
-    use embassy_sync::channel::Channel;
-    use embassy_sync::signal::Signal;
-
-    use crate::hw::mcu::RawMutex;
-    use crate::storage::{FlashStorage, StorageDevice, StorageKey};
-
-    use super::VialKeyboard;
-
-    pub(super) enum VialStorageKeys {
-        DynamicKeymapTapDance,
-        DynamicKeymapCombo,
-        DynamicKeymapKeyOverride,
-    }
-
-    impl From<VialStorageKeys> for StorageKey {
-        fn from(value: VialStorageKeys) -> Self {
-            match value {
-                VialStorageKeys::DynamicKeymapTapDance => StorageKey::DynamicKeymapTapDance,
-                VialStorageKeys::DynamicKeymapCombo => StorageKey::DynamicKeymapCombo,
-                VialStorageKeys::DynamicKeymapKeyOverride => StorageKey::DynamicKeymapKeyOverride,
-            }
-        }
-    }
-
-    enum Operation {
-        Write([u8; 32], VialStorageKeys, usize, usize),
-        Delete,
-    }
-
-    /// A function that dispatches a flash operation to the Vial storage task. This will obtain a
-    /// lock, and hold onto it until the storage task signals a completion. `offset` corresponds to
-    /// the first byte of the stored data for the given `key` that we want to update. For example,
-    /// if [0x23, 0x65, 0xEB] is stored in flash for the key `LayoutOptions`, and we want to update
-    /// the last 2 bytes, we would pass in an offset of 1, and a `data` slice with a length of 2.
-    pub(super) async fn update_data(key: VialStorageKeys, offset: usize, data: &[u8]) {
-        // TODO: this function will wait eternally if vial_storage_task is not there
-        let mut buf = [0; 32];
-        let len = data.len();
-        buf[..len].copy_from_slice(data);
-        OPERATION_CHANNEL
-            .send(Operation::Write(buf, key, offset, len))
+pub async fn initialize_vial_data<V: VialKeyboard + 'static>(_v: V)
+where
+    [(); <<V::StorageType as StorageDevice>::FlashStorageType as FlashStorage>::ERASE_SIZE]:,
+{
+    if let Some(database) = V::get_storage_service() {
+        // let tap_dance_metadata: [u8; core::mem::size_of::<TypeId>()] = unsafe {core::mem::transmute(TypeId::of::<>())};
+        let tap_dance_metadata = [1];
+        let _ = database
+            .check_metadata(StorageKey::DynamicKeymapTapDance, &tap_dance_metadata)
             .await;
-        OPERATION_COMPLETE.wait().await;
-    }
 
-    pub(super) async fn reset_data() {
-        OPERATION_CHANNEL.send(Operation::Delete).await;
-        OPERATION_COMPLETE.wait().await
-    }
+        // let combo_metadata: [u8; core::mem::size_of::<TypeId>()] = unsafe {core::mem::transmute(TypeId::of::<>())};
+        let combo_metadata = [1];
+        let _ = database
+            .check_metadata(StorageKey::DynamicKeymapCombo, &combo_metadata)
+            .await;
 
-    static OPERATION_COMPLETE: Signal<RawMutex, ()> = Signal::new();
-    static OPERATION_CHANNEL: Channel<RawMutex, Operation, 1> = Channel::new();
-
-    #[rumcake_macros::task]
-    pub async fn vial_storage_task<K: StorageDevice + VialKeyboard + 'static, F: FlashStorage>(
-        _k: K,
-        database: &crate::storage::StorageService<'static, F>,
-    ) where
-        [(); F::ERASE_SIZE]:,
-    {
-        // Initialize Vial data
-        {
-            // let tap_dance_metadata: [u8; core::mem::size_of::<TypeId>()] = unsafe {core::mem::transmute(TypeId::of::<>())};
-            let tap_dance_metadata = [1];
-            let _ = database
-                .check_metadata(
-                    K::get_storage_buffer(),
-                    StorageKey::DynamicKeymapTapDance,
-                    &tap_dance_metadata,
-                )
-                .await;
-
-            // let combo_metadata: [u8; core::mem::size_of::<TypeId>()] = unsafe {core::mem::transmute(TypeId::of::<>())};
-            let combo_metadata = [1];
-            let _ = database
-                .check_metadata(
-                    K::get_storage_buffer(),
-                    StorageKey::DynamicKeymapCombo,
-                    &combo_metadata,
-                )
-                .await;
-
-            // let key_override_metadata: [u8; core::mem::size_of::<TypeId>()] = unsafe {core::mem::transmute(TypeId::of::<>())};
-            let key_override_metadata = [1];
-            let _ = database
-                .check_metadata(
-                    K::get_storage_buffer(),
-                    StorageKey::DynamicKeymapKeyOverride,
-                    &key_override_metadata,
-                )
-                .await;
-        }
-
-        loop {
-            match OPERATION_CHANNEL.receive().await {
-                Operation::Write(data, key, offset, len) => match key {
-                    VialStorageKeys::DynamicKeymapTapDance => {}
-                    VialStorageKeys::DynamicKeymapCombo => {}
-                    VialStorageKeys::DynamicKeymapKeyOverride => {}
-                },
-                Operation::Delete => {
-                    let _ = database.delete(StorageKey::DynamicKeymapTapDance).await;
-                    let _ = database.delete(StorageKey::DynamicKeymapCombo).await;
-                    let _ = database.delete(StorageKey::DynamicKeymapKeyOverride).await;
-                }
-            }
-        }
+        // let key_override_metadata: [u8; core::mem::size_of::<TypeId>()] = unsafe {core::mem::transmute(TypeId::of::<>())};
+        let key_override_metadata = [1];
+        let _ = database
+            .check_metadata(StorageKey::DynamicKeymapKeyOverride, &key_override_metadata)
+            .await;
     }
 }

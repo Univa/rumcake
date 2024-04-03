@@ -43,7 +43,7 @@ In the [templates](https://github.com/Univa/rumcake-templates), you will see tha
 to implement a keyboard matrix, you need to implement the `KeyboardMatrix` trait
 using one of the `build_<matrix_type>_matrix!` macros:
 
-```rust ins={13-20}
+```rust ins={13-21}
 use rumcake::keyboard;
 
 #[keyboard(usb)]
@@ -58,12 +58,17 @@ impl Keyboard for MyKeyboard {
 
 use rumcake::keyboard::{build_standard_matrix, KeyboardMatrix};
 impl KeyboardMatrix for MyKeyboard {
+    type Layout = Self; // Don't worry about the error here yet. It will be fixed once you implement `KeyboardLayout`
+
     build_standard_matrix! {
-        { PB2 PB10 PB11 PA3 } // Rows
-        { PB12 PB1 PB0 PA7 PA6 PA5 PA4 PA2 PB3 PB4 PA15 PB5 } // Columns
+        rows: [ PB2 PB10 PB11 PA3 ],
+        cols: [ PB12 PB1 PB0 PA7 PA6 PA5 PA4 PA2 PB3 PB4 PA15 PB5 ]
     }
 }
 ```
+
+If you see an error about `Self` not implementing `KeyboardLayout`, don't worry. This will be fixed once you follow
+the next section. Note that this associated type is used to redirect matrix events to the implemented layout.
 
 The identifiers used for the matrix pins must match the identifiers used by the respective
 HAL (hardware abstraction library) for your MCU. The linked sites below have a dropdown menu at
@@ -92,7 +97,7 @@ Please follow `keyberon`'s macro instructions there to set up your keyboard layo
 
 The following example shows a 3-layer keyboard layout, meant to be used with the matrix we defined previously:
 
-```rust ins={22-44}
+```rust ins={24-46}
 use rumcake::keyboard;
 
 #[keyboard(usb)]
@@ -107,9 +112,11 @@ impl Keyboard for MyKeyboard {
 
 use rumcake::keyboard::{build_standard_matrix, KeyboardMatrix};
 impl KeyboardMatrix for MyKeyboard {
+    type Layout = Self;
+
     build_standard_matrix! {
-        { PB2 PB10 PB11 PA3 } // Rows
-        { PB12 PB1 PB0 PA7 PA6 PA5 PA4 PA2 PB3 PB4 PA15 PB5 } // Columns
+        rows: [ PB2 PB10 PB11 PA3 ],
+        cols: [ PB12 PB1 PB0 PA7 PA6 PA5 PA4 PA2 PB3 PB4 PA15 PB5 ]
     }
 }
 
@@ -149,11 +156,13 @@ and flashing your firmware, or try implementing additional features in the "Feat
 If your MCU pins are connected directly to a switch (as opposed to pins being connected to a row / column of switches),
 then you can use the `build_direct_pin_matrix!` macro instead.
 
-```rust ins={3-9}
+```rust ins={3-11}
 // rest of your config...
 
 use rumcake::keyboard::{build_direct_pin_matrix, KeyboardMatrix};
 impl KeyboardMatrix for MyKeyboard {
+    type Layout = Self;
+
     build_direct_pin_matrix! {
         [ PB2  PB10 PB11 PA3 ]
         [ PB12 PB1  PB0  No  ]
@@ -191,16 +200,15 @@ If your switch is powered by an analog-to-digital conversion peripheral (which i
 then you can use the `build_analog_matrix!` macro. In addition, you will need to specify an ADC sampler configuration, using the `setup_adc_sampler!`
 macro.
 
-```rust ins={4-15,17-29}
+```rust ins={4-15,17-31}
 // rest of your config...
 
 // Create an ADC sampler, where the pins of the MCU are either connected to a multiplexer, or directly to the analog source
 setup_adc_sampler! {
-    // (interrupt, ADC peripheral) => { ...
-    (ADC1_2, ADC2) => {
+    (interrupt: ADC1_2, adc: ADC2) => {
         Multiplexer {
-            pin: PA2 // MCU analog pin connected to a multiplexer
-            select_pins: { PA3 No PA4 } // Pins connected to the selection pins on the multiplexer
+            pin: PA2, // MCU analog pin connected to a multiplexer
+            select_pins: [ PA3 No PA4 ] // Pins connected to the selection pins on the multiplexer
         },
         Direct {
             pin: PA5 // MCU analog pin connected directly to an analog source
@@ -210,12 +218,14 @@ setup_adc_sampler! {
 
 use rumcake::keyboard::{build_analog_matrix, KeyboardMatrix};
 impl KeyboardMatrix for MyKeyboard {
+    type Layout = Self;
+
     build_analog_matrix! {
-        {
+        channels: {
             [ (1,0) (0,1) (0,4) (0,5) ]
             [ (0,0) No    No    No    ]
-        }
-        {
+        },
+        ranges: {
             [ 3040..4080 3040..4080 3040..4080 3040..4080 ]
             [ 3040..4080 No         No         No         ]
         }
@@ -277,12 +287,12 @@ you to configure something that would look like your matrix.
 
 This can be useful for your keyboard layout config, or your backlight matrix config:
 
-```rust del={50-63} ins={1-26,64-75}
+```rust del={52-65} ins={1-26,66-77}
 // This creates a `remap!` macro that you can use in other parts of your config.
 remap_matrix! {
     // This has the same number of rows and columns that you specified in your matrix.
     // Note that `No` is used to denote an unused matrix position.
-    {
+    original: {
         [ K00 K01 K02 K03 K04 K05 K06 K07 ]
         [ K08 K09 K10 K11 K12 K13 K14 No  ]
         [ K15 K16 K17 K18 K19 K20 K21 K22 ]
@@ -293,10 +303,10 @@ remap_matrix! {
         [ K53 K54 K55 K56 K57 K58 K59 No  ]
         [ K60 K61 K62 K63 K64 K65 K66 K67 ]
         [ No  No  No  No  No  K68 K69 No  ]
-    }
+    },
 
     // This can be whatever you want it to be. Make it look like your physical layout!
-    {
+    remapped: {
         [ K00 K08 K01 K09 K02 K10 K03 K11 K04 K12 K05 K13 K06 K14 K07 K22 ]
         [ K15 K23 K16 K24 K17 K25 K18 K26 K19 K27 K20 K28 K21 K29 K37     ]
         [ K30 K38 K31 K39 K32 K40 K33 K41 K34 K42 K35 K43 K36 K44 K52     ]
@@ -319,9 +329,11 @@ impl Keyboard for MyKeyboard {
 
 use rumcake::keyboard::{build_standard_matrix, KeyboardMatrix};
 impl KeyboardMatrix for MyKeyboard {
+    type Layout = Self;
+
     build_standard_matrix! {
-        { PB3 PB4 PA15 PB5 PA0 PA1 PB2 PB10 PB11 PA3 } // Rows
-        { PB12 PB1 PB0 PA7 PA6 PA5 PA4 PA2 } // Columns
+        rows: [ PB3 PB4 PA15 PB5 PA0 PA1 PB2 PB10 PB11 PA3 ],
+        cols: [ PB12 PB1 PB0 PA7 PA6 PA5 PA4 PA2 ]
     }
 }
 

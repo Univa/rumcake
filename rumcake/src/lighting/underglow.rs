@@ -1,18 +1,154 @@
-use super::drivers::UnderglowDriver;
-use super::UnderglowDevice;
-use crate::math::{scale, sin};
-use crate::{Cycle, LEDEffect};
-use postcard::experimental::max_size::MaxSize;
-use rumcake_macros::{generate_items_from_enum_variants, Cycle, LEDEffect};
+use core::fmt::Debug;
 
 use defmt::{error, warn, Debug2Format};
+use embassy_sync::channel::Channel;
 use keyberon::layout::Event;
 use num_derive::FromPrimitive;
+use postcard::experimental::max_size::MaxSize;
 use rand::rngs::SmallRng;
 use rand_core::{RngCore, SeedableRng};
+use rumcake_macros::{generate_items_from_enum_variants, Cycle, LEDEffect};
 use serde::{Deserialize, Serialize};
 use smart_leds::hsv::{hsv2rgb, Hsv};
 use smart_leds::RGB8;
+
+use crate::hw::platform::RawMutex;
+use crate::math::{scale, sin};
+use crate::{Cycle, LEDEffect, State};
+
+use super::Animator;
+
+/// A trait that keyboards must implement to use the underglow animator.
+pub trait UnderglowDevice {
+    /// How fast the LEDs refresh to display a new animation frame.
+    ///
+    /// It is recommended to set this value to a value that your driver can handle,
+    /// otherwise your animations will appear to be slowed down.
+    ///
+    /// **This does not have any effect if the selected animation is static.**
+    const FPS: usize = 30;
+
+    /// The number of LEDs used for underglow.
+    ///
+    /// This number will be used to determine the size of the frame buffer for underglow
+    /// animations.
+    const NUM_LEDS: usize;
+
+    /// Get a reference to a channel that can receive commands to control the underglow animator
+    /// from other tasks.
+    #[inline(always)]
+    fn get_command_channel() -> &'static Channel<RawMutex, UnderglowCommand, 2> {
+        /// Channel for sending underglow commands.
+        static UNDERGLOW_COMMAND_CHANNEL: Channel<RawMutex, UnderglowCommand, 2> = Channel::new();
+
+        &UNDERGLOW_COMMAND_CHANNEL
+    }
+
+    /// Get a reference to a state object that can be used to notify other tasks about changes to
+    /// the underglow configuration. Note that updating the state object will not control the
+    /// output of the underglow animator.
+    #[inline(always)]
+    fn get_state() -> &'static State<'static, UnderglowConfig> {
+        /// State that contains the current configuration for the underglow animator. Updating this state
+        /// does not control the output of the animator.
+        static UNDERGLOW_CONFIG_STATE: State<UnderglowConfig> = State::new(
+            UnderglowConfig::default(),
+            &[
+                #[cfg(feature = "storage")]
+                &UNDERGLOW_CONFIG_STATE_LISTENER,
+            ],
+        );
+
+        &UNDERGLOW_CONFIG_STATE
+    }
+
+    #[cfg(feature = "storage")]
+    #[inline(always)]
+    fn get_state_listener() -> &'static embassy_sync::signal::Signal<RawMutex, ()> {
+        &UNDERGLOW_CONFIG_STATE_LISTENER
+    }
+
+    #[cfg(feature = "storage")]
+    #[inline(always)]
+    fn get_save_signal() -> &'static embassy_sync::signal::Signal<RawMutex, ()> {
+        &UNDERGLOW_SAVE_SIGNAL
+    }
+
+    #[cfg(feature = "split-central")]
+    type CentralDevice: crate::split::central::private::MaybeCentralDevice =
+        crate::split::central::private::EmptyCentralDevice;
+
+    // Effect settings
+    underglow_effect_items!();
+}
+
+pub(crate) mod private {
+    use embassy_sync::channel::Channel;
+
+    use crate::hw::platform::RawMutex;
+    use crate::State;
+
+    use super::{UnderglowCommand, UnderglowConfig, UnderglowDevice};
+
+    pub trait MaybeUnderglowDevice {
+        #[inline(always)]
+        fn get_command_channel() -> Option<&'static Channel<RawMutex, UnderglowCommand, 2>> {
+            None
+        }
+
+        #[inline(always)]
+        fn get_state() -> Option<&'static State<'static, UnderglowConfig>> {
+            None
+        }
+    }
+
+    impl<T: UnderglowDevice> MaybeUnderglowDevice for T {
+        #[inline(always)]
+        fn get_command_channel() -> Option<&'static Channel<RawMutex, UnderglowCommand, 2>> {
+            Some(T::get_command_channel())
+        }
+
+        #[inline(always)]
+        fn get_state() -> Option<&'static State<'static, UnderglowConfig>> {
+            Some(T::get_state())
+        }
+    }
+}
+
+/// A trait that a driver must implement in order to power an underglow animator.
+///
+/// This is an async version of the [`smart_leds::SmartLedsWrite`] trait.
+pub trait UnderglowDriver<D: UnderglowDevice> {
+    /// The type of error that the driver will return if [`UnderglowDriver::write`] fails.
+    type DriverWriteError: Debug;
+
+    /// Render out a frame buffer using the driver.
+    async fn write(
+        &mut self,
+        iterator: impl Iterator<Item = RGB8>,
+    ) -> Result<(), Self::DriverWriteError>;
+
+    /// The type of error that the driver will return if [`UnderglowDriver::turn_on`] fails.
+    type DriverEnableError: Debug;
+
+    /// Turn the LEDs on using the driver when the animator gets enabled.
+    ///
+    /// The animator's [`tick()`](UnderglowAnimator::tick) method gets called directly after this,
+    /// and subsequently [`UnderglowDriver::write`]. So, if your driver doesn't need do anything
+    /// special to turn the LEDs on, you may simply return `Ok(())`.
+    async fn turn_on(&mut self) -> Result<(), Self::DriverEnableError>;
+
+    /// The type of error that the driver will return if [`UnderglowDriver::turn_off`] fails.
+    type DriverDisableError: Debug;
+
+    /// Turn the LEDs off using the driver when the animator is disabled.
+    ///
+    /// The animator's [`tick()`](UnderglowAnimator::tick) method gets called directly after this.
+    /// However, the tick method will not call [`UnderglowDriver::write`] due to the animator being
+    /// disabled, so you will need to turn off the LEDs somehow. For example, you can write a
+    /// brightness of 0 to all LEDs.
+    async fn turn_off(&mut self) -> Result<(), Self::DriverDisableError>;
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, MaxSize)]
 pub struct UnderglowConfig {
@@ -44,28 +180,30 @@ impl Default for UnderglowConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, MaxSize)]
+#[non_exhaustive]
+#[repr(u8)]
 pub enum UnderglowCommand {
-    Toggle,
-    TurnOn,
-    TurnOff,
-    NextEffect,
-    PrevEffect,
-    SetEffect(UnderglowEffect),
-    SetHue(u8),
-    IncreaseHue(u8),
-    DecreaseHue(u8),
-    SetSaturation(u8),
-    IncreaseSaturation(u8),
-    DecreaseSaturation(u8),
-    SetValue(u8),
-    IncreaseValue(u8),
-    DecreaseValue(u8),
-    SetSpeed(u8),
-    IncreaseSpeed(u8),
-    DecreaseSpeed(u8),
+    Toggle = 0,
+    TurnOn = 1,
+    TurnOff = 2,
+    NextEffect = 3,
+    PrevEffect = 4,
+    SetEffect(UnderglowEffect) = 5,
+    SetHue(u8) = 6,
+    IncreaseHue(u8) = 7,
+    DecreaseHue(u8) = 8,
+    SetSaturation(u8) = 9,
+    IncreaseSaturation(u8) = 10,
+    DecreaseSaturation(u8) = 11,
+    SetValue(u8) = 12,
+    IncreaseValue(u8) = 13,
+    DecreaseValue(u8) = 14,
+    SetSpeed(u8) = 15,
+    IncreaseSpeed(u8) = 16,
+    DecreaseSpeed(u8) = 17,
     #[cfg(feature = "storage")]
-    SaveConfig,
-    ResetTime, // normally used internally for syncing LEDs for split keyboards
+    SaveConfig = 18,
+    ResetTime = 19, // normally used internally for syncing LEDs for split keyboards
 }
 
 #[generate_items_from_enum_variants("const {variant_shouty_snake_case}_ENABLED: bool = true")]
@@ -137,20 +275,20 @@ impl UnderglowEffect {
     }
 }
 
-pub(super) struct UnderglowAnimator<R: UnderglowDriver<D>, D: UnderglowDevice>
+pub struct UnderglowAnimator<D: UnderglowDevice, R: UnderglowDriver<D>>
 where
     [(); D::NUM_LEDS]:,
 {
-    pub(super) config: UnderglowConfig,
-    pub(super) buf: [RGB8; D::NUM_LEDS],
-    pub(super) twinkle_state: [(Hsv, u8); D::NUM_LEDS], // For the twinkle effect specifically, tracks the lifespan of lit LEDs.
-    pub(super) tick: u32,
-    pub(super) time_of_last_press: u32,
-    pub(super) driver: R,
-    pub(super) rng: SmallRng,
+    config: UnderglowConfig,
+    buf: [RGB8; D::NUM_LEDS],
+    twinkle_state: [(Hsv, u8); D::NUM_LEDS], // For the twinkle effect specifically, tracks the lifespan of lit LEDs.
+    tick: u32,
+    time_of_last_press: u32,
+    driver: R,
+    rng: SmallRng,
 }
 
-impl<R: UnderglowDriver<D>, D: UnderglowDevice> UnderglowAnimator<R, D>
+impl<D: UnderglowDevice, R: UnderglowDriver<D>> UnderglowAnimator<D, R>
 where
     [(); D::NUM_LEDS]:,
 {
@@ -185,7 +323,7 @@ where
         };
     }
 
-    pub async fn process_command(&mut self, command: UnderglowCommand) {
+    pub fn process_command(&mut self, command: UnderglowCommand) {
         match command {
             UnderglowCommand::Toggle => {
                 self.config.enabled = !self.config.enabled;
@@ -250,7 +388,7 @@ where
             }
             #[cfg(feature = "storage")]
             UnderglowCommand::SaveConfig => {
-                super::storage::UNDERGLOW_SAVE_SIGNAL.signal(());
+                D::get_save_signal().signal(());
             }
             UnderglowCommand::ResetTime => {
                 self.tick = 0;
@@ -271,13 +409,15 @@ where
     }
 
     pub fn register_event(&mut self, event: Event) {
-        match event {
-            Event::Press(_x, _y) => {
-                self.time_of_last_press = (self.tick << 8)
-                    / (((D::FPS as u32) << 8)
-                        / (self.config.speed as u32 + 128 + (self.config.speed as u32 >> 1)));
+        if self.config.enabled && self.config.effect.is_reactive() {
+            match event {
+                Event::Press(_x, _y) => {
+                    self.time_of_last_press = (self.tick << 8)
+                        / (((D::FPS as u32) << 8)
+                            / (self.config.speed as u32 + 128 + (self.config.speed as u32 >> 1)));
+                }
+                Event::Release(_x, _y) => {} // nothing for now. maybe change some effects to behave depending on the state of a key.
             }
-            Event::Release(_x, _y) => {} // nothing for now. maybe change some effects to behave depending on the state of a key.
         }
     }
 
@@ -531,5 +671,153 @@ where
         };
 
         self.tick += 1;
+    }
+
+    #[cfg(feature = "storage")]
+    pub fn create_storage_instance(&self) -> UnderglowStorage<D, R> {
+        UnderglowStorage {
+            _device_phantom: core::marker::PhantomData,
+            _driver_phantom: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<D: UnderglowDevice, R: UnderglowDriver<D>> Animator for UnderglowAnimator<D, R>
+where
+    [(); D::NUM_LEDS]:,
+{
+    type CommandType = UnderglowCommand;
+
+    type ConfigType = UnderglowConfig;
+
+    type BufferUpdateArgs = ();
+
+    const FPS: usize = D::FPS;
+
+    async fn initialize(&mut self) {
+        self.config = D::get_state().get().await;
+
+        match self.config.enabled {
+            true => self.turn_on().await,
+            false => self.turn_off().await,
+        }
+    }
+
+    async fn tick(&mut self) {
+        self.tick().await
+    }
+
+    fn is_waiting_for_command(&self) -> bool {
+        !(self.config.enabled && self.config.effect.is_animated())
+    }
+
+    fn process_command(&mut self, command: Self::CommandType) {
+        self.process_command(command)
+    }
+
+    async fn handle_state_change(&mut self) {
+        // Update the config state, after updating the animator's own copy, and check if it was enabled/disabled
+        let toggled = D::get_state()
+            .update(|config| {
+                let toggled = config.enabled != self.config.enabled;
+                **config = self.config;
+                toggled
+            })
+            .await;
+
+        if toggled {
+            match self.config.enabled {
+                true => self.turn_on().await,
+                false => self.turn_off().await,
+            }
+        }
+
+        // Send commands to be consumed by the split peripherals
+        #[cfg(feature = "split-central")]
+        {
+            use crate::split::central::private::MaybeCentralDevice;
+            if let Some(channel) = D::CentralDevice::get_message_to_peripheral_channel() {
+                channel
+                    .send(crate::split::MessageToPeripheral::Underglow(
+                        UnderglowCommand::ResetTime,
+                    ))
+                    .await;
+                channel
+                    .send(crate::split::MessageToPeripheral::Underglow(
+                        UnderglowCommand::SetEffect(self.config.effect),
+                    ))
+                    .await;
+                channel
+                    .send(crate::split::MessageToPeripheral::Underglow(
+                        UnderglowCommand::SetHue(self.config.hue),
+                    ))
+                    .await;
+                channel
+                    .send(crate::split::MessageToPeripheral::Underglow(
+                        UnderglowCommand::SetSaturation(self.config.sat),
+                    ))
+                    .await;
+                channel
+                    .send(crate::split::MessageToPeripheral::Underglow(
+                        UnderglowCommand::SetValue(self.config.val),
+                    ))
+                    .await;
+                channel
+                    .send(crate::split::MessageToPeripheral::Underglow(
+                        UnderglowCommand::SetSpeed(self.config.speed),
+                    ))
+                    .await;
+            }
+        }
+    }
+
+    #[inline(always)]
+    fn get_command_channel() -> &'static Channel<RawMutex, Self::CommandType, 2> {
+        D::get_command_channel()
+    }
+
+    #[inline(always)]
+    fn get_state() -> &'static State<'static, Self::ConfigType> {
+        D::get_state()
+    }
+}
+
+#[cfg(feature = "storage")]
+use storage::*;
+
+#[cfg(feature = "storage")]
+mod storage {
+    use embassy_sync::signal::Signal;
+
+    use crate::hw::platform::RawMutex;
+
+    use super::{UnderglowAnimator, UnderglowDevice, UnderglowDriver};
+
+    pub(super) static UNDERGLOW_CONFIG_STATE_LISTENER: Signal<RawMutex, ()> = Signal::new();
+    pub(super) static UNDERGLOW_SAVE_SIGNAL: Signal<RawMutex, ()> = Signal::new();
+
+    pub struct UnderglowStorage<D, R> {
+        pub(super) _device_phantom: core::marker::PhantomData<D>,
+        pub(super) _driver_phantom: core::marker::PhantomData<R>,
+    }
+
+    impl<D: UnderglowDevice, R: UnderglowDriver<D>> crate::lighting::AnimatorStorage
+        for UnderglowStorage<D, R>
+    where
+        [(); D::NUM_LEDS]:,
+    {
+        type Animator = UnderglowAnimator<D, R>;
+
+        const STORAGE_KEY: crate::storage::StorageKey = crate::storage::StorageKey::UnderglowConfig;
+
+        #[inline(always)]
+        fn get_state_listener() -> &'static Signal<RawMutex, ()> {
+            D::get_state_listener()
+        }
+
+        #[inline(always)]
+        fn get_save_signal() -> &'static Signal<RawMutex, ()> {
+            D::get_save_signal()
+        }
     }
 }

@@ -3,20 +3,23 @@ use proc_macro_error::{abort, OptionExt};
 use quote::quote;
 use syn::parse::Parse;
 use syn::punctuated::Punctuated;
-use syn::{braced, parenthesized, Token};
+use syn::{braced, parenthesized, LitInt, Token};
 
-use crate::common::{AnalogPinType, DirectPinDefinition, MultiplexerDefinition};
+use crate::common::{
+    AnalogPinType, DirectPinArgs, DirectPinDefinition, MultiplexerArgs, MultiplexerDefinition,
+    OptionalItem,
+};
 
-pub const HAL_CRATE: &'static str = "embassy_stm32";
+pub const HAL_CRATE: &str = "embassy_stm32";
 
 pub fn input_pin(ident: Ident) -> TokenStream {
     quote! {
         unsafe {
-            ::rumcake::hw::mcu::embassy_stm32::gpio::Input::new(
-                ::rumcake::hw::mcu::embassy_stm32::gpio::Pin::degrade(
-                    ::rumcake::hw::mcu::embassy_stm32::peripherals::#ident::steal(),
+            ::rumcake::hw::platform::embassy_stm32::gpio::Input::new(
+                ::rumcake::hw::platform::embassy_stm32::gpio::Pin::degrade(
+                    ::rumcake::hw::platform::embassy_stm32::peripherals::#ident::steal(),
                 ),
-                ::rumcake::hw::mcu::embassy_stm32::gpio::Pull::Up,
+                ::rumcake::hw::platform::embassy_stm32::gpio::Pull::Up,
             )
         }
     }
@@ -25,107 +28,110 @@ pub fn input_pin(ident: Ident) -> TokenStream {
 pub fn output_pin(ident: Ident) -> TokenStream {
     quote! {
         unsafe {
-            ::rumcake::hw::mcu::embassy_stm32::gpio::Output::new(
-                ::rumcake::hw::mcu::embassy_stm32::gpio::Pin::degrade(
-                    ::rumcake::hw::mcu::embassy_stm32::peripherals::#ident::steal(),
+            ::rumcake::hw::platform::embassy_stm32::gpio::Output::new(
+                ::rumcake::hw::platform::embassy_stm32::gpio::Pin::degrade(
+                    ::rumcake::hw::platform::embassy_stm32::peripherals::#ident::steal(),
                 ),
-                ::rumcake::hw::mcu::embassy_stm32::gpio::Level::High,
-                ::rumcake::hw::mcu::embassy_stm32::gpio::Speed::Low,
+                ::rumcake::hw::platform::embassy_stm32::gpio::Level::High,
+                ::rumcake::hw::platform::embassy_stm32::gpio::Speed::Low,
             )
         }
     }
 }
 
-fn setup_i2c_inner(args: Punctuated<Ident, Token![,]>) -> TokenStream {
-    let mut args = args.iter();
-
-    let event_interrupt = args
-        .next()
-        .expect_or_abort("Missing event interrupt argument.");
-    let error_interrupt = args
-        .next()
-        .expect_or_abort("Missing error interrupt argument.");
-    let i2c = args
-        .next()
-        .expect_or_abort("Missing I2C peripheral argument.");
-    let scl = args
-        .next()
-        .expect_or_abort("Missing SCL peripheral argument.");
-    let sda = args
-        .next()
-        .expect_or_abort("Missing SDA peripheral argument.");
-    let rxdma = args
-        .next()
-        .expect_or_abort("Missing RX DMA peripheral argument.");
-    let txdma = args
-        .next()
-        .expect_or_abort("Missing TX DMA peripheral argument.");
-
-    if let Some(literal) = args.next() {
-        abort!(literal.span(), "Unexpected extra arguments.")
+crate::parse_as_custom_fields! {
+    pub struct I2cArgsBuilder for I2cArgs {
+        event_interrupt: Ident,
+        error_interrupt: Ident,
+        i2c: Ident,
+        scl: Ident,
+        sda: Ident,
+        rx_dma: Ident,
+        tx_dma: Ident
     }
+}
 
+pub fn setup_i2c(
+    I2cArgs {
+        event_interrupt,
+        error_interrupt,
+        i2c,
+        scl,
+        sda,
+        rx_dma,
+        tx_dma,
+    }: I2cArgs,
+) -> TokenStream {
     let interrupt_setup = if event_interrupt == error_interrupt {
         quote! {
-            #event_interrupt => ::rumcake::hw::mcu::embassy_stm32::i2c::EventInterruptHandler<::rumcake::hw::mcu::embassy_stm32::peripherals::#i2c>, ::rumcake::hw::mcu::embassy_stm32::i2c::ErrorInterruptHandler<::rumcake::hw::mcu::embassy_stm32::peripherals::#i2c>;
+            #event_interrupt => ::rumcake::hw::platform::embassy_stm32::i2c::EventInterruptHandler<::rumcake::hw::platform::embassy_stm32::peripherals::#i2c>, ::rumcake::hw::platform::embassy_stm32::i2c::ErrorInterruptHandler<::rumcake::hw::platform::embassy_stm32::peripherals::#i2c>;
         }
     } else {
         quote! {
-            #event_interrupt => ::rumcake::hw::mcu::embassy_stm32::i2c::EventInterruptHandler<::rumcake::hw::mcu::embassy_stm32::peripherals::#i2c>;
-            #error_interrupt => ::rumcake::hw::mcu::embassy_stm32::i2c::ErrorInterruptHandler<::rumcake::hw::mcu::embassy_stm32::peripherals::#i2c>;
+            #event_interrupt => ::rumcake::hw::platform::embassy_stm32::i2c::EventInterruptHandler<::rumcake::hw::platform::embassy_stm32::peripherals::#i2c>;
+            #error_interrupt => ::rumcake::hw::platform::embassy_stm32::i2c::ErrorInterruptHandler<::rumcake::hw::platform::embassy_stm32::peripherals::#i2c>;
         }
     };
 
     quote! {
         unsafe {
-            ::rumcake::hw::mcu::embassy_stm32::bind_interrupts! {
+            ::rumcake::hw::platform::embassy_stm32::bind_interrupts! {
                 struct Irqs {
                     #interrupt_setup
                 }
             };
-            let i2c = ::rumcake::hw::mcu::embassy_stm32::peripherals::#i2c::steal();
-            let scl = ::rumcake::hw::mcu::embassy_stm32::peripherals::#scl::steal();
-            let sda = ::rumcake::hw::mcu::embassy_stm32::peripherals::#sda::steal();
-            let rx_dma = ::rumcake::hw::mcu::embassy_stm32::peripherals::#rxdma::steal();
-            let tx_dma = ::rumcake::hw::mcu::embassy_stm32::peripherals::#txdma::steal();
-            let time = ::rumcake::hw::mcu::embassy_stm32::time::Hertz(100_000);
-            ::rumcake::hw::mcu::embassy_stm32::i2c::I2c::new(i2c, scl, sda, Irqs, tx_dma, rx_dma, time, Default::default())
+            let i2c = ::rumcake::hw::platform::embassy_stm32::peripherals::#i2c::steal();
+            let scl = ::rumcake::hw::platform::embassy_stm32::peripherals::#scl::steal();
+            let sda = ::rumcake::hw::platform::embassy_stm32::peripherals::#sda::steal();
+            let rx_dma = ::rumcake::hw::platform::embassy_stm32::peripherals::#rx_dma::steal();
+            let tx_dma = ::rumcake::hw::platform::embassy_stm32::peripherals::#tx_dma::steal();
+            let time = ::rumcake::hw::platform::embassy_stm32::time::Hertz(100_000);
+            ::rumcake::hw::platform::embassy_stm32::i2c::I2c::new(i2c, scl, sda, Irqs, tx_dma, rx_dma, time, Default::default())
         }
     }
 }
 
-pub fn setup_i2c(args: Punctuated<Ident, Token![,]>) -> TokenStream {
-    let inner = setup_i2c_inner(args);
-    quote! {
-        fn setup_i2c() -> impl ::rumcake::embedded_hal_async::i2c::I2c<Error = impl core::fmt::Debug> {
-            #inner
-        }
+crate::parse_as_custom_fields! {
+    pub struct BufferedUartArgsBuilder for BufferedUartArgs {
+        interrupt: Ident,
+        uart: Ident,
+        rx_pin: Ident,
+        tx_pin: Ident,
+        buffer_size: Option<LitInt>,
     }
 }
 
-fn setup_buffered_uart_inner(args: Punctuated<Ident, Token![,]>) -> TokenStream {
-    let mut args = args.iter();
-
-    let interrupt = args.next().expect_or_abort("Missing interrupt argument.");
-    let uart = args
-        .next()
-        .expect_or_abort("Missing UART peripheral argument.");
-    let rx_pin = args.next().expect_or_abort("Missing RX pin argument.");
-    let tx_pin = args.next().expect_or_abort("Missing TX pin argument.");
+pub fn setup_buffered_uart(
+    BufferedUartArgs {
+        interrupt,
+        uart,
+        rx_pin,
+        tx_pin,
+        buffer_size,
+    }: BufferedUartArgs,
+) -> TokenStream {
+    let buf_size = buffer_size.map_or(64, |lit| {
+        lit.base10_parse::<usize>().unwrap_or_else(|_| {
+            abort!(
+                lit,
+                "The provided buffer size could not be parsed as a usize value."
+            )
+        })
+    });
 
     quote! {
         unsafe {
-            static mut RBUF: [u8; 64] = [0; 64];
-            static mut TBUF: [u8; 64] = [0; 64];
-            ::rumcake::hw::mcu::embassy_stm32::bind_interrupts! {
+            static mut RBUF: [u8; #buf_size] = [0; #buf_size];
+            static mut TBUF: [u8; #buf_size] = [0; #buf_size];
+            ::rumcake::hw::platform::embassy_stm32::bind_interrupts! {
                 struct Irqs {
-                    #interrupt => ::rumcake::hw::mcu::embassy_stm32::usart::BufferedInterruptHandler<::rumcake::hw::mcu::embassy_stm32::peripherals::#uart>;
+                    #interrupt => ::rumcake::hw::platform::embassy_stm32::usart::BufferedInterruptHandler<::rumcake::hw::platform::embassy_stm32::peripherals::#uart>;
                 }
             };
-            let uart = ::rumcake::hw::mcu::embassy_stm32::peripherals::#uart::steal();
-            let rx = ::rumcake::hw::mcu::embassy_stm32::peripherals::#rx_pin::steal();
-            let tx = ::rumcake::hw::mcu::embassy_stm32::peripherals::#tx_pin::steal();
-            ::rumcake::hw::mcu::embassy_stm32::usart::BufferedUart::new(
+            let uart = ::rumcake::hw::platform::embassy_stm32::peripherals::#uart::steal();
+            let rx = ::rumcake::hw::platform::embassy_stm32::peripherals::#rx_pin::steal();
+            let tx = ::rumcake::hw::platform::embassy_stm32::peripherals::#tx_pin::steal();
+            ::rumcake::hw::platform::embassy_stm32::usart::BufferedUart::new(
                 uart,
                 Irqs,
                 rx,
@@ -138,20 +144,16 @@ fn setup_buffered_uart_inner(args: Punctuated<Ident, Token![,]>) -> TokenStream 
     }
 }
 
-pub fn setup_buffered_uart(args: Punctuated<Ident, Token![,]>) -> TokenStream {
-    let inner = setup_buffered_uart_inner(args);
-
-    quote! {
-        fn setup_serial(
-        ) -> impl ::rumcake::embedded_io_async::Write + ::rumcake::embedded_io_async::Read {
-            #inner
-        }
+crate::parse_as_custom_fields! {
+    pub struct AdcArgsBuilder for AdcArgs {
+        interrupt: Ident,
+        adc: Ident
     }
 }
 
 pub struct STM32AdcSamplerDefinition {
     parenthesis_token: syn::token::Paren,
-    adc_instance_args: Punctuated<Ident, Token![,]>,
+    adc_instance_args: AdcArgs,
     colon_token: Token![=>],
     brace_token: syn::token::Brace,
     channels: Punctuated<AnalogPinType, Token![,]>,
@@ -163,7 +165,7 @@ impl Parse for STM32AdcSamplerDefinition {
         let channels_content;
         Ok(Self {
             parenthesis_token: parenthesized!(adc_type_content in input),
-            adc_instance_args: Punctuated::parse_terminated(&adc_type_content)?,
+            adc_instance_args: adc_type_content.parse()?,
             colon_token: input.parse()?,
             brace_token: braced!(channels_content in input),
             channels: Punctuated::parse_terminated(&channels_content)?,
@@ -178,16 +180,15 @@ fn setup_adc_inner(adc_definition: &STM32AdcSamplerDefinition) -> (TokenStream, 
         ..
     } = adc_definition;
 
-    let mut args = adc_instance_args.iter();
-    let interrupt = args.next().expect_or_abort("Missing interrupt argument.");
-    let adc = args
-        .next()
-        .expect_or_abort("Missing ADC peripheral argument.");
+    let AdcArgs { interrupt, adc } = adc_instance_args;
 
     let channel_count = channels.len();
     let select_pin_count = channels.iter().fold(0, |acc, ch| {
-        if let AnalogPinType::Multiplexed(MultiplexerDefinition { select_pins, .. }) = ch {
-            acc.max(select_pins.len())
+        if let AnalogPinType::Multiplexed(MultiplexerDefinition {
+            multiplexer_args, ..
+        }) = ch
+        {
+            acc.max(multiplexer_args.select_pins.items.len())
         } else {
             acc
         }
@@ -197,18 +198,19 @@ fn setup_adc_inner(adc_definition: &STM32AdcSamplerDefinition) -> (TokenStream, 
         .iter()
         .map(|ch| match ch {
             AnalogPinType::Multiplexed(MultiplexerDefinition {
-                pin, select_pins, ..
+                multiplexer_args, ..
             }) => {
-                let select_pins = select_pins.iter().map(|select_pin| match select_pin {
-                    crate::keyboard::OptionalItem::None => quote! { None },
-                    crate::keyboard::OptionalItem::Some(pin_ident) => {
-                        quote! { Some(::rumcake::hw::mcu::output_pin!(#pin_ident)) }
+                let MultiplexerArgs {pin, select_pins} = multiplexer_args;
+                let select_pins = select_pins.items.iter().map(|select_pin| match select_pin {
+                    OptionalItem::None => quote! { None },
+                    OptionalItem::Some(pin_ident) => {
+                        quote! { Some(::rumcake::hw::platform::output_pin!(#pin_ident)) }
                     }
                 });
 
                 (
                     quote! {
-                        ::rumcake::hw::mcu::AnalogPinType::Multiplexed(
+                        ::rumcake::hw::platform::AnalogPinType::Multiplexed(
                             ::rumcake::hw::Multiplexer::new(
                                 [ #(#select_pins),* ],
                                 None
@@ -216,36 +218,39 @@ fn setup_adc_inner(adc_definition: &STM32AdcSamplerDefinition) -> (TokenStream, 
                         )
                     },
                     quote! {
-                        ::rumcake::hw::mcu::Channel::new(
-                            unsafe { ::rumcake::hw::mcu::embassy_stm32::peripherals::#pin::steal() }
+                        ::rumcake::hw::platform::Channel::new(
+                            unsafe { ::rumcake::hw::platform::embassy_stm32::peripherals::#pin::steal() }
                         )
                     },
                 )
             }
-            AnalogPinType::Direct(DirectPinDefinition { pin, .. }) => (
-                quote! {
-                    ::rumcake::hw::mcu::AnalogPinType::Direct
-                },
-                quote! {
-                    ::rumcake::hw::mcu::Channel::new(
-                        unsafe { ::rumcake::hw::mcu::embassy_stm32::peripherals::#pin::steal() }
-                    )
-                },
-            ),
+            AnalogPinType::Direct(DirectPinDefinition { direct_pin_args, .. }) => {
+                let DirectPinArgs { pin } = direct_pin_args;
+                (
+                    quote! {
+                        ::rumcake::hw::platform::AnalogPinType::Direct
+                    },
+                    quote! {
+                        ::rumcake::hw::platform::Channel::new(
+                            unsafe { ::rumcake::hw::platform::embassy_stm32::peripherals::#pin::steal() }
+                        )
+                    },
+                )
+            },
         })
         .unzip();
 
     (
         quote! {
-            ::rumcake::hw::mcu::AdcSampler<'static, ::rumcake::hw::mcu::embassy_stm32::peripherals::#adc, #select_pin_count, #channel_count>
+            ::rumcake::hw::platform::AdcSampler<'static, ::rumcake::hw::platform::embassy_stm32::peripherals::#adc, #select_pin_count, #channel_count>
         },
         quote! {
-            ::rumcake::hw::mcu::AdcSampler::new(
-                unsafe { ::rumcake::hw::mcu::embassy_stm32::peripherals::#adc::steal() },
+            ::rumcake::hw::platform::AdcSampler::new(
+                unsafe { ::rumcake::hw::platform::embassy_stm32::peripherals::#adc::steal() },
                 {
-                    ::rumcake::hw::mcu::embassy_stm32::bind_interrupts! {
+                    ::rumcake::hw::platform::embassy_stm32::bind_interrupts! {
                         struct Irqs {
-                            #interrupt => ::rumcake::hw::mcu::embassy_stm32::adc::InterruptHandler<::rumcake::hw::mcu::embassy_stm32::peripherals::#adc>;
+                            #interrupt => ::rumcake::hw::platform::embassy_stm32::adc::InterruptHandler<::rumcake::hw::platform::embassy_stm32::peripherals::#adc>;
                         }
                     };
                     Irqs

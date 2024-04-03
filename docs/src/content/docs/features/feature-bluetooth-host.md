@@ -45,7 +45,7 @@ use rumcake::keyboard;
 )]
 struct MyKeyboard;
 
-use rumcake::hw::mcu::BluetoothDevice;
+use rumcake::hw::platform::BluetoothDevice;
 impl BluetoothDevice for WingpairLeft {
     // This addresses can be whatever you want, as long as it is a valid "Random Static" bluetooth addresses.
     // See "Random Static Address" in this link: https://novelbits.io/bluetooth-address-privacy-ble/
@@ -71,13 +71,15 @@ Also check the sections below for more information.
 
 # Keycodes
 
-In your keyberon layout, you can use any of the enum members defined in `BluetoothCommand`:
+In your keyberon layout, you can use any of the enum members defined in `HardwareCommand`:
 
 ```rust
-ToggleOutput // Only available if the `usb` feature flag is also enabled. More information below.
-OutputUSB // Only available if the `usb` feature flag is also enabled. More information below.
-OutputBluetooth // Only available if the `usb` feature flag is also enabled. More information below.
+ToggleOutput
+OutputUSB
+OutputBluetooth
 ```
+
+More information below.
 
 ## USB host communication interoperability
 

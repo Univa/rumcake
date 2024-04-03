@@ -1,8 +1,8 @@
 //! Rumcake driver implementations for [`nrf-softdevice`].
 //!
 //! This driver provides implementations for
-//! [`CentralDeviceDriver`](`crate::split::drivers::CentralDeviceDriver`), and
-//! [`PeripheralDeviceDriver`](`crate::split::drivers::PeripheralDeviceDriver`).
+//! [`CentralDeviceDriver`](`crate::split::central::CentralDeviceDriver`), and
+//! [`PeripheralDeviceDriver`](`crate::split::peripheral::PeripheralDeviceDriver`).
 //!
 //! To use this driver for split keyboards, central devices must pass the Bluetooth addresses of
 //! the peripherals to [`nrf_ble_central_task`], and peripheral devices must implement pass the
@@ -24,12 +24,14 @@ pub mod central {
     use nrf_softdevice::ble::{central, Address, AddressType};
     use nrf_softdevice::{RawError, Softdevice};
 
-    use crate::hw::mcu::RawMutex;
-    use crate::split::drivers::{CentralDeviceDriver, CentralDeviceError};
+    use crate::hw::platform::RawMutex;
+    use crate::split::central::{CentralDeviceDriver, CentralDeviceError};
     use crate::split::{
         MessageToCentral, MessageToPeripheral, MESSAGE_TO_CENTRAL_BUFFER_SIZE,
         MESSAGE_TO_PERIPHERAL_BUFFER_SIZE,
     };
+
+    pub use rumcake_macros::setup_nrf_ble_split_central;
 
     pub struct NRFBLECentralDriver<'a> {
         publisher: Publisher<'a, RawMutex, MessageToPeripheral, 4, 4, 1>,
@@ -230,12 +232,14 @@ pub mod peripheral {
     use nrf_softdevice::ble::{Address, AddressType};
     use nrf_softdevice::Softdevice;
 
-    use crate::hw::mcu::{RawMutex, BLUETOOTH_ADVERTISING_MUTEX};
-    use crate::split::drivers::{PeripheralDeviceDriver, PeripheralDeviceError};
+    use crate::hw::platform::{RawMutex, BLUETOOTH_ADVERTISING_MUTEX};
+    use crate::split::peripheral::{PeripheralDeviceDriver, PeripheralDeviceError};
     use crate::split::{
         MessageToCentral, MessageToPeripheral, MESSAGE_TO_CENTRAL_BUFFER_SIZE,
         MESSAGE_TO_PERIPHERAL_BUFFER_SIZE,
     };
+
+    pub use rumcake_macros::setup_nrf_ble_split_peripheral;
 
     pub struct NRFBLEPeripheralDriver {}
 
