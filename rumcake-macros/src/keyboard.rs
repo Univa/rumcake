@@ -14,6 +14,7 @@ pub(crate) struct KeyboardSettings {
     no_matrix: bool,
     bluetooth: bool,
     usb: bool,
+    pointer: Option<PointerSettings>,
     storage: Option<StorageSettings>,
     simple_backlight: Option<LightingSettings>,
     simple_backlight_matrix: Option<LightingSettings>,
@@ -25,6 +26,11 @@ pub(crate) struct KeyboardSettings {
     via: Option<ViaSettings>,
     vial: Option<ViaSettings>,
     bootloader_double_tap_reset: Option<Override<LitInt>>,
+}
+
+#[derive(Debug, FromMeta)]
+pub(crate) struct PointerSettings {
+    driver_setup_fn: Ident,
 }
 
 #[derive(Debug, FromMeta)]
@@ -359,6 +365,28 @@ pub(crate) fn keyboard_main(
                 spawner.spawn(::rumcake::usb_hid_consumer_write_task!(#kb_name, consumer_class)).unwrap();
             });
         }
+    }
+
+    if keyboard.usb && keyboard.pointer.is_some() {
+        initialization.extend(quote! {
+            // HID consumer
+            let pointer_class = ::rumcake::usb::setup_usb_hid_mouse_writer(&mut builder);
+        });
+        spawning.extend(quote! {
+            // HID Consumer Report sending
+            spawner.spawn(::rumcake::usb_hid_mouse_write_task!(#kb_name, pointer_class)).unwrap();
+        });
+    }
+
+    if let Some(args) = keyboard.pointer {
+        let setup_fn = args.driver_setup_fn;
+        initialization.extend(quote! {
+            let pointer_driver = #setup_fn().await;
+        });
+        spawning.extend(quote! {
+            // HID Consumer Report sending
+            spawner.spawn(::rumcake::poll_pointing_device!(#kb_name, pointer_driver)).unwrap();
+        });
     }
 
     if keyboard.usb && (keyboard.via.is_some() || keyboard.vial.is_some()) {

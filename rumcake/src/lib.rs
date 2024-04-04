@@ -115,6 +115,8 @@ pub use once_cell;
 pub use rumcake_macros::keyboard_main as keyboard;
 
 pub mod keyboard;
+pub mod pointer;
+
 mod math;
 
 #[cfg(feature = "storage")]
@@ -148,6 +150,7 @@ pub mod drivers;
 pub mod tasks {
     pub use crate::hw::__output_switcher;
     pub use crate::keyboard::{__layout_collect, __matrix_poll};
+    pub use crate::pointer::__poll_pointing_device;
 
     #[cfg(all(feature = "lighting", feature = "storage"))]
     pub use crate::lighting::__lighting_storage_task;
@@ -158,7 +161,10 @@ pub mod tasks {
     pub use crate::display::__display_task;
 
     #[cfg(feature = "usb")]
-    pub use crate::usb::{__start_usb, __usb_hid_consumer_write_task, __usb_hid_kb_write_task};
+    pub use crate::usb::{
+        __start_usb, __usb_hid_consumer_write_task, __usb_hid_kb_write_task,
+        __usb_hid_mouse_write_task,
+    };
 
     #[cfg(all(feature = "via", feature = "usb"))]
     pub use crate::usb::__usb_hid_via_read_task;

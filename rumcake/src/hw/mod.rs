@@ -31,6 +31,7 @@ use embedded_hal::digital::v2::OutputPin;
 use platform::RawMutex;
 use usbd_human_interface_device::device::consumer::MultipleConsumerReport;
 use usbd_human_interface_device::device::keyboard::NKROBootKeyboardReport;
+use usbd_human_interface_device::device::mouse::WheelMouseReport;
 
 /// State that contains the current battery level. `rumcake` may or may not use this static
 /// internally, depending on what MCU is being used. The contents of this state is usually set by a
@@ -86,6 +87,8 @@ pub static CURRENT_OUTPUT_STATE: State<Option<HIDOutput>> = State::new(
         &crate::usb::KB_CURRENT_OUTPUT_STATE_LISTENER,
         #[cfg(feature = "usb")]
         &crate::usb::CONSUMER_CURRENT_OUTPUT_STATE_LISTENER,
+        #[cfg(feature = "usb")]
+        &crate::usb::MOUSE_CURRENT_OUTPUT_STATE_LISTENER,
         #[cfg(all(feature = "usb", feature = "via"))]
         &crate::usb::VIA_CURRENT_OUTPUT_STATE_LISTENER,
         #[cfg(feature = "bluetooth")]
@@ -274,6 +277,12 @@ pub trait HIDDevice {
         static CONSUMER_REPORT_HID_SEND_CHANNEL: Channel<RawMutex, MultipleConsumerReport, 1> =
             Channel::new();
         &CONSUMER_REPORT_HID_SEND_CHANNEL
+    }
+
+    fn get_mouse_report_send_channel() -> &'static Channel<RawMutex, WheelMouseReport, 1> {
+        static MOUSE_REPORT_HID_SEND_CHANNEL: Channel<RawMutex, WheelMouseReport, 1> =
+            Channel::new();
+        &MOUSE_REPORT_HID_SEND_CHANNEL
     }
 
     #[cfg(feature = "via")]

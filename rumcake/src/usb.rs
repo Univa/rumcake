@@ -21,6 +21,7 @@ use usbd_human_interface_device::device::consumer::{
 use usbd_human_interface_device::device::keyboard::{
     NKROBootKeyboardReport, NKRO_BOOT_KEYBOARD_REPORT_DESCRIPTOR,
 };
+use usbd_human_interface_device::device::mouse::{WheelMouseReport, WHEEL_MOUSE_REPORT_DESCRIPTOR};
 
 use crate::hw::platform::RawMutex;
 use crate::hw::{HIDDevice, HIDOutput, CURRENT_OUTPUT_STATE};
@@ -88,6 +89,32 @@ pub fn setup_usb_hid_consumer_writer(
         b,
         consumer_state,
         consumer_hid_config,
+    )
+}
+
+/// Configure the HID report writer, for consumer commands.
+///
+/// The HID writer produced should be passed to [`usb_hid_mouse_write_task`].
+pub fn setup_usb_hid_mouse_writer(
+    b: &mut Builder<'static, impl Driver<'static>>,
+) -> HidWriter<
+    'static,
+    impl Driver<'static>,
+    { <<WheelMouseReport as PackedStruct>::ByteArray as StaticArray>::LEN },
+> {
+    // Keyboard HID setup
+    static MOUSE_STATE: StaticCell<UsbState> = StaticCell::new();
+    let mouse_state = MOUSE_STATE.init(UsbState::new());
+    let mouse_hid_config = Config {
+        request_handler: None,
+        report_descriptor: WHEEL_MOUSE_REPORT_DESCRIPTOR,
+        poll_ms: 1,
+        max_packet_size: 64,
+    };
+    HidWriter::<_, { <<WheelMouseReport as PackedStruct>::ByteArray as StaticArray>::LEN }>::new(
+        b,
+        mouse_state,
+        mouse_hid_config,
     )
 }
 
@@ -167,6 +194,28 @@ pub async fn usb_hid_consumer_write_task<K: HIDDevice>(
         channel,
         "[USB] Writing consumer HID report to USB: {:?}",
         "[USB] Couldn't write consumer HID report: {:?}"
+    );
+}
+
+pub(crate) static MOUSE_CURRENT_OUTPUT_STATE_LISTENER: Signal<RawMutex, ()> = Signal::new();
+
+#[rumcake_macros::task]
+pub async fn usb_hid_mouse_write_task<K: HIDDevice>(
+    _k: K,
+    mut hid: HidWriter<
+        'static,
+        impl Driver<'static>,
+        { <<WheelMouseReport as PackedStruct>::ByteArray as StaticArray>::LEN },
+    >,
+) {
+    let channel = K::get_mouse_report_send_channel();
+
+    usb_task_inner!(
+        hid,
+        CONSUMER_CURRENT_OUTPUT_STATE_LISTENER,
+        channel,
+        "[USB] Writing mouse HID report to USB: {:?}",
+        "[USB] Couldn't write mouse HID report: {:?}"
     );
 }
 
