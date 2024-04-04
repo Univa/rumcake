@@ -1,3 +1,11 @@
+//! Rumcaker driver implementations for [rwalkr's IQS5xx driver](`iqs5xx`)
+//!
+//! This provides implementations for [`PointingDriver`](`crate::pointer::PointingDriver`).
+//!
+//! To use this driver as a pointing device, you must implement [`IQS5xxPointerDriver`], and pass
+//! it to [`setup_driver`]. Then the result of this can be passed to the [`poll_pointing_device`]
+//! task.
+
 use defmt::Debug2Format;
 use embassy_time::Delay;
 use embedded_hal::blocking::i2c::{Write, WriteRead};
@@ -33,7 +41,7 @@ pub fn setup_driver<E, I2C: Write + WriteRead, RDY: InputPin, RST: OutputPin>(
 }
 
 trait IQS5xxPointerDriver {
-    /// This function gets called a regular interval (usually every millisecond). You can
+    /// This function gets called at a regular interval (usually every millisecond). You can
     /// re-implement this if you the type you're implementing this trait on needs to update its
     /// state over time. This can be useful if you want to implement more complicated touchpad
     /// functionality which isn't already supported by the [`Touchpad`] struct.
