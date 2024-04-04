@@ -46,8 +46,8 @@ crate::parse_as_custom_fields! {
         i2c: Ident,
         scl: Ident,
         sda: Ident,
-        rx_dma: Ident,
-        tx_dma: Ident
+        rx_dma: OptionalItem<Ident>,
+        tx_dma: OptionalItem<Ident>
     }
 }
 
@@ -73,6 +73,26 @@ pub fn setup_i2c(
         }
     };
 
+    let rx_dma = if let OptionalItem::Some(rx_dma) = rx_dma {
+        quote! {
+            ::rumcake::hw::platform::embassy_stm32::peripherals::#rx_dma::steal()
+        }
+    } else {
+        quote! {
+            ::rumcake::hw::platform::embassy_stm32::dma::NoDma
+        }
+    };
+
+    let tx_dma = if let OptionalItem::Some(tx_dma) = tx_dma {
+        quote! {
+            ::rumcake::hw::platform::embassy_stm32::peripherals::#tx_dma::steal()
+        }
+    } else {
+        quote! {
+            ::rumcake::hw::platform::embassy_stm32::dma::NoDma
+        }
+    };
+
     quote! {
         unsafe {
             ::rumcake::hw::platform::embassy_stm32::bind_interrupts! {
@@ -83,8 +103,8 @@ pub fn setup_i2c(
             let i2c = ::rumcake::hw::platform::embassy_stm32::peripherals::#i2c::steal();
             let scl = ::rumcake::hw::platform::embassy_stm32::peripherals::#scl::steal();
             let sda = ::rumcake::hw::platform::embassy_stm32::peripherals::#sda::steal();
-            let rx_dma = ::rumcake::hw::platform::embassy_stm32::peripherals::#rx_dma::steal();
-            let tx_dma = ::rumcake::hw::platform::embassy_stm32::peripherals::#tx_dma::steal();
+            let rx_dma = #rx_dma;
+            let tx_dma = #tx_dma;
             let time = ::rumcake::hw::platform::embassy_stm32::time::Hertz(100_000);
             ::rumcake::hw::platform::embassy_stm32::i2c::I2c::new(i2c, scl, sda, Irqs, tx_dma, rx_dma, time, Default::default())
         }
