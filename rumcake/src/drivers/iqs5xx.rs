@@ -17,7 +17,7 @@ use crate::pointer::mouse::{MouseButtonFlags, MouseEvent};
 use crate::pointer::touchpad::{Touchpad, TouchpadEvent};
 use crate::pointer::PointingDriver;
 
-struct IQS5xx<E, I2C, RDY, RST> {
+pub struct IQS5xx<E, I2C, RDY, RST> {
     driver: IQS5xxDriver<I2C, RDY, RST>,
     touchpad_state: Touchpad,
     event_handler: E,
