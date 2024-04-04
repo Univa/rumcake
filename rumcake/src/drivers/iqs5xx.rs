@@ -40,7 +40,7 @@ pub fn setup_driver<E, I2C: Write + WriteRead, RDY: InputPin, RST: OutputPin>(
     iqs
 }
 
-trait IQS5xxPointerDriver {
+pub trait IQS5xxPointerDriver {
     /// This function gets called at a regular interval (usually every millisecond). You can
     /// re-implement this if you the type you're implementing this trait on needs to update its
     /// state over time. This can be useful if you want to implement more complicated touchpad
