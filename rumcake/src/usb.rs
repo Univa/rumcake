@@ -137,7 +137,7 @@ pub async fn usb_hid_kb_write_task<K: HIDDevice>(
         { <<NKROBootKeyboardReport as PackedStruct>::ByteArray as StaticArray>::LEN },
     >,
 ) {
-    let channel = K::get_via_hid_send_channel();
+    let channel = K::get_keyboard_report_send_channel();
 
     usb_task_inner!(
         hid,
@@ -159,7 +159,7 @@ pub async fn usb_hid_consumer_write_task<K: HIDDevice>(
         { <<MultipleConsumerReport as PackedStruct>::ByteArray as StaticArray>::LEN },
     >,
 ) {
-    let channel = K::get_via_hid_send_channel();
+    let channel = K::get_consumer_report_send_channel();
 
     usb_task_inner!(
         hid,
