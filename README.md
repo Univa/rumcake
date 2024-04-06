@@ -64,9 +64,6 @@ The following features are _working_, but may not be stable or has missing compo
 - Storage
 - Via/Vial
 - Media keys
-
-### Planned
-
 - Encoders
 
 ## Why the name "rumcake"
