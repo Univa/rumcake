@@ -147,7 +147,7 @@ pub mod drivers;
 
 pub mod tasks {
     pub use crate::hw::__output_switcher;
-    pub use crate::keyboard::{__layout_collect, __matrix_poll};
+    pub use crate::keyboard::{__ec11_encoders_poll, __layout_collect, __matrix_poll};
 
     #[cfg(all(feature = "lighting", feature = "storage"))]
     pub use crate::lighting::__lighting_storage_task;

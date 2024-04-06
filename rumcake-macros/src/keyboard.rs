@@ -3,7 +3,11 @@ use darling::FromMeta;
 use proc_macro2::{Ident, TokenStream, TokenTree};
 use proc_macro_error::{abort, emit_error, OptionExt};
 use quote::quote;
-use syn::{ExprRange, ItemStruct, LitInt, LitStr, PathSegment};
+use syn::parse::Parse;
+use syn::punctuated::Punctuated;
+use syn::{
+    braced, custom_keyword, Expr, ExprRange, ItemStruct, LitInt, LitStr, PathSegment, Token,
+};
 
 use crate::common::{Layer, LayoutLike, MatrixLike, OptionalItem, Row};
 use crate::TuplePair;
@@ -14,6 +18,7 @@ pub(crate) struct KeyboardSettings {
     no_matrix: bool,
     bluetooth: bool,
     usb: bool,
+    encoders: bool,
     storage: Option<StorageSettings>,
     simple_backlight: Option<LightingSettings>,
     simple_backlight_matrix: Option<LightingSettings>,
@@ -289,6 +294,14 @@ pub(crate) fn keyboard_main(
                 .spawn(::rumcake::matrix_poll!(#kb_name))
                 .unwrap();
         });
+    }
+
+    if keyboard.encoders {
+        spawning.extend(quote! {
+            spawner
+                .spawn(::rumcake::ec11_encoders_poll!(#kb_name))
+                .unwrap();
+        })
     }
 
     // Flash setup
@@ -872,6 +885,75 @@ pub fn build_layout(raw: TokenStream, layers: LayoutLike<TokenTree>) -> TokenStr
                     unsafe { &mut LAYERS }
                 ))
             })
+        }
+    }
+}
+
+crate::parse_as_custom_fields! {
+    pub struct SetupEncoderArgsBuilder for SetupEncoderArgs {
+        sw_pin: Expr,
+        output_a_pin: Expr,
+        output_b_pin: Expr,
+        sw_pos: TuplePair,
+        cw_pos: TuplePair,
+        ccw_pos: TuplePair,
+    }
+}
+
+custom_keyword!(Encoder);
+
+pub struct EncoderDefinition {
+    encoder_keyword: Encoder,
+    brace_token: syn::token::Brace,
+    encoder_args: SetupEncoderArgs,
+}
+
+impl Parse for EncoderDefinition {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let content;
+        Ok(Self {
+            encoder_keyword: input.parse()?,
+            brace_token: braced!(content in input),
+            encoder_args: content.parse()?,
+        })
+    }
+}
+
+pub fn setup_encoders(encoders: Punctuated<EncoderDefinition, Token![,]>) -> TokenStream {
+    let count = encoders.len();
+
+    let (positions, definitions): (Vec<TokenStream>, Vec<TokenStream>) = encoders
+        .iter()
+        .map(|EncoderDefinition { encoder_args, .. }| {
+            let SetupEncoderArgs {
+                sw_pin,
+                output_a_pin,
+                output_b_pin,
+                sw_pos,
+                cw_pos,
+                ccw_pos,
+            } = encoder_args;
+
+            (
+                quote! {
+                    [#sw_pos, #cw_pos, #ccw_pos]
+                },
+                quote! {
+                    ::rumcake::keyboard::EC11Encoder::new(#sw_pin, #output_a_pin, #output_b_pin)
+                },
+            )
+        })
+        .unzip();
+
+    quote! {
+        const ENCODER_COUNT: usize = #count;
+
+        fn get_encoders() -> [impl ::rumcake::keyboard::Encoder; Self::ENCODER_COUNT] {
+            [#(#definitions),*]
+        }
+
+        fn get_layout_mappings() -> [[(u8, u8); 3]; Self::ENCODER_COUNT] {
+            [#(#positions),*]
         }
     }
 }

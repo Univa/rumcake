@@ -162,6 +162,7 @@ pub fn keyboard_main(
 }
 
 #[proc_macro]
+#[proc_macro_error]
 pub fn build_standard_matrix(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let matrix = parse_macro_input!(input as keyboard::StandardMatrixDefinition);
     keyboard::build_standard_matrix(matrix).into()
@@ -190,6 +191,14 @@ pub fn build_layout(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 }
 
 #[proc_macro]
+#[proc_macro_error]
+pub fn setup_encoders(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let args = parse_macro_input!(input with Punctuated<keyboard::EncoderDefinition, Token![,]>::parse_terminated);
+    keyboard::setup_encoders(args).into()
+}
+
+#[proc_macro]
+#[proc_macro_error]
 pub fn remap_matrix(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let remap = parse_macro_input!(input as keyboard::RemapMacroInput);
     keyboard::remap_matrix(remap).into()
@@ -286,9 +295,10 @@ mod hw;
 
 #[cfg(feature = "stm32")]
 #[proc_macro]
+#[proc_macro_error]
 pub fn stm32_input_pin(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let ident = parse_macro_input!(input as Ident);
-    hw::input_pin(ident).into()
+    let args = parse_macro_input!(input with Punctuated<Ident, Token![,]>::parse_terminated);
+    hw::input_pin(args).into()
 }
 
 #[cfg(feature = "stm32")]
