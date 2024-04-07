@@ -12,15 +12,35 @@ use crate::common::{
 
 pub const HAL_CRATE: &str = "embassy_stm32";
 
-pub fn input_pin(ident: Ident) -> TokenStream {
-    quote! {
-        unsafe {
-            ::rumcake::hw::platform::embassy_stm32::gpio::Input::new(
-                ::rumcake::hw::platform::embassy_stm32::gpio::Pin::degrade(
+pub fn input_pin(args: Punctuated<Ident, Token![,]>) -> TokenStream {
+    let mut args = args.iter();
+    let ident = args.next().expect_or_abort("missing pin identifier");
+    let exti_channel = args.next();
+
+    if let Some(arg) = args.next() {
+        abort!(arg, "unexpected extra args provided");
+    }
+
+    if let Some(exti) = exti_channel {
+        quote! {
+            unsafe {
+                ::rumcake::hw::platform::embassy_stm32::exti::ExtiInput::new(
                     ::rumcake::hw::platform::embassy_stm32::peripherals::#ident::steal(),
-                ),
-                ::rumcake::hw::platform::embassy_stm32::gpio::Pull::Up,
-            )
+                    ::rumcake::hw::platform::embassy_stm32::peripherals::#exti::steal(),
+                    ::rumcake::hw::platform::embassy_stm32::gpio::Pull::Up,
+                )
+            }
+        }
+    } else {
+        quote! {
+            unsafe {
+                ::rumcake::hw::platform::embassy_stm32::gpio::Input::new(
+                    ::rumcake::hw::platform::embassy_stm32::gpio::Pin::degrade(
+                        ::rumcake::hw::platform::embassy_stm32::peripherals::#ident::steal(),
+                    ),
+                    ::rumcake::hw::platform::embassy_stm32::gpio::Pull::Up,
+                )
+            }
         }
     }
 }

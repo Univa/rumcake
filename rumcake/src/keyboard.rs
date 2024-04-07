@@ -4,14 +4,17 @@
 //! Keyboard layouts and matrices are implemented with the help of [TeXitoi's `keyberon` crate](`keyberon`).
 
 use core::convert::Infallible;
+use core::fmt::Debug;
 use core::ops::Range;
 
 use defmt::{debug, info, warn, Debug2Format};
+use embassy_futures::select::{select, select_slice, Either};
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::pubsub::{PubSubBehavior, PubSubChannel};
 use embassy_time::{Duration, Ticker, Timer};
 use embedded_hal::digital::v2::{InputPin, OutputPin};
+use embedded_hal_async::digital::Wait;
 use heapless::Vec;
 use keyberon::analog::{AnalogActuator, AnalogAcutationMode};
 use keyberon::debounce::Debouncer;
@@ -30,7 +33,8 @@ use crate::hw::platform::RawMutex;
 use crate::hw::{HIDDevice, CURRENT_OUTPUT_STATE};
 
 pub use rumcake_macros::{
-    build_analog_matrix, build_direct_pin_matrix, build_layout, build_standard_matrix, remap_matrix,
+    build_analog_matrix, build_direct_pin_matrix, build_layout, build_standard_matrix,
+    remap_matrix, setup_encoders,
 };
 
 /// Basic keyboard trait that must be implemented to use rumcake. Defines basic keyboard information.
@@ -61,7 +65,7 @@ pub trait KeyboardLayout {
         &POLLED_EVENTS_CHANNEL
     }
 
-    const NUM_ENCODERS: usize = 0; // Only for VIA compatibility, no proper encoder support. This is the default if not set in QMK
+    const NUM_ENCODERS: usize = 0; // No encoder via support yet. This is the default if not set in QMK
 
     /// Number of columns in the layout.
     ///
@@ -124,6 +128,66 @@ impl<const C: usize, const R: usize, const L: usize> Layout<C, R, L> {
         Self {
             layout: Mutex::new(layout),
         }
+    }
+}
+
+pub trait DeviceWithEncoders {
+    type Layout: private::MaybeKeyboardLayout = private::EmptyKeyboardLayout;
+
+    const ENCODER_COUNT: usize;
+
+    fn get_encoders() -> [impl Encoder; Self::ENCODER_COUNT];
+
+    fn get_layout_mappings() -> [[(u8, u8); 3]; Self::ENCODER_COUNT];
+}
+
+pub trait Encoder {
+    async fn wait_for_event(&mut self) -> EncoderEvent;
+}
+
+pub enum EncoderEvent {
+    ClockwiseRotation,
+    CounterClockwiseRotation,
+    Press,
+    Release,
+}
+
+pub struct EC11Encoder<SW, A, B> {
+    sw: SW,
+    a: A,
+    b: B,
+}
+
+impl<SW: Wait + InputPin, A: Wait, B: InputPin> EC11Encoder<SW, A, B> {
+    pub fn new(sw: SW, a: A, b: B) -> Self {
+        Self { sw, a, b }
+    }
+
+    pub async fn wait_for_event(&mut self) -> EncoderEvent {
+        let Self { sw, a, b } = self;
+
+        match select(a.wait_for_falling_edge(), sw.wait_for_any_edge()).await {
+            Either::First(_) => {
+                if b.is_high().unwrap_or_default() {
+                    EncoderEvent::CounterClockwiseRotation
+                } else {
+                    EncoderEvent::ClockwiseRotation
+                }
+            }
+            Either::Second(_) => {
+                if sw.is_low().unwrap_or_default() {
+                    EncoderEvent::Press
+                } else {
+                    EncoderEvent::Release
+                }
+            }
+        }
+    }
+}
+
+impl<SW: Wait + InputPin, A: Wait, B: InputPin> Encoder for EC11Encoder<SW, A, B> {
+    async fn wait_for_event(&mut self) -> EncoderEvent {
+        self.wait_for_event().await
     }
 }
 
@@ -357,6 +421,56 @@ where
             .unwrap();
 
         self.2.events(matrix_state)
+    }
+}
+
+#[rumcake_macros::task]
+pub async fn ec11_encoders_poll<K: DeviceWithEncoders>(_k: K)
+where
+    [(); K::ENCODER_COUNT]:,
+{
+    let mappings = K::get_layout_mappings();
+    let mut encoders = K::get_encoders();
+
+    let layout_channel = <K::Layout as private::MaybeKeyboardLayout>::get_matrix_events_channel();
+    let mut events: Vec<Event, 2> = Vec::new();
+
+    loop {
+        events.clear();
+        let (event, idx) = select_slice(
+            &mut encoders
+                .iter_mut()
+                .map(|e| e.wait_for_event())
+                .collect::<Vec<_, { K::ENCODER_COUNT }>>(),
+        )
+        .await;
+
+        let [sw_pos, cw_pos, ccw_pos] = mappings[idx];
+
+        match event {
+            EncoderEvent::ClockwiseRotation => {
+                events.push(Event::Press(cw_pos.0, cw_pos.1));
+                events.push(Event::Release(cw_pos.0, cw_pos.1));
+            }
+            EncoderEvent::CounterClockwiseRotation => {
+                events.push(Event::Press(ccw_pos.0, ccw_pos.1));
+                events.push(Event::Release(ccw_pos.0, ccw_pos.1));
+            }
+            EncoderEvent::Press => {
+                events.push(Event::Press(sw_pos.0, sw_pos.1));
+            }
+            EncoderEvent::Release => {
+                events.push(Event::Release(sw_pos.0, sw_pos.1));
+            }
+        };
+
+        for e in &events {
+            if let Some(layout_channel) = layout_channel {
+                layout_channel.send(*e).await;
+            }
+        }
+
+        Timer::after(Duration::from_millis(1)).await;
     }
 }
 

@@ -47,7 +47,7 @@ embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "b8be1
 embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "b8be126", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-usb = { git = "https://github.com/embassy-rs/embassy", rev = "b8be126", features = ["defmt"] }
 embassy-rp = { git = "https://github.com/embassy-rs/embassy", rev = "b8be126", features = ["defmt", "unstable-pac"], optional = true }
-embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", rev = "b8be126", features = ["defmt", "unstable-pac"], optional = true }
+embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", rev = "b8be126", features = ["defmt", "unstable-pac", "exti"], optional = true }
 embassy-nrf = { git = "https://github.com/embassy-rs/embassy", rev = "b8be126", features = ["defmt", "nfc-pins-as-gpio", "time-driver-rtc1"], optional = true }
 nrf-softdevice = { git = "https://github.com/embassy-rs/nrf-softdevice", rev = "487f98e", optional = true }
 tickv = { git = "https://github.com/tock/tock", rev = "18cf287" }

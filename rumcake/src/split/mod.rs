@@ -46,7 +46,15 @@ impl TryFrom<MessageToCentral> for Event {
 /// Possible messages that can be sent to a peripheral device.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, MaxSize)]
 #[non_exhaustive]
-#[repr(u8)]
+#[cfg_attr(
+    any(
+        feature = "simple-backlight",
+        feature = "simple-backlight-matrix",
+        feature = "rgb-backlight-matrix",
+        feature = "underglow",
+    ),
+    repr(u8)
+)]
 pub enum MessageToPeripheral {
     #[cfg(feature = "simple-backlight")]
     /// A [`SimpleBacklightCommand`](crate::lighting::simple_backlight::SimpleBacklightCommand) to
