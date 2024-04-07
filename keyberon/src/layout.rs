@@ -597,6 +597,16 @@ impl<
             tap_hold_tracker: Default::default(),
         }
     }
+    /// Check if the layout is in a state where it needs to be ticked repeatedly. This can be used
+    /// to save power by not needing to repeatedly call [`Self::tick`] when the layout is inactive.
+    pub fn is_active(&self) -> bool {
+        !self.stacked.is_empty()
+            || !self.active_sequences.is_empty()
+            || self.tapdance.is_some()
+            || self.waiting.is_some()
+            || self.oneshot.is_some()
+            || self.tap_hold_tracker.timeout > 0
+    }
     /// Iterates on the key codes of the current state.
     pub fn keycodes(&self) -> impl Iterator<Item = K> + '_ {
         self.states.iter().filter_map(State::keycode)
@@ -1204,30 +1214,40 @@ mod test {
         ];
         let mut layout = Layout::new(unsafe { &mut LAYERS });
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Release(0, 0));
         for _ in 0..197 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[], layout.keycodes());
         }
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LCtrl], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LCtrl], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LCtrl, Space], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[LCtrl], layout.keycodes());
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
     }
 
@@ -1251,30 +1271,39 @@ mod test {
         ]]];
         let mut layout = Layout::new(unsafe { &mut LAYERS });
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 1));
         for _ in 0..15 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[], layout.keycodes());
         }
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[Space], layout.keycodes());
         for _ in 0..10 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[Space], layout.keycodes());
         }
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[Space, LCtrl], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LCtrl], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
     }
 
@@ -1294,44 +1323,58 @@ mod test {
 
         // Press another key before timeout
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LAlt], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[LAlt, Enter], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[Enter], layout.keycodes());
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // Press another key after timeout
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 0));
         for _ in 0..200 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[], layout.keycodes());
         }
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[LAlt], layout.keycodes());
         layout.event(Press(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[LAlt, Enter], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[Enter], layout.keycodes());
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
     }
 
@@ -1351,26 +1394,35 @@ mod test {
 
         // Press and release another key before timeout
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LAlt], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LAlt, Enter], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[LAlt], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[LAlt], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
     }
 
@@ -1382,18 +1434,23 @@ mod test {
         ];
         let mut layout = Layout::new(unsafe { &mut LAYERS });
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         layout.event(Press(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[LShift, E], layout.keycodes());
         layout.event(Release(0, 1));
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
     }
 
@@ -1402,20 +1459,24 @@ mod test {
         static mut LAYERS: Layers<1, 1, 1, u8> = [[[Action::Custom(42)]]];
         let mut layout = Layout::new(unsafe { &mut LAYERS });
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // Custom event
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::Press(42), layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // nothing more
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // release custom
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::Release(42), layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
     }
 
@@ -1429,55 +1490,66 @@ mod test {
         ];
         let mut layout = Layout::new(unsafe { &mut LAYERS });
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_eq!(0, layout.current_layer());
         assert_keys(&[], layout.keycodes());
 
         // press L1
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_eq!(1, layout.current_layer());
         assert_keys(&[], layout.keycodes());
         // press L3 on L1
         layout.event(Press(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_eq!(3, layout.current_layer());
         assert_keys(&[], layout.keycodes());
         // release L1, still on l3
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_eq!(3, layout.current_layer());
         assert_keys(&[], layout.keycodes());
         // press and release C on L3
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[C], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         // release L3, back to L0
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_eq!(0, layout.current_layer());
         assert_keys(&[], layout.keycodes());
 
         // back to empty, going to L2
         layout.event(Press(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_eq!(2, layout.current_layer());
         assert_keys(&[], layout.keycodes());
         // and press the L0 key on L2
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_eq!(0, layout.current_layer());
         assert_keys(&[], layout.keycodes());
         // release the L0, back to L2
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_eq!(2, layout.current_layer());
         assert_keys(&[], layout.keycodes());
         // release the L2, back to L0
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_eq!(0, layout.current_layer());
         assert_keys(&[], layout.keycodes());
     }
@@ -1528,63 +1600,82 @@ mod test {
         ]]];
         let mut layout = Layout::new(unsafe { &mut LAYERS });
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // Custom handler always taps
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[Kb0], layout.keycodes());
 
         // nothing more
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // Custom handler always holds
         layout.event(Press(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[Kb3], layout.keycodes());
 
         // nothing more
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // Custom handler always prevents any event
         layout.event(Press(0, 2));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // even timeout does not trigger
         for _ in 0..200 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(!layout.is_active());
             assert_keys(&[], layout.keycodes());
         }
 
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // nothing more
         layout.event(Release(0, 2));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // Custom handler timeout fallback
         layout.event(Press(0, 3));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         for _ in 0..199 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[], layout.keycodes());
         }
 
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[Kb7], layout.keycodes());
+
+        layout.event(Release(0, 3));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
+        assert_keys(&[], layout.keycodes());
     }
 
     #[test]
@@ -1603,28 +1694,35 @@ mod test {
 
         // press and release the HT key, expect tap action
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[Space], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // press again within tap_hold_interval, tap action should be in keycode immediately
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[Space], layout.keycodes());
 
         // tap action should continue to be in keycodes even after timeout
         for _ in 0..300 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(!layout.is_active());
             assert_keys(&[Space], layout.keycodes());
         }
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // Press again. This is outside the tap_hold_interval window, so should result in hold
@@ -1632,12 +1730,15 @@ mod test {
         layout.event(Press(0, 0));
         for _ in 0..200 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[], layout.keycodes());
         }
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[LAlt], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
     }
 
@@ -1664,102 +1765,162 @@ mod test {
 
         // press and release the HT key, expect tap action
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[Space], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
+        assert_keys(&[], layout.keycodes());
+        for _ in 0..197 {
+            assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
+            assert_keys(&[], layout.keycodes());
+        }
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // press a different key in between
         layout.event(Press(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[Enter], layout.keycodes());
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // press HT key again, should result in hold action
         layout.event(Press(0, 0));
         for _ in 0..200 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[], layout.keycodes());
         }
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[LAlt], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // press HT key, press+release diff key, release HT key
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[Space], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[Enter, Space], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[Space], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
+        assert_keys(&[], layout.keycodes());
+        for _ in 0..193 {
+            assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
+            assert_keys(&[], layout.keycodes());
+        }
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // press HT key again, should result in hold action
         layout.event(Press(0, 0));
         for _ in 0..200 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[], layout.keycodes());
         }
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[LAlt], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // press HT key, press+release diff (HT) key, release HT key
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 2));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Release(0, 2));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[Space], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[Space], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[Enter, Space], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[Space], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
+        assert_keys(&[], layout.keycodes());
+        for _ in 0..196 {
+            assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
+            assert_keys(&[], layout.keycodes());
+        }
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // press HT key again, should result in hold action
         layout.event(Press(0, 0));
         for _ in 0..200 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[], layout.keycodes());
         }
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[LAlt], layout.keycodes());
+
+        layout.event(Release(0, 0));
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
+        assert_keys(&[], layout.keycodes());
     }
 
     #[test]
@@ -1775,31 +1936,39 @@ mod test {
 
         // press and hold the HT key, expect hold action
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 0));
         for _ in 0..50 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[], layout.keycodes());
         }
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[LAlt], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // press and hold the HT key, expect hold action, even though it's within the
         // tap_hold_interval
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 0));
         for _ in 0..50 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[], layout.keycodes());
         }
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[LAlt], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
     }
 
@@ -1828,25 +1997,32 @@ mod test {
         layout.event(Press(0, 1));
         for _ in 0..50 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[], layout.keycodes());
         }
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LAlt], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LAlt], layout.keycodes());
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LAlt, Enter], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[Enter], layout.keycodes());
         // press HT2 again, should result in tap action
         layout.event(Press(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         for _ in 0..300 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(!layout.is_active());
             assert_keys(&[Enter], layout.keycodes());
         }
     }
@@ -1862,112 +2038,135 @@ mod test {
         ];
         let mut layout = Layout::new(unsafe { &mut LAYERS });
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_eq!(0, layout.current_layer());
         assert_keys(&[], layout.keycodes());
 
         // toggle L1
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_eq!(1, layout.current_layer());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_eq!(1, layout.current_layer());
         assert_keys(&[], layout.keycodes());
 
         // press and release A
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[A], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // toggle L1 to disable
         layout.event(Press(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_eq!(0, layout.current_layer());
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_eq!(0, layout.current_layer());
         assert_keys(&[], layout.keycodes());
 
         // press L2
         layout.event(Press(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_eq!(2, layout.current_layer());
         assert_keys(&[], layout.keycodes());
 
         // toggle L3 on L2
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_eq!(3, layout.current_layer());
         assert_keys(&[], layout.keycodes());
 
         // release L2, should stay on L3
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_eq!(3, layout.current_layer());
         assert_keys(&[], layout.keycodes());
 
         // press and release L4 on L3
         layout.event(Press(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_eq!(4, layout.current_layer());
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_eq!(4, layout.current_layer());
 
         // toggle L3 from L4, should stay on L4
         layout.event(Press(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_eq!(4, layout.current_layer());
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_eq!(4, layout.current_layer());
 
         // toggle L4 to disable, should be back to L0
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_eq!(0, layout.current_layer());
         assert_keys(&[], layout.keycodes());
 
         // press L2
         layout.event(Press(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_eq!(2, layout.current_layer());
         assert_keys(&[], layout.keycodes());
 
         // toggle L3 on L2
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_eq!(3, layout.current_layer());
         assert_keys(&[], layout.keycodes());
 
         // release L2, should stay on L3
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_eq!(3, layout.current_layer());
         assert_keys(&[], layout.keycodes());
 
         // press and release L4 on L3
         layout.event(Press(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_eq!(4, layout.current_layer());
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_eq!(4, layout.current_layer());
 
         // toggle L4 to disable, should be back to L3
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_eq!(3, layout.current_layer());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_eq!(3, layout.current_layer());
 
         // toggle L3 to disable, back to L0
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_eq!(0, layout.current_layer());
         assert_keys(&[], layout.keycodes());
     }
@@ -1994,24 +2193,30 @@ mod test {
         layout.event(Press(0, 0));
         for _ in 0..25 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[LShift], layout.keycodes());
         }
         layout.event(Release(0, 0));
         for _ in 0..25 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[LShift], layout.keycodes());
         }
         layout.event(Press(0, 1));
         layout.event(Press(0, 2));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[A, LShift], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[A, B], layout.keycodes());
         layout.event(Release(0, 1));
         layout.event(Release(0, 2));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[B], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // Test:
@@ -2022,22 +2227,28 @@ mod test {
         layout.event(Press(0, 0));
         for _ in 0..25 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[LShift], layout.keycodes());
         }
         layout.event(Release(0, 0));
         for _ in 0..75 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[LShift], layout.keycodes());
         }
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[A], layout.keycodes());
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // Test:
@@ -2048,16 +2259,20 @@ mod test {
         layout.event(Press(0, 0));
         for _ in 0..25 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[LShift], layout.keycodes());
         }
         layout.event(Press(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift, A], layout.keycodes());
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // Test:
@@ -2066,20 +2281,25 @@ mod test {
         // 3. release A
         // 4. release one-shot
         layout.event(Press(0, 0));
-        for _ in 0..200 {
+        for _ in 0..100 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[LShift], layout.keycodes());
         }
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         layout.event(Press(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[LShift, A], layout.keycodes());
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
     }
 
@@ -2103,22 +2323,27 @@ mod test {
         layout.event(Press(0, 0));
         for _ in 0..25 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_eq!(1, layout.current_layer());
         }
         layout.event(Release(0, 0));
         for _ in 0..25 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_eq!(1, layout.current_layer());
         }
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[A], layout.keycodes());
         assert_eq!(1, layout.current_layer());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[A], layout.keycodes());
         assert_eq!(1, layout.current_layer());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         assert_eq!(0, layout.current_layer());
 
@@ -2130,20 +2355,26 @@ mod test {
         layout.event(Press(0, 0));
         for _ in 0..25 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_eq!(1, layout.current_layer());
         }
         layout.event(Release(0, 0));
         for _ in 0..75 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_eq!(1, layout.current_layer());
         }
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        // active because pressing (0,0) after the one shot timeout means we are on layer 0 still, meaning we press the one shot again
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
     }
 
@@ -2167,22 +2398,27 @@ mod test {
         layout.event(Press(0, 0));
         for _ in 0..25 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_eq!(1, layout.current_layer());
         }
         layout.event(Release(0, 0));
         for _ in 0..25 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_eq!(1, layout.current_layer());
         }
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[A], layout.keycodes());
         assert_eq!(1, layout.current_layer());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[A], layout.keycodes());
         assert_eq!(1, layout.current_layer());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         assert_eq!(0, layout.current_layer());
 
@@ -2194,20 +2430,26 @@ mod test {
         layout.event(Press(0, 0));
         for _ in 0..25 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_eq!(1, layout.current_layer());
         }
         layout.event(Release(0, 0));
         for _ in 0..75 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_eq!(1, layout.current_layer());
         }
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        // active because pressing (0,0) after the one shot timeout means we are on layer 0 still, meaning we press the one shot again
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
     }
 
@@ -2233,24 +2475,30 @@ mod test {
         layout.event(Press(0, 0));
         for _ in 0..25 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[LShift], layout.keycodes());
         }
         layout.event(Release(0, 0));
         for _ in 0..25 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[LShift], layout.keycodes());
         }
         layout.event(Press(0, 1));
         layout.event(Press(0, 2));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[A, LShift], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[A, B], layout.keycodes());
         layout.event(Release(0, 1));
         layout.event(Release(0, 2));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[B], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // Test:
@@ -2261,22 +2509,28 @@ mod test {
         layout.event(Press(0, 0));
         for _ in 0..25 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[LShift], layout.keycodes());
         }
         layout.event(Release(0, 0));
         for _ in 0..75 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[LShift], layout.keycodes());
         }
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[A], layout.keycodes());
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // Test:
@@ -2287,16 +2541,20 @@ mod test {
         layout.event(Press(0, 0));
         for _ in 0..25 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[LShift], layout.keycodes());
         }
         layout.event(Press(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift, A], layout.keycodes());
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // Test:
@@ -2305,20 +2563,25 @@ mod test {
         // 3. release A
         // 4. release one-shot
         layout.event(Press(0, 0));
-        for _ in 0..200 {
+        for _ in 0..100 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[LShift], layout.keycodes());
         }
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         layout.event(Press(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[LShift, A], layout.keycodes());
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // Test:
@@ -2328,15 +2591,19 @@ mod test {
         // 4. release one-shot quickly - should end
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // Test:
@@ -2346,21 +2613,27 @@ mod test {
         // 4. release one-shot after timeout
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         for _ in 0..200 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(!layout.is_active());
             assert_keys(&[LShift], layout.keycodes());
         }
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
     }
 
@@ -2386,24 +2659,30 @@ mod test {
         layout.event(Press(0, 0));
         for _ in 0..25 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[LShift], layout.keycodes());
         }
         layout.event(Release(0, 0));
         for _ in 0..25 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[LShift], layout.keycodes());
         }
         layout.event(Press(0, 1));
         layout.event(Press(0, 2));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[A, LShift], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[A, B, LShift], layout.keycodes());
         layout.event(Release(0, 1));
         layout.event(Release(0, 2));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[B], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // Test:
@@ -2414,22 +2693,28 @@ mod test {
         layout.event(Press(0, 0));
         for _ in 0..25 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[LShift], layout.keycodes());
         }
         layout.event(Release(0, 0));
         for _ in 0..75 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[LShift], layout.keycodes());
         }
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[A], layout.keycodes());
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // Test:
@@ -2440,16 +2725,20 @@ mod test {
         layout.event(Press(0, 0));
         for _ in 0..25 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[LShift], layout.keycodes());
         }
         layout.event(Press(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift, A], layout.keycodes());
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // Test:
@@ -2458,20 +2747,25 @@ mod test {
         // 3. release A
         // 4. release one-shot
         layout.event(Press(0, 0));
-        for _ in 0..200 {
+        for _ in 0..100 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[LShift], layout.keycodes());
         }
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         layout.event(Press(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[LShift, A], layout.keycodes());
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // Test:
@@ -2483,27 +2777,34 @@ mod test {
         // 5. release B
         layout.event(Press(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[A], layout.keycodes());
         layout.event(Press(0, 0));
         for _ in 0..25 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[A, LShift], layout.keycodes());
         }
         layout.event(Release(0, 0));
         for _ in 0..25 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[A, LShift], layout.keycodes());
         }
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         layout.event(Press(0, 2));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[B, LShift], layout.keycodes());
         layout.event(Release(0, 2));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
     }
 
@@ -2536,11 +2837,13 @@ mod test {
         layout.event(Release(0, 0));
         for _ in 0..90 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[LShift], layout.keycodes());
         }
         layout.event(Press(0, 1));
         for _ in 0..90 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[LShift, LCtrl], layout.keycodes());
         }
         assert_eq!(layout.current_layer(), 0);
@@ -2548,19 +2851,23 @@ mod test {
         layout.event(Release(0, 2));
         for _ in 0..90 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[LShift, LCtrl], layout.keycodes());
             assert_eq!(layout.current_layer(), 1);
         }
         layout.event(Press(0, 3));
         layout.event(Release(0, 3));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift, LCtrl, D], layout.keycodes());
         assert_eq!(layout.current_layer(), 1);
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[LCtrl], layout.keycodes());
         assert_eq!(layout.current_layer(), 0);
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
     }
 
@@ -2590,36 +2897,45 @@ mod test {
         layout.event(Release(0, 0));
         for _ in 0..90 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[LShift], layout.keycodes());
         }
         layout.event(Press(0, 1));
         for _ in 0..90 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[LShift], layout.keycodes());
         }
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift, Space], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         layout.event(Press(0, 0));
         layout.event(Release(0, 0));
         for _ in 0..90 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[LShift], layout.keycodes());
         }
         layout.event(Press(0, 1));
         for _ in 0..100 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[LShift], layout.keycodes());
         }
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift, LAlt], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[LAlt], layout.keycodes());
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
     }
 
@@ -2657,151 +2973,190 @@ mod test {
         layout.event(Press(0, 0));
         for _ in 0..100 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[], layout.keycodes());
         }
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // Test: tap-dance first key, press another key
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[A, LShift], layout.keycodes());
         layout.event(Release(0, 0));
         assert_keys(&[A, LShift], layout.keycodes());
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[A], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // Test: tap-dance second key, timeout
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Release(0, 0));
         for _ in 0..50 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[], layout.keycodes());
         }
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Release(0, 0));
         for _ in 0..99 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[], layout.keycodes());
         }
         for _ in 0..100 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[LCtrl], layout.keycodes());
         }
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // Test: tap-dance third key, timeout, tap
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Release(0, 0));
         for _ in 0..50 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[], layout.keycodes());
         }
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Release(0, 0));
         for _ in 0..50 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[], layout.keycodes());
         }
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         for _ in 0..98 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[], layout.keycodes());
         }
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[Space], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // Test: tap-dance third key, timeout, hold
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Release(0, 0));
         for _ in 0..50 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[], layout.keycodes());
         }
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Release(0, 0));
         for _ in 0..50 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[], layout.keycodes());
         }
         layout.event(Press(0, 0));
         for _ in 0..199 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[], layout.keycodes());
         }
         for _ in 0..200 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(!layout.is_active());
             assert_keys(&[LAlt], layout.keycodes());
         }
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // Test: tap-dance fourth (last key)
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Release(0, 0));
         for _ in 0..50 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[], layout.keycodes());
         }
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Release(0, 0));
         for _ in 0..50 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[], layout.keycodes());
         }
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Release(0, 0));
         for _ in 0..50 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[], layout.keycodes());
         }
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[D], layout.keycodes());
         for _ in 0..200 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(!layout.is_active());
             assert_keys(&[D], layout.keycodes());
         }
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
     }
 
@@ -2823,72 +3178,92 @@ mod test {
         // Test: tap-dance-eager first key
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[Kb1], layout.keycodes());
-        for _ in 0..200 {
+        for _ in 0..99 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[Kb1], layout.keycodes());
         }
+        assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
+        assert_keys(&[Kb1], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // Test: tap-dance-eager first key, press another key
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[Kb1], layout.keycodes());
         layout.event(Press(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[Kb1, A], layout.keycodes());
         layout.event(Release(0, 0));
-        assert_keys(&[Kb1, A], layout.keycodes());
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[A], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // Test: tap-dance second key
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[Kb1], layout.keycodes());
         layout.event(Release(0, 0));
         for _ in 0..50 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[], layout.keycodes());
         }
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[Kb2], layout.keycodes());
         layout.event(Release(0, 0));
         for _ in 0..99 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[], layout.keycodes());
         }
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // Test: tap-dance third key
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[Kb1], layout.keycodes());
         layout.event(Release(0, 0));
         for _ in 0..50 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[], layout.keycodes());
         }
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[Kb2], layout.keycodes());
         layout.event(Release(0, 0));
         for _ in 0..50 {
             assert_eq!(CustomEvent::NoEvent, layout.tick());
+            assert!(layout.is_active());
             assert_keys(&[], layout.keycodes());
         }
         layout.event(Press(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[Kb3], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
     }
 
@@ -3191,221 +3566,316 @@ mod test {
         let mut layout = Layout::new(unsafe { &mut LAYERS });
         // Test a basic sequence
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 0));
         // Sequences take an extra tick to kickoff since the first tick starts the sequence:
         assert_eq!(CustomEvent::NoEvent, layout.tick()); // Sequence detected & added
+        assert!(layout.is_active());
         assert_eq!(CustomEvent::NoEvent, layout.tick()); // Sequence starts
+        assert!(layout.is_active());
         assert_keys(&[LCtrl], layout.keycodes()); // First item in the SequenceEvent
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LCtrl, C], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LCtrl], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Release(0, 0));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // Test the use of Complete()
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LCtrl], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LCtrl, C], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Release(0, 1));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // Test a sequence with a Delay() (aka The Mr Owl test; duration == 3)
         layout.event(Press(0, 2));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[Y], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick()); // First decrement (2)
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes()); // "Eh Ooone!"
         assert_eq!(CustomEvent::NoEvent, layout.tick()); // Second decrement (1)
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes()); // "Eh two!"
         assert_eq!(CustomEvent::NoEvent, layout.tick()); // Final decrement (0)
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes()); // "Eh three."
         assert_eq!(CustomEvent::NoEvent, layout.tick()); // Press() added for the next tick()
+        assert!(layout.is_active());
         assert_eq!(CustomEvent::NoEvent, layout.tick()); // FakeKey Press()
+        assert!(layout.is_active());
         assert_keys(&[O], layout.keycodes()); // CHOMP!
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Release(0, 2));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // // Test really long sequences (aka macros)...
         layout.event(Press(0, 3));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift, U], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift, N], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift, L], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift, I], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift, M], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift, I], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift, T], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift, E], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift, D], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift, Space], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift, P], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift, O], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift, W], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift, E], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift, R], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift, Kb1], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift, Kb1], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift, Kb1], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift, Kb1], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         layout.event(Release(0, 3));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // Test a sequence with Tap Events
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 4));
         assert_eq!(CustomEvent::NoEvent, layout.tick()); // Sequence detected & added
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick()); // To Process Tap(Q)
+        assert!(layout.is_active());
         assert_keys(&[Q], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick()); // Release(Q)
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick()); // To Process Tap(W)
+        assert!(layout.is_active());
         assert_keys(&[W], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick()); // Release(W)
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick()); // To Process Tap(E)
+        assert!(layout.is_active());
         assert_keys(&[E], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick()); // Release(E)
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
-        assert_eq!(CustomEvent::NoEvent, layout.tick()); // Sequence is
-                                                         // finished
+        assert_eq!(CustomEvent::NoEvent, layout.tick()); // Sequence is finished
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Release(0, 4));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
 
         // Test two sequences
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 5));
         assert_eq!(CustomEvent::NoEvent, layout.tick()); // Sequence detected & added
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 4));
         assert_eq!(CustomEvent::NoEvent, layout.tick()); // Tap(X)
+        assert!(layout.is_active());
         assert_keys(&[X], layout.keycodes());
         layout.event(Release(0, 5));
         assert_eq!(CustomEvent::NoEvent, layout.tick()); // Release(X), Tap(Q)
+        assert!(layout.is_active());
         assert_keys(&[Q], layout.keycodes());
         layout.event(Release(0, 4));
         assert_eq!(CustomEvent::NoEvent, layout.tick()); // Tap(Y), Release(Q)
+        assert!(layout.is_active());
         assert_keys(&[Y], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick()); // Release(Y), Press(W)
+        assert!(layout.is_active());
         assert_keys(&[W], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick()); // Press(Z), Release(W)
+        assert!(layout.is_active());
         assert_keys(&[Z], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick()); // Release(Z), Press(E)
+        assert!(layout.is_active());
         assert_keys(&[E], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick()); // Release(E)
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick()); // Sequence is
-                                                         // finished
+        assert!(!layout.is_active());
+        // finished
         assert_keys(&[], layout.keycodes());
 
         // Test ASCII bytes
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes());
         layout.event(Press(0, 6));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         layout.event(Release(0, 6));
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[T], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift, E], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[S], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[T], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[LShift, Kb1], layout.keycodes());
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(layout.is_active());
         assert_keys(&[], layout.keycodes()); // End of sequence
         assert_eq!(CustomEvent::NoEvent, layout.tick());
+        assert!(!layout.is_active());
         assert_keys(&[], layout.keycodes()); // Should still be empty
     }
 }

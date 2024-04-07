@@ -546,16 +546,30 @@ where
 
     let keyboard_report = K::get_keyboard_report_send_channel();
 
+    let mut should_tick_repeatedly = false;
+
     loop {
         let keys = {
+            let event = if should_tick_repeatedly {
+                matrix_channel.try_receive().ok()
+            } else {
+                Some(matrix_channel.receive().await)
+            };
+
             let mut layout = layout.layout.lock().await;
 
-            if let Ok(event) = matrix_channel.try_receive() {
+            if let Some(event) = event {
                 layout.event(event);
                 MATRIX_EVENTS.publish_immediate(event); // Just immediately publish since we don't want to hold up any key events to be converted into keycodes.
             };
 
             let tick = layout.tick();
+
+            let new_layout_state = layout.is_active();
+            if !should_tick_repeatedly && new_layout_state {
+                ticker.reset()
+            }
+            should_tick_repeatedly = new_layout_state;
 
             debug!("[KEYBOARD] Processing rumcake feature keycodes");
 
