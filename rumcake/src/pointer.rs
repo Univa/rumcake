@@ -39,7 +39,7 @@ pub async fn poll_pointing_device<K: PointingDevice + HIDDevice>(
                     buttons |= bits;
                 }
                 MouseEvent::Release(bits) => {
-                    buttons &= bits;
+                    buttons &= bits.complement();
                 }
                 MouseEvent::Movement(new_x, new_y) => {
                     x = x.saturating_add(new_x);
