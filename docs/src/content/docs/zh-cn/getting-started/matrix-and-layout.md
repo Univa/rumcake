@@ -1,27 +1,22 @@
 ---
-title: Device Info, Matrix and Layout
-description: How to configure your keyboard matrix and layout.
+title: 设备信息，矩阵与布局
+description: 如何配置你的键盘矩阵和布局。
 sidebar:
   order: 3
 ---
 
-This document contains some information on how to define some basic information for your keyboard,
-and how to set up a basic matrix and layout setup for your keyboard.
+本文档包含一些有关如何定义键盘基本信息的信息、以及如何为键盘设置基本矩阵和布局设置的信息。
 
 :::note
-The following examples are for a non-split keyboard, which places the `KeyboardMatrix` and `KeyboardLayout`
-implementations in the same entrypoint. If you are using a split keyboard, you can continue reading to learn how to
-implement the `KeyboardMatrix` and `KeyboardLayout` traits, but the placement of the `impl` blocks will depend
-on your split keyboard setup.
+以下示例针对的是非分体式键盘，它将 `KeyboardMatrix` 和 `KeyboardLayout` 实现放在同一个入口点中。
+如果您使用的是分体式键盘，可以继续阅读以了解 `KeyboardMatrix`和 `KeyboardLayout` 特质的实现，但 `impl` 块的位置将取决于取决于您的分体式键盘设置。
 
-See the [split keyboard document](../../features/feature-split) for more information.
+有关详细信息，请参阅[拆分键盘文档](../../features/feature-split)。
 :::
 
-# Keyboard Information
+# 键盘信息
 
-The basic trait that every device must implement to use `rumcake` is the `Keyboard` trait.
-Here, you can define some basic information, including the name of the keyboard, the manufacturer,
-version numbers, etc.
+每个设备必须实现 `rumcake` 的基本特质 `Keyboard` 才能使用。在这里，您可以定义一些基本信息，包括键盘的名称、制造商、版本号等。
 
 ```rust ins={6-11}
 use rumcake::keyboard;
@@ -31,17 +26,15 @@ pub struct MyKeyboard;
 
 use rumcake::keyboard::Keyboard;
 impl Keyboard for MyKeyboard {
-    const MANUFACTURER: &'static str = "Me";
-    const PRODUCT: &'static str = "MyKeyboard";
-    const SERIAL_NUMBER: &'static str = "1";
+    const MANUFACTURER: &'static str = "Me"; // 制造商名称
+    const PRODUCT: &'static str = "MyKeyboard"; // 键盘名称
+    const SERIAL_NUMBER: &'static str = "1"; // 版本号
 }
 ```
 
-# Keyboard Matrix
+# 键盘矩阵
 
-In the [templates](https://github.com/Univa/rumcake-templates), you will see that
-to implement a keyboard matrix, you need to implement the `KeyboardMatrix` trait
-using one of the `build_<matrix_type>_matrix!` macros:
+在[模板](https://github.com/Univa/rumcake-templates)中，您将看到要实现键盘矩阵，您需要使用一个 `build_<matrix_type>_matrix!` 宏来实现 `KeyboardMatrix` 特质：
 
 ```rust ins={13-21}
 use rumcake::keyboard;
@@ -58,7 +51,7 @@ impl Keyboard for MyKeyboard {
 
 use rumcake::keyboard::{build_standard_matrix, KeyboardMatrix};
 impl KeyboardMatrix for MyKeyboard {
-    type Layout = Self; // Don't worry about the error here yet. It will be fixed once you implement `KeyboardLayout`
+    type Layout = Self; // 先不用担心这里的错误。一旦你实现了`KeyboardLayout`，它就会被修复
 
     build_standard_matrix! {
         rows: [ PB2 PB10 PB11 PA3 ],
@@ -67,35 +60,29 @@ impl KeyboardMatrix for MyKeyboard {
 }
 ```
 
-If you see an error about `Self` not implementing `KeyboardLayout`, don't worry. This will be fixed once you follow
-the next section. Note that this associated type is used to redirect matrix events to the implemented layout.
+如果您看到有关 `Self` 未实现 `KeyboardLayout` 的错误，请不要担心。一旦您按照下一节进行操作，此问题就会得到解决。请注意，此关联类型用于将矩阵事件重定向到已实现的布局。
 
-The identifiers used for the matrix pins must match the identifiers used by the respective
-HAL (hardware abstraction library) for your MCU. The linked sites below have a dropdown menu at
-the top to allow you to select a chip. Choose your chip to see what pins are available:
+用于矩阵引脚的标识符必须与 MCU 的相应 HAL（硬件抽象库）使用的标识符相匹配。下面链接的网站顶部有一个下拉菜单，可让您选择芯片。选择您的芯片以查看可用的引脚：
 
-- For nRF-based keyboards, [embassy-nrf](https://docs.embassy.dev/embassy-nrf/git/nrf52840/gpio/trait.Pin.html#implementors)
-- For STM32-based keyboards, [embassy-stm32](https://docs.embassy.dev/embassy-stm32/git/stm32f072cb/gpio/trait.Pin.html#implementors)
+- 对于基于 nRF 的键盘，[embassy-nrf](https://docs.embassy.dev/embassy-nrf/git/nrf52840/gpio/trait.Pin.html#implementors)
+- 对于基于 STM32 的键盘，[embassy-stm32](https://docs.embassy.dev/embassy-stm32/git/stm32f072cb/gpio/trait.Pin.html#implementors)
 
-After defining your matrix, you can set up your [keyboard layout](#keyboard-layout). If you have
-a duplex matrix, consider [checking that section](#duplex-matrix) before setting up your keyboard layout.
+定义矩阵后，您可以设置[键盘布局]((#键盘布局))。如果您有双工矩阵，请考虑在设置键盘布局之前[检查该部分](#双工矩阵)。
 
 :::note
-The example above assumes a matrix a standard matrix (switches wired in rows and columns, with diodes).
-Rows are defined first, followed by the columns. Row and columns are enumerated left-to-right, starting
-from 0. In this example, `PB2` is row 0 and `PA3` is row 3.
+上面的例子假设一个矩阵是一个标准矩阵（开关按行和列连接，带有二极管）。首先定义行，然后定义列。行和列从 0 开始从左到右枚举。在此示例中， `PB2` 是第 0 行， `PA3` 是第 3 行。
 
-For other matrix types, see the [Other Matrix Types](#other-matrix-types) section.
+对于其他矩阵类型，请参阅[其他矩阵类型](#其他矩阵类型)部分。
 :::
 
-# Keyboard Layout
+# 键盘布局
 
-To implement a keyboard layout, you must implement the `KeyboardLayout` trait.
-It's recommended to use rumcake's `build_layout!` macro, which is simply a wrapper around `keyberon`'s [`layout!` macro](https://github.com/TeXitoi/keyberon/blob/a423de29a9cf0e9e4d3bdddc6958657662c46e01/src/layout.rs#L5).
+要实现键盘布局，您必须实现 `KeyboardLayout` 特征。建议使用 rumcake 的 `build_layout!` 宏，它只是 `keyberon` 的 [`layout!`](https://github.com/TeXitoi/keyberon/blob/a423de29a9cf0e9e4d3bdddc6958657662c46e01/src/layout.rs#L5) 宏的包装。
 
-Please follow `keyberon`'s macro instructions there to set up your keyboard layout.
+请按照 `keyberon` 的宏说明设置您的键盘布局。
 
-The following example shows a 3-layer keyboard layout, meant to be used with the matrix we defined previously:
+以下示例展示了一个 3 层键盘布局，旨在与我们之前定义的矩阵一起使用：
+
 
 ```rust ins={24-46}
 use rumcake::keyboard;
@@ -146,18 +133,17 @@ impl KeyboardLayout for MyKeyboard {
 }
 ```
 
-Congratulations! You have implemented a basic keyboard. You can now move onto building
-and flashing your firmware, or try implementing additional features in the "Features" sidebar.
+恭喜！您已经实现了一个基本的键盘。您现在可以继续构建和刷写固件，或者尝试在 “功能” 侧栏中实现的其他功能。
 
-# Other matrix types
+# 其他矩阵类型
 
-## Direct pin matrix (diodeless matrix)
+## 直接引脚矩阵（无二极管矩阵）
 
-If your MCU pins are connected directly to a switch (as opposed to pins being connected to a row / column of switches),
-then you can use the `build_direct_pin_matrix!` macro instead.
+如果您的 MCU 引脚直接连接到开关（而不是引脚连接到一行/列开关），那么您可以使用 `build_direct_pin_matrix!` 宏来代替。
+
 
 ```rust ins={3-11}
-// rest of your config...
+// 其余的配置...
 
 use rumcake::keyboard::{build_direct_pin_matrix, KeyboardMatrix};
 impl KeyboardMatrix for MyKeyboard {
@@ -184,34 +170,31 @@ impl KeyboardLayout for MyKeyboard {
 }
 ```
 
-Each pin will map directly to a (row, column) position, which determines the key in the layout it corresponds to.
-Each row must have the same number of columns. If there are matrix positions that are unused, you can use `No` to ignore them.
+每个引脚将直接映射到一个（行，列）位置，这决定了它对应的布局中的键。每行必须具有相同的列数。如果有未使用的矩阵位置，可以使用 `No` 忽略它们。
 
-In this example, the switch connected to `PB10` maps to row 0, column 1. Based on the implementation of `KeyboardLayout`, this
-switch will correspond to the `Q`/`F1` key.
+在此示例中，连接到 `PB10` 的开关映射到第 0 行、第 1 列。基于 `KeyboardLayout` 的实现，该开关将对应于 `Q`/`F1` 键。
 
-## Analog matrix
+## 模拟矩阵
 
 :::caution
-Analog matrices are a work in progress, and may not be fully stable.
+模拟矩阵仍在开发中，可能并不完全稳定。
 :::
 
-If your switch is powered by an analog-to-digital conversion peripheral (which is usually the case with hall-effect switches, for example),
-then you can use the `build_analog_matrix!` macro. In addition, you will need to specify an ADC sampler configuration, using the `setup_adc_sampler!`
-macro.
+如果您的开关由模数转换外设供电（例如，霍尔效应开关通常就是这种情况），那么您可以使用 `build_analog_matrix!` 宏。此外，您还需要使用 `setup_adc_sampler!` 宏指定 ADC 采样器配置。
+
 
 ```rust ins={4-15,17-31}
-// rest of your config...
+// 其他配置...
 
-// Create an ADC sampler, where the pins of the MCU are either connected to a multiplexer, or directly to the analog source
+// 创建一个 ADC 采样器，其中 MCU 的引脚连接到多路复用器，或者直接连接到模拟源
 setup_adc_sampler! {
     (interrupt: ADC1_2, adc: ADC2) => {
         Multiplexer {
-            pin: PA2, // MCU analog pin connected to a multiplexer
-            select_pins: [ PA3 No PA4 ] // Pins connected to the selection pins on the multiplexer
+            pin: PA2, // 连接到多路复用器的 MCU 模拟引脚
+            select_pins: [ PA3 No PA4 ] // 连接到多路复用器上的选择引脚的引脚
         },
         Direct {
-            pin: PA5 // MCU analog pin connected directly to an analog source
+            pin: PA5 // MCU 模拟引脚直接连接到模拟源
         },
     }
 }
@@ -233,65 +216,57 @@ impl KeyboardMatrix for MyKeyboard {
 }
 ```
 
-Firstly, an ADC sampler definition is provided. In this example, the `ADC2` peripheral (controlled by the `ADC1_2` interrupt), is connected to two pins.
-Pin `PA2` is connected to a multiplexer, and pin `PA5` is connected directly to the analog source (a switch in this case).
+首先，提供 ADC 采样器定义。在此示例中， `ADC2` 外设（由 `ADC1_2` 中断控制）连接到两个引脚。引脚 `PA2` 连接到多路复用器，引脚 `PA5` 直接连接到模拟源（本例中为开关）。
 
-For `PA2`, the multiplexer output selection is controlled by `PA3` and `PA4`. The second select pin is unused, so that is denoted with `No`.
-Pins are ordered least-significant bit first. So, if `PA4` is high and `PA2` is low, multiplexer output `4` is selected.
+对于 `PA2` ，多路复用器输出选择由 `PA3` 和 `PA4` 控制。第二个选择引脚未使用，因此用 `No` 表示。引脚按最低有效位在前排列。因此，如果 `PA4` 为高电平且 `PA2` 为低电平，则选择多路复用器输出 `4` 。
 
 :::note
-All multiplexer definitions in `setup_adc_sampler!` must have the same number of select pins. If you have multiplexers with varying numbers of
-select pins, you can pad the smaller multiplexers with `No`s until the definitions have the same number of select pins.
+`setup_adc_sampler!` 中的所有多路复用器定义必须具有相同数量的选择引脚。如果您的多路复用器具有不同数量的选择引脚，则可以使用 `No` 填充较小的多路复用器，直到定义具有相同数量的选择引脚。
 :::
 
 :::note
-Note that the arguments of the `setup_adc_sampler!` macro will depend on the platform that you're building for.
-Check the API reference for specific arguments that you need to call `setup_adc_sampler!`
+请注意，`setup_adc_sampler!` 宏的参数将取决于您构建的平台。检查 API 参考以获取需要调用的特定参数 `setup_adc_sampler!`
 :::
 
-The matrix provided by `build_analog_matrix!` serves two purposes:
+`build_analog_matrix!` 提供的矩阵有两个用途：
 
-- Define a mapping from matrix position (row, col) to analog pin index and multiplexer output (if applicable).
-- Define the possible ranges of values that the analog source can generate from the ADC process.
+- 定义从矩阵位置（行、列）到模拟引脚索引和多路复用器输出（如果适用）的映射。
+- 定义模拟源可以从 ADC 过程生成的可能值范围。
 
-When we take a look at row 0, col 0 on the matrix we find:
+当我们查看矩阵的第 0 行、第 0 列时，我们发现：
 
-- It corresponds to ADC pin `0` (which is connected to the multiplexer, `PA2`), and multiplexer output `0` (when the select pins `PA3` and `PA4` are set low).
-- It is expected to yield values ranging from `3040` to `4080` from the ADC.
+- 它对应于 ADC 引脚 `0` （连接到多路复用器 `PA2` ）和多路复用器输出 `0` （当选择引脚 `PA3` 和 `PA4` 设置为低）。
+- ADC 预计会产生范围从 `3040` 到 `4080` 的值。
 
-For row 1, col 0 on the matrix, we find:
+对于矩阵的第 1 行第 0 列，我们发现：
 
-- It corresponds to ADC pin `1` (which is connected directly to the analog source via `PA5`). The `0` in `(1,0)` is ignored, since it is not connected to a multiplexer.
-- It is expected to yield values ranging from `3040` to `4080` from the ADC.
+- 它对应于 ADC 引脚 `1` （通过 `PA5` 直接连接到模拟源）。 `(1,0)` 中的 `0` 被忽略，因为它没有连接到多路复用器。
+- ADC 预计会产生范围从 `3040` 到 `4080` 的值。
 
-Note that unused matrix positions are denoted by `No`.
+请注意，未使用的矩阵位置由 `No` 表示。
 
-# Revisualizing a matrix (e.g. duplex matrix)
+# 重新可视化矩阵（例如双工矩阵）
 
-Sometimes, your keyboard might have a complicated matrix scheme that could make it
-hard to read parts of your configuration.
+有时，您的键盘可能具有复杂的矩阵方案，这可能会导致您难以阅读部分配置。
 
-For example, some keyboards use a "duplex matrix" to save MCU pins. This is usually accomplished
-by making an electrical column span two physical columns, and by using two electrical
-rows per physical row.
+例如，某些键盘使用“双工矩阵”来节省 MCU 引脚。这通常是通过使电气列跨越两个物理列并通过每个物理行使用两个电气行来实现的。
 
-Here's an example portion of a duplex matrix:
+这是双工矩阵的示例部分：
 
 ![image](https://github.com/Univa/rumcake/assets/41708691/96d35331-ee9d-4be0-990c-64aaed083c3d)
 
-As you can imagine, this would be hard to track in your firmware code.
+正如您可以想象的那样，这将很难在您的固件代码中进行跟踪。
 
-So, `rumcake` includes a `remap_matrix` macro to help "re-visualize" your matrix to look
-more readable. It creates a `remap` macro for you to use in parts of the code that require
-you to configure something that would look like your matrix.
+因此，`rumcake` 包含一个 `remap_matrix` 宏来帮助“重新可视化”矩阵，使其看起来更具可读性。它创建一个 `remap` 宏供您在需要您配置类似于矩阵的代码部分中使用。
 
-This can be useful for your keyboard layout config, or your backlight matrix config:
+这对于您的键盘布局配置或背光矩阵配置很有用：
+
 
 ```rust del={52-65} ins={1-26,66-77}
-// This creates a `remap!` macro that you can use in other parts of your config.
+// 这将创建一个 `remap!` 宏，您可以在配置的其他部分使用它。
 remap_matrix! {
-    // This has the same number of rows and columns that you specified in your matrix.
-    // Note that `No` is used to denote an unused matrix position.
+    // 它的行数和列数与您在矩阵中指定的相同。
+    // 请注意，`No` 用于表示未使用的矩阵位置。
     original: {
         [ K00 K01 K02 K03 K04 K05 K06 K07 ]
         [ K08 K09 K10 K11 K12 K13 K14 No  ]
@@ -305,7 +280,7 @@ remap_matrix! {
         [ No  No  No  No  No  K68 K69 No  ]
     },
 
-    // This can be whatever you want it to be. Make it look like your physical layout!
+    // 这可以是你想要的任何样子。让它看起来像你的物理布局！
     remapped: {
         [ K00 K08 K01 K09 K02 K10 K03 K11 K04 K12 K05 K13 K06 K14 K07 K22 ]
         [ K15 K23 K16 K24 K17 K25 K18 K26 K19 K27 K20 K28 K21 K29 K37     ]
@@ -339,7 +314,7 @@ impl KeyboardMatrix for MyKeyboard {
 
 use rumcake::keyboard::{build_layout, KeyboardLayout};
 impl KeyboardLayout for MyKeyboard {
-    build_layout! { // without remap!
+    build_layout! { // 不使用 remap!
         {
             [ Escape 2    4     6     8    0    =      Delete ]
             [ 1      3    5     7     9    -    '\\'   No     ]
@@ -353,7 +328,7 @@ impl KeyboardLayout for MyKeyboard {
             [ No     No   No    No    No   Left Right  No     ]
         }
     }
-    // Use the `remap!` to create the keyboard layout
+    // 使用 `remap!` 创建键盘布局
     remap! {
         build_layout! {
             {
