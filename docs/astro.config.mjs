@@ -35,23 +35,38 @@ export default defineConfig({
       sidebar: [
         {
           label: 'Information',
+          translations: {
+            'zh-CN': '信息',
+          },
           items: [
             {
               label: 'Introduction',
+              translations: {
+                'zh-CN': '介绍',
+              },
               link: '/',
             },
           ],
         },
         {
           label: 'Getting Started',
+          translations: {
+            'zh-CN': '快速开始',
+          },
           autogenerate: { directory: 'getting-started' },
         },
         {
           label: 'Features',
+          translations: {
+            'zh-CN': '特性',
+          },
           autogenerate: { directory: 'features' },
         },
         {
           label: 'API Reference',
+          translations: {
+            'zh-CN': 'API 参考',
+          },
           link: 'api/',
         },
       ],

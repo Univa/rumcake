@@ -1,15 +1,15 @@
 ---
 title: rumcake
-description: Get started using rumcake firmware on your keyboard.
+description: 开始在键盘上使用 rumcake 固件。
 template: doc
 hero:
-  tagline: A rust-based keyboard firmware.
+  tagline: 一个基于 rust 的键盘固件。
   actions:
-    - text: Get started
+    - text: 开始
       link: getting-started/setup-template/
       icon: right-arrow
       variant: primary
-    - text: Read the API docs
+    - text: 阅读 API 文档
       link: api/
       icon: external
 ---
@@ -19,59 +19,58 @@ rumcake 仍处于 WIP 中。 预计会出现一些错误和破坏性更改。
 :::
 
 `rumcake` 是一个 Rust 库，可让您轻松构建功能强大的键盘固件。
-在底层，“rumcake”使用 [`embassy-rs`](https://github.com/embassy-rs/embassy) 作为嵌入式框架。
-提供“rumcake”作为库允许您在自己的 Cargo 工作区中构建固件，从而无需将代码推送到中央“rumcake”存储库。
+在底层， `rumcake` 使用 [`embassy-rs`](https://github.com/embassy-rs/embassy) 作为嵌入式框架。
+提供 `rumcake` 作为库允许您在自己的 Cargo 工作区中构建固件，而无需将代码推送到中央 `rumcake` 存储库。
 
 `rumcake` 库：
 
-- 为常见键盘活动提供“使馆执行器”任务，包括矩阵轮询、主机通信、LED 渲染等。
+- 为常见键盘活动提供 `embassy-executor` 任务，包括矩阵轮询、主机通信、LED 渲染等。
 - 提供宏，允许您以易于理解的方式配置键盘固件。 [`keyberon`](https://github.com/TeXitoi/keyberon) 也用于键盘布局配置。
 - 目标是与平台无关，并在底层使用不同的 HAL（硬件抽象库），具体取决于您决定构建的芯片。
 
 # 支持的最低 Rust 版本
 
-`rumcake` uses some Rust features that are only found on the `nightly` toolchain.
-Please use the latest nightly toolchain when compiling your firmware.
+`rumcake` 使用了一些只存在于 `nightly` 工具链的功能.
+当你编译你的固件时，请使用最新的 nightly 工具链。
 
 # MCUs
 
-Note that building and flashing instructions may change depending on the MCU.
-See [the templates](https://github.com/Univa/rumcake-templates) for some build
-and flashing instructions for some common setups.
+请注意，构建和刷写指令可能会根据 MCU 的不同而变化。
+请参阅[模板](https://github.com/Univa/rumcake-templates)了解一些常见设置的构建以及刷写说明。
 
-## Tested
+## 已测试的MCU
 
 - STM32F072CBx
 - STM32F303CBx
-- nRF52840 (tested with nice!nano v2)
+- nRF52840 (使用 nice!nano v2 测试)
 - RP2040
 
-# Features
+# 特性
 
-## Working
+## 可用的
 
-The following features are _working_, but may not be stable or have missing components.
+以下功能 _可用_ ，但可能不稳定或缺少组件。
 
-- USB host communication
-- Bluetooth host communication (only for nRF-based keyboards)
-- Backlighting
-- Underglow
-- Split keyboards
-- Displays (e.g. SSD1306)
-- Storage
+- USB通讯
+- 蓝牙通讯 (只适用于 nRF-based 键盘)
+- 背光灯(Backlighting)
+- 轴灯(Underglow)
+- 分体键盘
+- 显示(e.g. SSD1306)
+- 存储(Storage)
 - Via/Vial
-- Media keys
-- Encoders
+- 媒体键(Media keys)
+- 编码器(Encoders)
 
-# Why the name "rumcake"
+# 为什么叫 "rumcake"
 
 "**RU**st **M**e**C**h**A**nical **KE**yboard"
 
-# Acknowledgements
+# 致谢
 
-This firmware would not be possible without the work done by other community projects.
+如果没有其他社区项目所做的工作，这个固件是不可能实现的。
 
-A huge thanks goes to the following projects:
+非常感谢以下项目：
 
 - [QMK](https://github.com/qmk/qmk_firmware)
   - A lot of backlighting and underglow animations have been adapted from QMK.
