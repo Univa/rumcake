@@ -1,5 +1,5 @@
 ---
-title: Bluetooth
+title: 蓝牙
 description: 如何设置键盘通过蓝牙与设备通信。
 ---
 
