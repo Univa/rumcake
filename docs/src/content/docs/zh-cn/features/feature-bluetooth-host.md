@@ -1,29 +1,27 @@
 ---
 title: Bluetooth
-description: How to setup your keyboard to communicate with a device over bluetooth.
+description: 如何设置键盘通过蓝牙与设备通信。
 ---
 
 :::caution
-This feature is still a work in progress. For a list of features that still need
-to be implemented, check the [to-do list](#to-do-list).
+此功能仍在开发中。有关仍需要实现的功能列表，请查看[待办事项列表](#待办事项列表)。
 :::
 
-This document contains information about how to make your keyboard communicate
-with a host device over Bluetooth (LE).
+这份文档包含了关于如何通过蓝牙（低功耗）与主机设备通信的信息。
 
-# Setup
+# 设置
 
-## Required Cargo features
+## 必需的 Cargo 功能
 
-You must enable the following `rumcake` features:
+您必须启用以下 `rumcake` 功能：
 
 - `bluetooth`
-- `nrf-ble` if you are using an nRF-based keyboard
+- 如果您使用基于 nRF 的键盘，则需要启用 `nrf-ble`
 
 :::danger
-For nRF5x-based MCUs, the [`nrf-softdevice` crate](https://github.com/embassy-rs/nrf-softdevice) is used to implement bluetooth support.
-Since `nrf-softdevice` has its own critical section implementation, **you must disable any other critical section implementation**.
-For example, if you used one of the rumcake templates, you may have to remove `critical-section-single-core` from the `cortex-m` dependency:
+对于基于 nRF5x 的微控制器（MCU），使用 [`nrf-softdevice` crate](https://github.com/embassy-rs/nrf-softdevice) 来实现蓝牙支持。
+由于 `nrf-softdevice` 具有自己的关键段实现，**您必须禁用任何其他关键段实现**。
+例如，如果您使用了 rumcake 模板之一，则可能需要从 `cortex-m` 依赖项中删除 `critical-section-single-core`：
 
 ```toml del={1} ins={2}
 cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
@@ -32,46 +30,45 @@ cortex-m = { version = "0.7.6" }
 
 :::
 
-## Required code
+## 必需的代码
 
-To set up your keyboard for bluetooth host communication, you must add `bluetooth` to your `#[keyboard]` macro invocation, and your keyboard must implement the `BluetoothKeyboard` and `BluetoothDevice` trait:
+为了使您的键盘支持与蓝牙主机的通信，您必须在 `#[keyboard]` 宏调用中添加 `bluetooth`，并且您的键盘必须实现 `BluetoothKeyboard` 和 `BluetoothDevice` trait：
 
 ```rust ins={5,9-21}
 use rumcake::keyboard;
 
 #[keyboard(
-    // somewhere in your keyboard macro invocation ...
+    // 在您的键盘宏调用中的某处 ...
     bluetooth
 )]
 struct MyKeyboard;
 
 use rumcake::hw::platform::BluetoothDevice;
 impl BluetoothDevice for WingpairLeft {
-    // This addresses can be whatever you want, as long as it is a valid "Random Static" bluetooth addresses.
-    // See "Random Static Address" in this link: https://novelbits.io/bluetooth-address-privacy-ble/
-    const BLUETOOTH_ADDRESS: [u8; 6] = [0x41, 0x5A, 0xE3, 0x1E, 0x83, 0xE7]; // TODO: Change this
+    // 此地址可以是任何您想要的地址，只要它是有效的“Random Static”蓝牙地址。
+    // 请参阅此链接中的“Random Static Address”：https://novelbits.io/bluetooth-address-privacy-ble/
+    const BLUETOOTH_ADDRESS: [u8; 6] = [0x41, 0x5A, 0xE3, 0x1E, 0x83, 0xE7]; // TODO: 更改此处
 }
 
-// Bluetooth configuration
+// 蓝牙配置
 use rumcake::bluetooth::BluetoothKeyboard;
 impl BluetoothKeyboard for MyKeyboard {
-    const BLE_VID: u16 = 0x0000; // Change this
-    const BLE_PID: u16 = 0x0000; // Change this
+    const BLE_VID: u16 = 0x0000; // 更改此处
+    const BLE_PID: u16 = 0x0000; // 更改此处
 }
 ```
 
 :::tip
-You can use Bluetooth and USB host communication on the same keyboard.
+您可以在同一个键盘上同时使用蓝牙和 USB 主机通信。
 
-If you are using a template, USB should already be configured, but if you manually
-set up your Cargo workspace, then see the docs for [USB host communication](../feature-usb-host/).
+如果您使用的是模板，则 USB 应该已经配置好，但如果您手动设置了 Cargo 工作空间，则请参阅 [USB 主机通信文档](../feature-usb-host/)。
 
-Also check the sections below for more information.
+此外，请查看下面的章节以获取更多信息。
 :::
 
-# Keycodes
+# 按键码
 
-In your keyberon layout, you can use any of the enum members defined in `HardwareCommand`:
+在您的 keyberon 布局中，您可以使用 `HardwareCommand` 中定义的任何枚举成员：
 
 ```rust
 ToggleOutput
@@ -79,16 +76,15 @@ OutputUSB
 OutputBluetooth
 ```
 
-More information below.
+更多信息如下。
 
-## USB host communication interoperability
+## USB 主机通信互操作性
 
-By default, your keyboard will use Bluetooth to communicate with your device.
-You can use the `ToggleOutput`, `OutputUSB` or `OutputBluetooth` keycode to switch
-between USB and Bluetooth. This won't disconnect your keyboard from your USB or Bluetooth
-host. It will simply determine the device to send keyboard reports to.
+默认情况下，您的键盘将使用蓝牙与您的设备通信。
+您可以使用 `ToggleOutput`、`OutputUSB` 或 `OutputBluetooth` 按键码来在 USB 和蓝牙之间切换。
+这不会断开您的键盘与 USB 或蓝牙主机的连接。它只是确定要发送键盘报告到的设备。
 
-# To-do List
+# 待办事项列表
 
 - [ ] Multiple bluetooth profiles
 - [ ] LE Secure Connections (I believe this requires `nrf-softdevice` changes)
