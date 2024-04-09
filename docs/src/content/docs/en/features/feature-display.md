@@ -134,6 +134,7 @@ impl Ssd1306I2cDisplayDriver for MyKeyboard {
         .draw(display)
         .unwrap();
     }
+}
 ```
 
 # Available Drivers
