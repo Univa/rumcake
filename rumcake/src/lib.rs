@@ -150,7 +150,7 @@ pub mod drivers;
 pub mod tasks {
     pub use crate::hw::__output_switcher;
     pub use crate::keyboard::{__ec11_encoders_poll, __layout_collect, __matrix_poll};
-    pub use crate::pointer::__poll_pointing_device;
+    pub use crate::pointer::{__collect_mouse_events, __poll_pointing_device};
 
     #[cfg(all(feature = "lighting", feature = "storage"))]
     pub use crate::lighting::__lighting_storage_task;

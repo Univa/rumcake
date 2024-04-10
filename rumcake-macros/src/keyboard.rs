@@ -333,6 +333,12 @@ pub(crate) fn keyboard_main(
         spawning.extend(quote! {
             spawner.spawn(::rumcake::layout_collect!(#kb_name)).unwrap();
         });
+
+        if keyboard.pointer.is_some() || keyboard.split_central.is_some() {
+            spawning.extend(quote! {
+                spawner.spawn(::rumcake::collect_mouse_events!(#kb_name)).unwrap();
+            })
+        }
     }
 
     spawning.extend(quote! {
@@ -380,13 +386,11 @@ pub(crate) fn keyboard_main(
         }
     }
 
-    if keyboard.usb && keyboard.pointer.is_some() {
+    if keyboard.usb && (keyboard.pointer.is_some() || keyboard.split_central.is_some()) {
         initialization.extend(quote! {
-            // HID consumer
             let pointer_class = ::rumcake::usb::setup_usb_hid_mouse_writer(&mut builder);
         });
         spawning.extend(quote! {
-            // HID Consumer Report sending
             spawner.spawn(::rumcake::usb_hid_mouse_write_task!(#kb_name, pointer_class)).unwrap();
         });
     }
