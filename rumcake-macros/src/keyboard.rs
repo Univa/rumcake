@@ -399,33 +399,35 @@ pub(crate) fn keyboard_main(
         );
         error = true;
     } else if let Some(args) = keyboard.via {
+        let id = args.id;
         if args.use_storage.map_or(false, |b| *b) && keyboard.storage.is_none() {
             emit_error!(args.use_storage.unwrap().span(), "Via uses storage but no `storage` driver was specified. Either specify a `storage` driver, or remove `use_storage` from your Via settings.");
             error = true;
         } else if args.use_storage.map_or(false, |b| *b) {
             spawning.extend(quote! {
-                ::rumcake::via::initialize_via_data(#kb_name).await;
+                ::rumcake::via::initialize_via_data(#id).await;
             });
         }
 
         spawning.extend(quote! {
             spawner
-                .spawn(::rumcake::via_process_task!(#kb_name))
+                .spawn(::rumcake::via_process_task!(#id))
                 .unwrap();
         });
     } else if let Some(args) = keyboard.vial {
+        let id = args.id;
         if args.use_storage.map_or(false, |b| *b) && keyboard.storage.is_none() {
             emit_error!(args.use_storage.unwrap().span(), "Vial uses storage but no `storage` driver was specified. Either specify a `storage` driver, or remove `use_storage` from your Vial settings.");
             error = true;
         } else if args.use_storage.map_or(false, |b| *b) {
             spawning.extend(quote! {
-                ::rumcake::vial::initialize_vial_data(#kb_name).await;
+                ::rumcake::vial::initialize_vial_data(#id).await;
             });
         }
 
         spawning.extend(quote! {
             spawner
-                .spawn(::rumcake::vial_process_task!(#kb_name))
+                .spawn(::rumcake::vial_process_task!(#id))
                 .unwrap();
         });
     }
