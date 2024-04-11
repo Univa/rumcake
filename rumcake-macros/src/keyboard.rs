@@ -411,7 +411,7 @@ pub(crate) fn keyboard_main(
 
         spawning.extend(quote! {
             spawner
-                .spawn(::rumcake::via_process_task!(#id))
+                .spawn(::rumcake::via_process_task!(#id, #kb_name))
                 .unwrap();
         });
     } else if let Some(args) = keyboard.vial {
@@ -427,7 +427,7 @@ pub(crate) fn keyboard_main(
 
         spawning.extend(quote! {
             spawner
-                .spawn(::rumcake::vial_process_task!(#id))
+                .spawn(::rumcake::vial_process_task!(#id, #kb_name))
                 .unwrap();
         });
     }

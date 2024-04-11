@@ -68,7 +68,7 @@ pub trait VialKeyboard: ViaKeyboard {
 pub(crate) static VIAL_DIRECT_SET_CHANNEL: Channel<RawMutex, (u8, RGB8), 4> = Channel::new();
 
 #[rumcake_macros::task]
-pub async fn vial_process_task<K: VialKeyboard + HIDDevice + 'static>(_k: K)
+pub async fn vial_process_task<K: VialKeyboard + 'static, T: HIDDevice + 'static>(_k: K, _t: T)
 where
     [(); <<K::StorageType as StorageDevice>::FlashStorageType as FlashStorage>::ERASE_SIZE]:,
     [(); K::DYNAMIC_KEYMAP_LAYER_COUNT * K::Layout::LAYOUT_COLS * K::Layout::LAYOUT_ROWS * 2]:,
@@ -102,8 +102,8 @@ where
 
     let vial_state: Mutex<RawMutex, protocol::VialState> = Mutex::new(Default::default());
     let via_state: Mutex<RawMutex, protocol::via::ViaState<K>> = Mutex::new(Default::default());
-    let receive_channel = K::get_via_hid_receive_channel();
-    let send_channel = K::get_via_hid_send_channel();
+    let receive_channel = T::get_via_hid_receive_channel();
+    let send_channel = T::get_via_hid_send_channel();
 
     if K::VIAL_INSECURE {
         vial_state.lock().await.unlocked = true;

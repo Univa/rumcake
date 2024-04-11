@@ -172,7 +172,7 @@ pub(crate) const VIA_REPORT_DESCRIPTOR: &[u8] = &[
 ];
 
 #[rumcake_macros::task]
-pub async fn via_process_task<K: ViaKeyboard + HIDDevice + 'static>(_k: K)
+pub async fn via_process_task<K: ViaKeyboard + 'static, T: HIDDevice + 'static>(_k: K, _t: T)
 where
     [(); <<K::StorageType as StorageDevice>::FlashStorageType as FlashStorage>::ERASE_SIZE]:,
     [(); K::DYNAMIC_KEYMAP_LAYER_COUNT * K::Layout::LAYOUT_COLS * K::Layout::LAYOUT_ROWS * 2]:,
@@ -204,8 +204,8 @@ where
     }
 
     let via_state: Mutex<RawMutex, protocol::ViaState<K>> = Mutex::new(Default::default());
-    let receive_channel = K::get_via_hid_receive_channel();
-    let send_channel = K::get_via_hid_send_channel();
+    let receive_channel = T::get_via_hid_receive_channel();
+    let send_channel = T::get_via_hid_send_channel();
 
     let report_fut = async {
         loop {
