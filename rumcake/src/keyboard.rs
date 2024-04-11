@@ -480,7 +480,7 @@ pub async fn matrix_poll<K: KeyboardMatrix + 'static>(_k: K) {
     let layout_channel = <K::Layout as private::MaybeKeyboardLayout>::get_matrix_events_channel();
 
     #[cfg(feature = "split-peripheral")]
-    let peripheral_channel = <K::PeripheralDeviceType as crate::split::peripheral::private::MaybePeripheralDevice>::get_matrix_events_channel();
+    let peripheral_channel = <K::PeripheralDeviceType as crate::split::peripheral::private::MaybePeripheralDevice>::get_message_to_central_channel();
 
     loop {
         {
@@ -502,13 +502,15 @@ pub async fn matrix_poll<K: KeyboardMatrix + 'static>(_k: K) {
                     Debug2Format(&remapped_event)
                 );
 
+                MATRIX_EVENTS.publish_immediate(remapped_event);
+
                 if let Some(layout_channel) = layout_channel {
                     layout_channel.send(remapped_event).await
                 };
 
                 #[cfg(feature = "split-peripheral")]
                 if let Some(peripheral_channel) = peripheral_channel {
-                    peripheral_channel.send(remapped_event).await
+                    peripheral_channel.send(remapped_event.into()).await
                 };
             }
         }
@@ -560,7 +562,6 @@ where
 
             if let Some(event) = event {
                 layout.event(event);
-                MATRIX_EVENTS.publish_immediate(event); // Just immediately publish since we don't want to hold up any key events to be converted into keycodes.
             };
 
             let tick = layout.tick();

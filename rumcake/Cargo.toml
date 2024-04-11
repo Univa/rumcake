@@ -76,6 +76,7 @@ smart-leds = "0.3.0"
 # third party drivers 
 is31fl3731 = { git = "https://github.com/Univa/is31fl3731", features = ["async"], optional = true }
 ssd1306 = { version = "0.8.2", optional = true }
+iqs5xx = { version = "0.1.2", optional = true }
 
 rumcake-macros = { path = "../rumcake-macros" }
 
@@ -135,4 +136,5 @@ split-central = ["nrf-softdevice?/ble-central", "nrf-softdevice?/ble-gatt-client
 ws2812-bitbang = []
 is31fl3731 = ["dep:is31fl3731"]
 ssd1306 = ["dep:ssd1306"]
+iqs5xx = ["dep:iqs5xx"]
 

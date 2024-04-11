@@ -14,6 +14,9 @@ pub mod ssd1306;
 #[cfg(feature = "ws2812-bitbang")]
 pub mod ws2812_bitbang;
 
+#[cfg(feature = "iqs5xx")]
+pub mod iqs5xx;
+
 /// Struct that allows you to use a serial driver (implementor of both [`embedded_io_async::Read`]
 /// and [`embedded_io_async::Write`]) with rumcake. This can be used for split keyboards.
 pub struct SerialSplitDriver<D: Write + Read> {

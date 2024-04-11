@@ -12,16 +12,22 @@ use core::fmt::Debug;
 use defmt::{error, Debug2Format};
 use embassy_futures::select::{select, Either};
 use embassy_sync::channel::Channel;
+use embassy_sync::pubsub::PubSubBehavior;
 use embedded_io_async::ReadExactError;
 use postcard::Error;
 
 use super::{MessageToCentral, MessageToPeripheral};
 use crate::hw::platform::RawMutex;
-use crate::keyboard::KeyboardLayout;
+use crate::keyboard::MATRIX_EVENTS;
 
 pub trait CentralDevice {
     /// The layout to send matrix events (which were received by peripherals) to.
-    type Layout: KeyboardLayout;
+    type Layout: crate::keyboard::private::MaybeKeyboardLayout =
+        crate::keyboard::private::EmptyKeyboardLayout;
+
+    /// Collector to send mouse events (which were received by peripherals) to.
+    type MouseEventCollector: crate::pointer::private::MaybeMouseEventCollector =
+        crate::pointer::private::EmptyMouseEventCollector;
 
     /// Get a reference to a channel that can receive messages from other tasks to be sent to
     /// peripherals.
@@ -105,7 +111,10 @@ impl<E> From<ReadExactError<E>> for CentralDeviceError<E> {
 #[rumcake_macros::task]
 pub async fn central_task<K: CentralDevice>(_k: K, mut driver: impl CentralDeviceDriver) {
     let message_to_peripherals_channel = K::get_message_to_peripheral_channel();
-    let matrix_events_channel = K::Layout::get_matrix_events_channel();
+    let matrix_events_channel =
+        <K::Layout as crate::keyboard::private::MaybeKeyboardLayout>::get_matrix_events_channel();
+    let mouse_events_channel =
+        <K::MouseEventCollector as crate::pointer::private::MaybeMouseEventCollector>::get_mouse_events_channel();
 
     loop {
         match select(
@@ -117,7 +126,18 @@ pub async fn central_task<K: CentralDevice>(_k: K, mut driver: impl CentralDevic
             Either::First(message) => match message {
                 Ok(event) => match event {
                     MessageToCentral::KeyPress(_, _) | MessageToCentral::KeyRelease(_, _) => {
-                        matrix_events_channel.send(event.try_into().unwrap()).await;
+                        MATRIX_EVENTS.publish_immediate(event.try_into().unwrap());
+                        if let Some(matrix_events_channel) = matrix_events_channel {
+                            matrix_events_channel.send(event.try_into().unwrap()).await;
+                        }
+                    }
+                    MessageToCentral::MouseMovement(_, _)
+                    | MessageToCentral::MousePress(_)
+                    | MessageToCentral::MouseRelease(_)
+                    | MessageToCentral::MouseScroll(_, _) => {
+                        if let Some(mouse_events_channel) = mouse_events_channel {
+                            mouse_events_channel.send(event.try_into().unwrap()).await;
+                        }
                     }
                 },
                 Err(err) => {

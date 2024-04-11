@@ -11,21 +11,18 @@ use core::fmt::Debug;
 use defmt::{error, Debug2Format};
 use embassy_futures::select::{select, Either};
 use embassy_sync::channel::Channel;
-use embassy_sync::pubsub::PubSubBehavior;
 use embedded_io_async::ReadExactError;
-use keyberon::layout::Event;
 use postcard::Error;
 
 use super::{MessageToCentral, MessageToPeripheral};
 use crate::hw::platform::RawMutex;
-use crate::keyboard::MATRIX_EVENTS;
 
 // Trait that devices must implement to serve as a peripheral in a split keyboard setup.
 pub trait PeripheralDevice {
-    /// Get a reference to a channel that can receive matrix events from other tasks to be
-    /// processed into keycodes.
-    fn get_matrix_events_channel() -> &'static Channel<RawMutex, Event, 1> {
-        static POLLED_EVENTS_CHANNEL: Channel<RawMutex, Event, 1> = Channel::new();
+    /// Get a reference to a channel that can receive message from other tasks to be sent to the
+    /// central device.
+    fn get_message_to_central_channel() -> &'static Channel<RawMutex, MessageToCentral, 1> {
+        static POLLED_EVENTS_CHANNEL: Channel<RawMutex, MessageToCentral, 1> = Channel::new();
 
         &POLLED_EVENTS_CHANNEL
     }
@@ -47,9 +44,9 @@ pub trait PeripheralDevice {
 
 pub(crate) mod private {
     use embassy_sync::channel::Channel;
-    use keyberon::layout::Event;
 
     use crate::hw::platform::RawMutex;
+    use crate::split::MessageToCentral;
 
     use super::PeripheralDevice;
 
@@ -57,14 +54,16 @@ pub(crate) mod private {
     impl MaybePeripheralDevice for EmptyPeripheralDevice {}
 
     pub trait MaybePeripheralDevice {
-        fn get_matrix_events_channel() -> Option<&'static Channel<RawMutex, Event, 1>> {
+        fn get_message_to_central_channel(
+        ) -> Option<&'static Channel<RawMutex, MessageToCentral, 1>> {
             None
         }
     }
 
     impl<T: PeripheralDevice> MaybePeripheralDevice for T {
-        fn get_matrix_events_channel() -> Option<&'static Channel<RawMutex, Event, 1>> {
-            Some(T::get_matrix_events_channel())
+        fn get_message_to_central_channel(
+        ) -> Option<&'static Channel<RawMutex, MessageToCentral, 1>> {
+            Some(T::get_message_to_central_channel())
         }
     }
 }
@@ -114,7 +113,7 @@ impl<E> From<ReadExactError<E>> for PeripheralDeviceError<E> {
 // This task replaces the `layout_collect` task, which is usually used on non-split keyboards for sending events to the keyboard layout
 #[rumcake_macros::task]
 pub async fn peripheral_task<K: PeripheralDevice>(_k: K, mut driver: impl PeripheralDeviceDriver) {
-    let channel = K::get_matrix_events_channel();
+    let channel = K::get_message_to_central_channel();
 
     loop {
         match select(
@@ -160,11 +159,9 @@ pub async fn peripheral_task<K: PeripheralDevice>(_k: K, mut driver: impl Periph
                 }
             },
             Either::Second(event) => {
-                MATRIX_EVENTS.publish_immediate(event);
-
-                if let Err(err) = driver.send_message_to_central(event.into()).await {
+                if let Err(err) = driver.send_message_to_central(event).await {
                     error!(
-                        "[SPLIT_PERIPHERAL] Error sending matrix events to central: {}",
+                        "[SPLIT_PERIPHERAL] Error sending message to central: {}",
                         Debug2Format(&err)
                     )
                 };
