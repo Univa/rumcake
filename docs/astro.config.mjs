@@ -12,11 +12,12 @@ export default defineConfig({
   integrations: [
     starlight({
       title: 'rumcake',
-      defaultLocale: 'en',
+      defaultLocale: 'root',
       locales: {
         // English docs in `src/content/docs/en/`
-        en: {
+        root: {
           label: 'English',
+          lang: 'en',
         },
         // Simplified Chinese docs in `src/content/docs/zh-cn/`
         'zh-cn': {
