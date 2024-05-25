@@ -1,5 +1,6 @@
 #![no_std]
-#![feature(stdsimd)]
+#![feature(stdarch_arm_hints)]
+#![feature(stdarch_arm_neon_intrinsics)]
 #![feature(generic_const_exprs)]
 #![feature(associated_type_defaults)]
 #![warn(missing_docs)]
