@@ -189,7 +189,7 @@ impl<'a, ADC: Instance, const MP: usize, const C: usize> AdcSampler<'a, ADC, MP,
         idx_to_pin_type: [AnalogPinType<'a, MP>; C],
         analog_pins: [AnyAdcChannel<ADC>; C],
     ) -> Self {
-        let adc = Adc::new(adc, irq);
+        let mut adc = Adc::new(adc, irq);
         adc.set_sample_time(SampleTime::CYCLES1_5);
 
         Self {
