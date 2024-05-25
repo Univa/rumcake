@@ -540,6 +540,7 @@ where
 
     let mut ticker = Ticker::every(Duration::from_millis(1));
     let matrix_channel = K::get_matrix_events_channel();
+    let matrix_event_publisher = MATRIX_EVENTS.immediate_publisher();
 
     #[cfg(feature = "media-keycodes")]
     let consumer_report_channel = K::get_consumer_report_send_channel();
@@ -560,7 +561,7 @@ where
 
             if let Some(event) = event {
                 layout.event(event);
-                MATRIX_EVENTS.publish_immediate(event); // Just immediately publish since we don't want to hold up any key events to be converted into keycodes.
+                matrix_event_publisher.publish_immediate(event); // Just immediately publish since we don't want to hold up any key events to be converted into keycodes.
             };
 
             let tick = layout.tick();

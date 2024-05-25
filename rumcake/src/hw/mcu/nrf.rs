@@ -102,8 +102,6 @@ pub fn setup_usb_driver<K: crate::usb::USBKeyboard + 'static>() -> embassy_usb::
             embassy_nrf::usb::vbus_detect::HardwareVbusDetect::new(Irqs),
         );
 
-        static DEVICE_DESCRIPTOR: StaticCell<[u8; 256]> = StaticCell::new();
-        let device_descriptor = DEVICE_DESCRIPTOR.init([0; 256]);
         static CONFIG_DESCRIPTOR: StaticCell<[u8; 256]> = StaticCell::new();
         let config_descriptor = CONFIG_DESCRIPTOR.init([0; 256]);
         static BOS_DESCRIPTOR: StaticCell<[u8; 256]> = StaticCell::new();
@@ -116,7 +114,6 @@ pub fn setup_usb_driver<K: crate::usb::USBKeyboard + 'static>() -> embassy_usb::
         embassy_usb::Builder::new(
             usb_driver,
             config,
-            device_descriptor,
             config_descriptor,
             bos_descriptor,
             msos_descriptor,

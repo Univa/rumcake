@@ -376,15 +376,14 @@ pub(crate) fn keyboard_main(
 
     if keyboard.usb && (keyboard.via.is_some() || keyboard.vial.is_some()) {
         initialization.extend(quote! {
-            static VIA_COMMAND_HANDLER: ::rumcake::usb::ViaCommandHandler<#kb_name> = ::rumcake::usb::ViaCommandHandler::new();
             // Via HID setup
             let (via_reader, via_writer) =
-                ::rumcake::usb::setup_usb_via_hid_reader_writer(&VIA_COMMAND_HANDLER, &mut builder).split();
+                ::rumcake::usb::setup_usb_via_hid_reader_writer(&mut builder).split();
         });
         spawning.extend(quote! {
             // HID raw report (for VIA) reading and writing
             spawner
-                .spawn(::rumcake::usb_hid_via_read_task!(&VIA_COMMAND_HANDLER, via_reader))
+                .spawn(::rumcake::usb_hid_via_read_task!(#kb_name, via_reader))
                 .unwrap();
         });
         spawning.extend(quote! {

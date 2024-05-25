@@ -115,6 +115,7 @@ impl<E> From<ReadExactError<E>> for PeripheralDeviceError<E> {
 #[rumcake_macros::task]
 pub async fn peripheral_task<K: PeripheralDevice>(_k: K, mut driver: impl PeripheralDeviceDriver) {
     let channel = K::get_matrix_events_channel();
+    let matrix_event_publisher = MATRIX_EVENTS.immediate_publisher();
 
     loop {
         match select(
@@ -160,7 +161,7 @@ pub async fn peripheral_task<K: PeripheralDevice>(_k: K, mut driver: impl Periph
                 }
             },
             Either::Second(event) => {
-                MATRIX_EVENTS.publish_immediate(event);
+                matrix_event_publisher.publish_immediate(event);
 
                 if let Err(err) = driver.send_message_to_central(event.into()).await {
                     error!(

@@ -238,9 +238,10 @@ fn setup_adc_inner(adc_definition: &STM32AdcSamplerDefinition) -> (TokenStream, 
                         )
                     },
                     quote! {
-                        ::rumcake::hw::platform::Channel::new(
-                            unsafe { ::rumcake::hw::platform::embassy_stm32::peripherals::#pin::steal() }
-                        )
+                        unsafe {
+                            use ::rumcake::hw::platform::embassy_stm32::adc::AdcChannel;
+                            ::rumcake::hw::platform::embassy_stm32::peripherals::#pin::steal().degrade_adc()
+                        }
                     },
                 )
             }
@@ -251,9 +252,10 @@ fn setup_adc_inner(adc_definition: &STM32AdcSamplerDefinition) -> (TokenStream, 
                         ::rumcake::hw::platform::AnalogPinType::Direct
                     },
                     quote! {
-                        ::rumcake::hw::platform::Channel::new(
-                            unsafe { ::rumcake::hw::platform::embassy_stm32::peripherals::#pin::steal() }
-                        )
+                        unsafe {
+                            use ::rumcake::hw::platform::embassy_stm32::adc::AdcChannel;
+                            ::rumcake::hw::platform::embassy_stm32::peripherals::#pin::steal().degrade_adc()
+                        }
                     },
                 )
             },

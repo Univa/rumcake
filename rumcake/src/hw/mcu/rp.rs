@@ -75,9 +75,6 @@ pub fn setup_usb_driver<K: crate::usb::USBKeyboard>(
 
         let usb_driver = Driver::new(USB::steal(), Irqs);
 
-        static DEVICE_DESCRIPTOR: static_cell::StaticCell<[u8; 256]> =
-            static_cell::StaticCell::new();
-        let device_descriptor = DEVICE_DESCRIPTOR.init([0; 256]);
         static CONFIG_DESCRIPTOR: static_cell::StaticCell<[u8; 256]> =
             static_cell::StaticCell::new();
         let config_descriptor = CONFIG_DESCRIPTOR.init([0; 256]);
@@ -91,7 +88,6 @@ pub fn setup_usb_driver<K: crate::usb::USBKeyboard>(
         embassy_usb::Builder::new(
             usb_driver,
             config,
-            device_descriptor,
             config_descriptor,
             bos_descriptor,
             msos_descriptor,

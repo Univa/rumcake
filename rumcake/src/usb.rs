@@ -171,17 +171,8 @@ pub async fn usb_hid_consumer_write_task<K: HIDDevice>(
 }
 
 #[cfg(feature = "via")]
-pub struct ViaCommandHandler<T> {
+struct ViaCommandHandler<T> {
     _phantom: PhantomData<T>,
-}
-
-#[cfg(feature = "via")]
-impl<T> ViaCommandHandler<T> {
-    pub const fn new() -> Self {
-        Self {
-            _phantom: PhantomData,
-        }
-    }
 }
 
 #[cfg(feature = "via")]
@@ -189,14 +180,13 @@ impl<T> ViaCommandHandler<T> {
 ///
 /// The reader should be passed to [`usb_hid_via_read_task`], and the writer should be passed to
 /// [`usb_hid_via_write_task`].
-pub fn setup_usb_via_hid_reader_writer<T: HIDDevice + 'static>(
-    command_handler: &'static ViaCommandHandler<T>,
+pub fn setup_usb_via_hid_reader_writer(
     builder: &mut Builder<'static, impl Driver<'static>>,
 ) -> HidReaderWriter<'static, impl Driver<'static>, 32, 32> {
     static VIA_STATE: StaticCell<UsbState> = StaticCell::new();
     let via_state = VIA_STATE.init(UsbState::new());
     let via_hid_config = Config {
-        request_handler: Some(command_handler),
+        request_handler: None,
         report_descriptor: crate::via::VIA_REPORT_DESCRIPTOR,
         poll_ms: 1,
         max_packet_size: 32,
@@ -206,11 +196,11 @@ pub fn setup_usb_via_hid_reader_writer<T: HIDDevice + 'static>(
 
 #[cfg(feature = "via")]
 impl<T: HIDDevice> RequestHandler for ViaCommandHandler<T> {
-    fn get_report(&self, _id: ReportId, _buf: &mut [u8]) -> Option<usize> {
+    fn get_report(&mut self, _id: ReportId, _buf: &mut [u8]) -> Option<usize> {
         None
     }
 
-    fn set_report(&self, _id: ReportId, buf: &[u8]) -> OutResponse {
+    fn set_report(&mut self, _id: ReportId, buf: &[u8]) -> OutResponse {
         let mut data: [u8; 32] = [0; 32];
         data.copy_from_slice(buf);
 
@@ -226,20 +216,26 @@ impl<T: HIDDevice> RequestHandler for ViaCommandHandler<T> {
         OutResponse::Accepted
     }
 
-    fn get_idle_ms(&self, _id: Option<ReportId>) -> Option<u32> {
+    fn get_idle_ms(&mut self, _id: Option<ReportId>) -> Option<u32> {
         None
     }
 
-    fn set_idle_ms(&self, _id: Option<ReportId>, _duration_ms: u32) {}
+    fn set_idle_ms(&mut self, _id: Option<ReportId>, _duration_ms: u32) {}
 }
 
 #[cfg(feature = "via")]
 #[rumcake_macros::task]
 pub async fn usb_hid_via_read_task<T: HIDDevice>(
-    command_handler: &ViaCommandHandler<T>,
+    _kb: T,
     hid: HidReader<'static, impl Driver<'static>, 32>,
 ) {
-    hid.run(false, command_handler).await;
+    hid.run(
+        false,
+        &mut ViaCommandHandler {
+            _phantom: PhantomData as PhantomData<T>,
+        },
+    )
+    .await;
 }
 
 #[cfg(feature = "via")]

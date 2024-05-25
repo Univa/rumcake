@@ -5,13 +5,10 @@
 //! can remain hardware-agnostic.
 
 use core::cell::RefCell;
-use core::future::poll_fn;
-use core::marker::PhantomData;
 use core::ops::DerefMut;
-use core::task::Poll;
 
 use embassy_futures::block_on;
-use embassy_stm32::adc::{Adc, AdcPin, Instance, InterruptHandler, SampleTime};
+use embassy_stm32::adc::{Adc, AnyAdcChannel, Instance, InterruptHandler, SampleTime};
 use embassy_stm32::flash::{Blocking, Flash as HALFlash};
 use embassy_stm32::gpio::Output;
 use embassy_stm32::interrupt::typelevel::Binding;
@@ -139,9 +136,6 @@ pub fn setup_usb_driver<K: crate::usb::USBKeyboard>(
 
         let usb_driver = Driver::new(USB::steal(), Irqs, PA12::steal(), PA11::steal());
 
-        static DEVICE_DESCRIPTOR: static_cell::StaticCell<[u8; 256]> =
-            static_cell::StaticCell::new();
-        let device_descriptor = DEVICE_DESCRIPTOR.init([0; 256]);
         static CONFIG_DESCRIPTOR: static_cell::StaticCell<[u8; 256]> =
             static_cell::StaticCell::new();
         let config_descriptor = CONFIG_DESCRIPTOR.init([0; 256]);
@@ -155,29 +149,11 @@ pub fn setup_usb_driver<K: crate::usb::USBKeyboard>(
         embassy_usb::Builder::new(
             usb_driver,
             config,
-            device_descriptor,
             config_descriptor,
             bos_descriptor,
             msos_descriptor,
             control_buf,
         )
-    }
-}
-
-pub struct Channel<A: Instance> {
-    channel: u8,
-    _phantom: PhantomData<A>,
-}
-
-impl<A: Instance> Channel<A> {
-    pub fn new(mut pin: impl AdcPin<A>) -> Self {
-        #[cfg(feature = "stm32f072cb")]
-        pin.set_as_analog();
-
-        Self {
-            channel: pin.channel(),
-            _phantom: PhantomData,
-        }
     }
 }
 
@@ -200,9 +176,9 @@ pub struct AdcSampler<'a, ADC: Instance, const MP: usize, const C: usize> {
 }
 
 struct RawAdcSampler<'a, ADC: Instance, const MP: usize, const C: usize> {
-    _adc: Adc<'a, ADC>,
+    adc: Adc<'a, ADC>,
     idx_to_pin_type: [AnalogPinType<'a, MP>; C],
-    analog_pins: [Channel<ADC>; C],
+    analog_pins: [AnyAdcChannel<ADC>; C],
 }
 
 impl<'a, ADC: Instance, const MP: usize, const C: usize> AdcSampler<'a, ADC, MP, C> {
@@ -211,94 +187,17 @@ impl<'a, ADC: Instance, const MP: usize, const C: usize> AdcSampler<'a, ADC, MP,
         adc: impl Peripheral<P = ADC> + 'a,
         irq: impl Binding<ADC::Interrupt, InterruptHandler<ADC>> + 'a,
         idx_to_pin_type: [AnalogPinType<'a, MP>; C],
-        analog_pins: [Channel<ADC>; C],
+        analog_pins: [AnyAdcChannel<ADC>; C],
     ) -> Self {
-        let _adc = Adc::new(adc, irq, &mut embassy_time::Delay);
-
-        #[cfg(feature = "stm32f303cb")]
-        for Channel { channel: ch, .. } in analog_pins.iter() {
-            let sample_time = SampleTime::CYCLES1_5;
-            if *ch <= 9 {
-                ADC::regs()
-                    .smpr1()
-                    .modify(|reg| reg.set_smp(*ch as _, sample_time));
-            } else {
-                ADC::regs()
-                    .smpr2()
-                    .modify(|reg| reg.set_smp((ch - 10) as _, sample_time));
-            }
-        }
-
-        #[cfg(feature = "stm32f072cb")]
-        {
-            let sample_time = SampleTime::CYCLES1_5;
-            ADC::regs().smpr().modify(|reg| reg.set_smp(sample_time))
-        }
+        let adc = Adc::new(adc, irq);
+        adc.set_sample_time(SampleTime::CYCLES1_5);
 
         Self {
             adc_sampler: BlockingMutex::new(RefCell::new(RawAdcSampler {
-                _adc,
+                adc,
                 idx_to_pin_type,
                 analog_pins,
             })),
-        }
-    }
-
-    async fn read(&self, ch: &mut Channel<ADC>) -> AdcSampleType {
-        // This is just Adc::read and Adc::convert inlined.
-        // Sample time setup is done in `Self::new()`.
-
-        #[cfg(feature = "stm32f303cb")]
-        {
-            ADC::regs().sqr1().write(|w| w.set_sq(0, ch.channel));
-
-            ADC::regs().isr().write(|_| {});
-
-            ADC::regs().ier().modify(|w| w.set_eocie(true));
-            ADC::regs().cr().modify(|w| w.set_adstart(true));
-
-            poll_fn(|cx| {
-                ADC::state().waker.register(cx.waker());
-
-                if ADC::regs().isr().read().eoc() {
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
-                }
-            })
-            .await;
-
-            ADC::regs().isr().write(|_| {});
-
-            ADC::regs().dr().read().rdata()
-        }
-
-        #[cfg(feature = "stm32f072cb")]
-        {
-            ADC::regs()
-                .chselr()
-                .write(|reg| reg.set_chselx(ch.channel as usize, true));
-
-            ADC::regs().isr().modify(|reg| {
-                reg.set_eoc(true);
-                reg.set_eosmp(true);
-            });
-
-            ADC::regs().ier().modify(|w| w.set_eocie(true));
-            ADC::regs().cr().modify(|reg| reg.set_adstart(true));
-
-            poll_fn(|cx| {
-                ADC::state().waker.register(cx.waker());
-
-                if ADC::regs().isr().read().eoc() {
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
-                }
-            })
-            .await;
-
-            ADC::regs().dr().read().data()
         }
     }
 
@@ -310,17 +209,17 @@ impl<'a, ADC: Instance, const MP: usize, const C: usize> AdcSampler<'a, ADC, MP,
         self.adc_sampler.lock(|adc_sampler| {
             let mut adc_sampler = adc_sampler.borrow_mut();
             let RawAdcSampler {
+                adc,
                 idx_to_pin_type,
                 analog_pins,
-                ..
             } = adc_sampler.deref_mut();
 
             idx_to_pin_type.get_mut(ch).map(|channel| match channel {
                 AnalogPinType::Multiplexed(ref mut multiplexer) => {
                     multiplexer.select_channel(sub_ch as u8).unwrap();
-                    block_on(self.read(&mut analog_pins[ch]))
+                    block_on(adc.read(&mut analog_pins[ch]))
                 }
-                AnalogPinType::Direct => block_on(self.read(&mut analog_pins[ch])),
+                AnalogPinType::Direct => block_on(adc.read(&mut analog_pins[ch])),
             })
         })
     }
