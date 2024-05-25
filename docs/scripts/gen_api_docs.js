@@ -121,14 +121,16 @@ function main() {
       ],
       {
         stdio: "inherit",
-        env: {
-          RUSTFLAGS: "--cfg doc",
-        },
       },
     );
 
-    if (rustcheck.status) {
+    if (rustcheck.status || rustcheck.error) {
       error = true;
+
+      if (rustcheck.error) {
+        console.error(rustcheck.error);
+      }
+
       console.error(`Check failed for ${target.feature}.`);
       continue;
     }
@@ -160,8 +162,13 @@ function main() {
       },
     );
 
-    if (rustdoc.status) {
+    if (rustdoc.status || rustdoc.error) {
       error = true;
+
+      if (rustdoc.error) {
+        console.error(rustcheck.error);
+      }
+
       console.error(`${target.feature} API docs failed to build.`);
       continue;
     }
