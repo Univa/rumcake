@@ -5,7 +5,7 @@
 
 use core::convert::Infallible;
 use core::fmt::Debug;
-use core::ops::Range;
+use core::ops::{DerefMut, Range};
 
 use defmt::{debug, info, warn, Debug2Format};
 use embassy_futures::select::{select, select_slice, Either};
@@ -96,11 +96,21 @@ pub trait KeyboardLayout {
     fn get_original_layout(
     ) -> Layers<{ Self::LAYOUT_COLS }, { Self::LAYOUT_ROWS }, { Self::LAYERS }, Keycode>;
 
-    /// Handle a [`Keycode::Custom`] event. By default this does nothing.
+    /// Handle a [`Keycode::User`] event. By default this does nothing.
     ///
     /// `press` is set to `true` if the event was a key press. Otherwise, it will be `false`. `id`
     /// corresponds to the `id` used in your keyboard layout.
-    fn on_custom_keycode(_id: u8, _press: bool) {}
+    fn on_user_keycode(
+        _layout: &mut KeyberonLayout<
+            { Self::LAYOUT_COLS },
+            { Self::LAYOUT_ROWS },
+            { Self::LAYERS },
+            Keycode,
+        >,
+        _id: u8,
+        _press: bool,
+    ) {
+    }
 
     #[cfg(feature = "simple-backlight")]
     type SimpleBacklightDeviceType: crate::lighting::simple_backlight::private::MaybeSimpleBacklightDevice =
@@ -283,9 +293,9 @@ pub fn setup_analog_keyboard_matrix<S: MatrixSampler, const CS: usize, const RS:
 #[non_exhaustive]
 #[repr(u8)]
 pub enum Keycode {
-    /// Custom keycode, which can be used to run custom code. You can use
-    /// [`KeyboardLayout::on_custom_keycode`] to handle it.
-    Custom(u8) = 0,
+    /// User keycode, which can be used to run custom code. You can use
+    /// [`KeyboardLayout::on_user_keycode`] to handle it.
+    User(u8) = 0,
 
     /// Hardware keycode, which can be any variant in [`crate::hw::HardwareCommand`]
     Hardware(crate::hw::HardwareCommand) = 1,
@@ -577,8 +587,8 @@ where
             match tick {
                 CustomEvent::NoEvent => {}
                 CustomEvent::Press(keycode) => match keycode {
-                    Keycode::Custom(id) => {
-                        K::on_custom_keycode(id, true);
+                    Keycode::User(id) => {
+                        K::on_user_keycode(layout.deref_mut(), id, true);
                     }
                     #[cfg(feature = "media-keycodes")]
                     Keycode::Media(keycode) => {
@@ -635,8 +645,8 @@ where
                     }
                 },
                 CustomEvent::Release(keycode) => match keycode {
-                    Keycode::Custom(id) => {
-                        K::on_custom_keycode(id, false);
+                    Keycode::User(id) => {
+                        K::on_user_keycode(layout.deref_mut(), id, false);
                     }
                     #[cfg(feature = "media-keycodes")]
                     Keycode::Media(keycode) => {
