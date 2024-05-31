@@ -963,7 +963,7 @@ where
                 })
         }),
         Action::Custom(key) => match key {
-            Keycode::Custom(id) => {
+            Keycode::User(id) => {
                 if id as u16 <= 31 {
                     QMKKeycodeRanges::QK_KB as u16 + id as u16
                 } else {
@@ -1713,7 +1713,7 @@ where
     }
 
     if QMKKeycodeRanges::QK_KB as u16 <= keycode && keycode <= QMKKeycodeRanges::QK_KB_MAX as u16 {
-        return Some(Action::Custom(Keycode::Custom(
+        return Some(Action::Custom(Keycode::User(
             (keycode - QMKKeycodeRanges::QK_KB as u16) as u8,
         )));
     }
