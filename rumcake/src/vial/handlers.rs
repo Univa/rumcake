@@ -110,10 +110,10 @@ pub fn vialrgb_get_info(version: u16, data: &mut [u8]) {
 #[cfg(feature = "rgb-backlight-matrix")]
 pub async fn vialrgb_get_mode<K: VialKeyboard + 'static>(data: &mut [u8])
 where
-    [(); K::RGBBacklightMatrixDevice::LIGHTING_COLS]:,
-    [(); K::RGBBacklightMatrixDevice::LIGHTING_ROWS]:,
+    [(); <K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType::LIGHTING_COLS]:,
+    [(); <K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType::LIGHTING_ROWS]:,
 {
-    if K::VIALRGB_ENABLE && K::get_backlight_matrix().is_some() {
+    if K::VIALRGB_ENABLE {
         if let Some(state) = <<K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType as crate::lighting::rgb_backlight_matrix::private::MaybeRGBBacklightMatrixDevice>::get_state() {
             let config = state.get().await;
             if !config.enabled {
@@ -135,14 +135,17 @@ where
 #[cfg(feature = "rgb-backlight-matrix")]
 pub fn vialrgb_get_supported<K: VialKeyboard + 'static>(data: &mut [u8])
 where
-    [(); K::RGBBacklightMatrixDevice::LIGHTING_COLS]:,
-    [(); K::RGBBacklightMatrixDevice::LIGHTING_ROWS]:,
+    [(); <K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType::LIGHTING_COLS]:,
+    [(); <K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType::LIGHTING_ROWS]:,
 {
-    if K::VIALRGB_ENABLE && K::get_backlight_matrix().is_some() {
+    if K::VIALRGB_ENABLE {
         let gt = u16::from_le_bytes(data[0..=1].try_into().unwrap());
         data.fill(0xFF);
         for id in gt..=super::protocol::vialrgb::MAX_VIALRGB_ID {
-            if super::protocol::vialrgb::is_supported::<K::RGBBacklightMatrixDevice>(id) {
+            if super::protocol::vialrgb::is_supported::<
+                <K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType,
+            >(id)
+            {
                 data[(id as usize - gt as usize)..=(id as usize - gt as usize + 1)]
                     .copy_from_slice(&id.to_le_bytes())
             }
@@ -153,12 +156,13 @@ where
 #[cfg(feature = "rgb-backlight-matrix")]
 pub fn vialrgb_get_num_leds<K: VialKeyboard + 'static>(data: &mut [u8])
 where
-    [(); K::RGBBacklightMatrixDevice::LIGHTING_COLS]:,
-    [(); K::RGBBacklightMatrixDevice::LIGHTING_ROWS]:,
+    [(); <K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType::LIGHTING_COLS]:,
+    [(); <K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType::LIGHTING_ROWS]:,
 {
-    if K::VIALRGB_ENABLE && K::get_backlight_matrix().is_some() {
-        let num_leds = (K::RGBBacklightMatrixDevice::LIGHTING_COLS
-            * K::RGBBacklightMatrixDevice::LIGHTING_ROWS) as u16;
+    if K::VIALRGB_ENABLE {
+        let num_leds = (<K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType::LIGHTING_COLS
+            * <K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType::LIGHTING_ROWS)
+            as u16;
         data[0..=1].copy_from_slice(&num_leds.to_le_bytes());
     }
 }
@@ -166,15 +170,15 @@ where
 #[cfg(feature = "rgb-backlight-matrix")]
 pub fn vialrgb_get_led_info<K: VialKeyboard + 'static>(data: &mut [u8])
 where
-    [(); K::RGBBacklightMatrixDevice::LIGHTING_COLS]:,
-    [(); K::RGBBacklightMatrixDevice::LIGHTING_ROWS]:,
+    [(); <K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType::LIGHTING_COLS]:,
+    [(); <K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType::LIGHTING_ROWS]:,
 {
     if K::VIALRGB_ENABLE {
-        if let Some(backlight_matrix) = K::get_backlight_matrix() {
+        if let Some(backlight_matrix) = <<K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType as crate::lighting::rgb_backlight_matrix::private::MaybeRGBBacklightMatrixDevice>::get_backlight_matrix() {
             let led = u16::from_le_bytes(data[0..=1].try_into().unwrap());
-            let col = led as usize % K::RGBBacklightMatrixDevice::LIGHTING_COLS;
-            let row = (led as usize / K::RGBBacklightMatrixDevice::LIGHTING_COLS)
-                % K::RGBBacklightMatrixDevice::LIGHTING_ROWS;
+            let col = led as usize % <K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType::LIGHTING_COLS;
+            let row = (led as usize / <K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType::LIGHTING_COLS)
+                % <K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType::LIGHTING_ROWS;
             if let Some((x, y)) = backlight_matrix.layout[row][col] {
                 data[0] = x;
                 data[1] = y;
@@ -189,10 +193,10 @@ where
 #[cfg(feature = "rgb-backlight-matrix")]
 pub async fn vialrgb_set_mode<K: VialKeyboard + 'static>(data: &[u8])
 where
-    [(); K::RGBBacklightMatrixDevice::LIGHTING_COLS]:,
-    [(); K::RGBBacklightMatrixDevice::LIGHTING_ROWS]:,
+    [(); <K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType::LIGHTING_COLS]:,
+    [(); <K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType::LIGHTING_ROWS]:,
 {
-    if K::VIALRGB_ENABLE && K::get_backlight_matrix().is_some() {
+    if K::VIALRGB_ENABLE {
         if let Some(channel) = <<K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType as crate::lighting::rgb_backlight_matrix::private::MaybeRGBBacklightMatrixDevice>::get_command_channel() {
             // set mode
             let vialrgb_id = u16::from_le_bytes(data[0..=1].try_into().unwrap());
@@ -258,12 +262,14 @@ where
 #[cfg(feature = "rgb-backlight-matrix")]
 pub async fn vialrgb_direct_fast_set<K: VialKeyboard + 'static>(data: &[u8])
 where
-    [(); K::RGBBacklightMatrixDevice::LIGHTING_COLS]:,
-    [(); K::RGBBacklightMatrixDevice::LIGHTING_ROWS]:,
+    [(); <K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType::LIGHTING_COLS]:,
+    [(); <K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType::LIGHTING_ROWS]:,
 {
-    if K::VIALRGB_ENABLE && K::get_backlight_matrix().is_some() {
-        let total_num_leds = (K::RGBBacklightMatrixDevice::LIGHTING_COLS
-            * K::RGBBacklightMatrixDevice::LIGHTING_ROWS) as u8;
+    if K::VIALRGB_ENABLE {
+        let total_num_leds =
+            (<K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType::LIGHTING_COLS
+                * <K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType::LIGHTING_ROWS)
+                as u8;
 
         let first_led = u16::from_le_bytes(data[0..=1].try_into().unwrap()) as u8; // We assume that a backlight matrix will not have more than 255 leds
         let num_leds = data[2];

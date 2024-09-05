@@ -83,7 +83,7 @@ pub(crate) mod private {
     use embassy_sync::channel::Channel;
 
     use crate::hw::platform::RawMutex;
-    use crate::lighting::BacklightMatrixDevice;
+    use crate::lighting::{BacklightMatrix, BacklightMatrixDevice};
     use crate::State;
 
     use super::{
@@ -101,6 +101,12 @@ pub(crate) mod private {
         fn get_state() -> Option<&'static State<'static, SimpleBacklightMatrixConfig>> {
             None
         }
+
+        #[inline(always)]
+        fn get_backlight_matrix(
+        ) -> Option<BacklightMatrix<{ Self::LIGHTING_COLS }, { Self::LIGHTING_ROWS }>> {
+            None
+        }
     }
 
     impl<T: SimpleBacklightMatrixDevice> MaybeSimpleBacklightMatrixDevice for T {
@@ -113,6 +119,12 @@ pub(crate) mod private {
         #[inline(always)]
         fn get_state() -> Option<&'static State<'static, SimpleBacklightMatrixConfig>> {
             Some(T::get_state())
+        }
+
+        #[inline(always)]
+        fn get_backlight_matrix(
+        ) -> Option<BacklightMatrix<{ Self::LIGHTING_COLS }, { Self::LIGHTING_ROWS }>> {
+            Some(T::get_backlight_matrix())
         }
     }
 }

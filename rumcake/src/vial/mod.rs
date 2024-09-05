@@ -11,8 +11,6 @@ use smart_leds::RGB8;
 use crate::hw::platform::RawMutex;
 use crate::hw::HIDDevice;
 use crate::keyboard::KeyboardLayout;
-use crate::lighting::private::EmptyLightingDevice;
-use crate::lighting::rgb_backlight_matrix::private::MaybeRGBBacklightMatrixDevice;
 use crate::lighting::BacklightMatrixDevice;
 use crate::storage::{FlashStorage, StorageDevice, StorageKey};
 use crate::via::ViaKeyboard;
@@ -20,8 +18,6 @@ use crate::via::ViaKeyboard;
 mod handlers;
 
 pub(crate) mod protocol;
-
-pub use rumcake_macros::enable_vial_rgb;
 
 /// A trait that keyboards must implement to use the Vial protocol.
 pub trait VialKeyboard: ViaKeyboard {
@@ -44,23 +40,11 @@ pub trait VialKeyboard: ViaKeyboard {
     const KEYBOARD_DEFINITION: &'static [u8];
 
     /// Whether RGB lighting features should be used. Usage of VialRGB assumes you have the
-    /// [`rgb-backlight-matrix`] feature flag enabled. To enable this, you should use
-    /// [`enable_vial_rgb`] instead of implementing this yourself.
+    /// [`rgb-backlight-matrix`] feature flag enabled.
     const VIALRGB_ENABLE: bool = false;
     const VIAL_TAP_DANCE_ENTRIES: u8 = 0; // TODO: Change when tap dance is implemented
     const VIAL_COMBO_ENTRIES: u8 = 0; // TODO: Change when combo is implemented
     const VIAL_KEY_OVERRIDE_ENTRIES: u8 = 0; // TODO: Change when key override is implemented
-
-    // TODO: replace with specialization if it doesn't cause an ICE
-    type RGBBacklightMatrixDevice: MaybeRGBBacklightMatrixDevice = EmptyLightingDevice;
-    fn get_backlight_matrix() -> Option<
-        crate::lighting::BacklightMatrix<
-            { <Self::RGBBacklightMatrixDevice as BacklightMatrixDevice>::LIGHTING_COLS },
-            { <Self::RGBBacklightMatrixDevice as BacklightMatrixDevice>::LIGHTING_ROWS },
-        >,
-    > {
-        None
-    }
 }
 
 /// Channel used to update the frame buffer for the
@@ -73,8 +57,8 @@ where
     [(); <<K::StorageType as StorageDevice>::FlashStorageType as FlashStorage>::ERASE_SIZE]:,
     [(); K::DYNAMIC_KEYMAP_LAYER_COUNT * K::Layout::LAYOUT_COLS * K::Layout::LAYOUT_ROWS * 2]:,
     [(); K::DYNAMIC_KEYMAP_LAYER_COUNT * K::Layout::NUM_ENCODERS * 2 * 2]:,
-    [(); K::RGBBacklightMatrixDevice::LIGHTING_COLS]:,
-    [(); K::RGBBacklightMatrixDevice::LIGHTING_ROWS]:,
+    [(); <K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType::LIGHTING_COLS]:,
+    [(); <K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType::LIGHTING_ROWS]:,
     [(); (K::Layout::LAYOUT_COLS + u8::BITS as usize - 1) / u8::BITS as usize
         * K::Layout::LAYOUT_ROWS]:,
     [(); K::Layout::LAYERS]:,

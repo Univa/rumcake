@@ -423,14 +423,6 @@ pub fn connect_storage_service(input: proc_macro::TokenStream) -> proc_macro::To
     via::connect_storage_service(ident).into()
 }
 
-mod vial;
-
-#[proc_macro]
-pub fn enable_vial_rgb(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let ident = parse_macro_input!(input as Ident);
-    vial::enable_vial_rgb(ident).into()
-}
-
 #[proc_macro_attribute]
 pub fn task(
     _args: proc_macro::TokenStream,

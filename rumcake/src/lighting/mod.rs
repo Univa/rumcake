@@ -75,6 +75,7 @@ pub(crate) mod private {
             unreachable!("EmptyLightingDevice should not be used with an animator.")
         }
     }
+
     #[cfg(feature = "simple-backlight")]
     impl super::simple_backlight::private::MaybeSimpleBacklightDevice for EmptyLightingDevice {}
     #[cfg(feature = "simple-backlight-matrix")]

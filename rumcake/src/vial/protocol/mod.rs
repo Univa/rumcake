@@ -65,8 +65,8 @@ pub(crate) async fn process_vial_command<K: VialKeyboard + 'static>(
     [(); <<K::StorageType as StorageDevice>::FlashStorageType as FlashStorage>::ERASE_SIZE]:,
     [(); K::DYNAMIC_KEYMAP_LAYER_COUNT * K::Layout::LAYOUT_COLS * K::Layout::LAYOUT_ROWS * 2]:,
     [(); K::DYNAMIC_KEYMAP_LAYER_COUNT * K::Layout::NUM_ENCODERS * 2 * 2]:,
-    [(); K::RGBBacklightMatrixDevice::LIGHTING_COLS]:,
-    [(); K::RGBBacklightMatrixDevice::LIGHTING_ROWS]:,
+    [(); <K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType::LIGHTING_COLS]:,
+    [(); <K::Layout as KeyboardLayout>::RGBBacklightMatrixDeviceType::LIGHTING_ROWS]:,
     [(); (K::Layout::LAYOUT_COLS + u8::BITS as usize - 1) / u8::BITS as usize
         * K::Layout::LAYOUT_ROWS]:,
     [(); K::Layout::LAYERS]:,
