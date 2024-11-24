@@ -423,62 +423,6 @@ pub fn connect_storage_service(input: proc_macro::TokenStream) -> proc_macro::To
     via::connect_storage_service(ident).into()
 }
 
-#[proc_macro_attribute]
-pub fn task(
-    _args: proc_macro::TokenStream,
-    fun: proc_macro::TokenStream,
-) -> proc_macro::TokenStream {
-    let fun = parse_macro_input!(fun as ItemFn);
-
-    // for the outer macro
-    let task_ident = fun.sig.ident.clone();
-
-    // Copy the function and change the identifier
-    let mut inner = fun.clone();
-    let task_name = inner.sig.ident;
-    inner.sig.ident = format_ident!("__{}", task_name);
-
-    let task_name_string = task_name.to_string();
-    inner.block.stmts.insert(
-        0,
-        parse_quote! {
-            defmt::info!("{} has spawned.", #task_name_string);
-        },
-    );
-    let inner_ident = inner.sig.ident.clone();
-
-    // Arguments to pass to the inner task
-    let arg_names: Vec<Ident> = fun
-        .sig
-        .inputs
-        .clone()
-        .iter_mut()
-        .filter_map(|a| match a {
-            syn::FnArg::Typed(t) => match t.pat.as_mut() {
-                Pat::Ident(i) => Some(i.ident.clone()),
-                _ => None,
-            },
-            _ => None,
-        })
-        .collect();
-
-    quote! {
-        #inner
-
-        #[macro_export]
-        macro_rules! #task_ident {
-            (#($#arg_names:expr),*) => {
-                {
-                    type Fut = impl ::core::future::Future + 'static;
-                    static POOL: ::embassy_executor::raw::TaskPool<Fut, 1> = ::embassy_executor::raw::TaskPool::new();
-                    unsafe { POOL._spawn_async_fn(move || $crate::tasks::#inner_ident(#($#arg_names,)*)) }
-                }
-            };
-        }
-    }
-    .into()
-}
-
 macro_rules! parse_as_custom_fields {
     ($str_vis:vis struct $builder_name:ident for $str_name:ident { $($all:tt)* }) => {
         $crate::parse_as_custom_fields!($str_vis struct $builder_name for $str_name [$($all)*] -> []);

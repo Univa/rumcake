@@ -18,7 +18,6 @@ use embassy_stm32::usb::Driver;
 use embassy_stm32::{bind_interrupts, Peripheral};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::blocking_mutex::ThreadModeMutex;
-use static_cell::StaticCell;
 
 pub use rumcake_macros::{
     stm32_input_pin as input_pin, stm32_output_pin as output_pin,
@@ -111,8 +110,12 @@ pub fn initialize_rcc() {
 /// function that sets up the HID readers or writers to be used with a task. For example, you may
 /// need to pass this to [`crate::usb::setup_usb_hid_nkro_writer`] to set up a keyboard that
 /// communicates with a host device over USB.
-pub fn setup_usb_driver<K: crate::usb::USBKeyboard>(
-) -> embassy_usb::Builder<'static, Driver<'static, USB>> {
+pub fn setup_usb_driver<'a, K: crate::usb::USBKeyboard>(
+    config_descriptor: &'a mut [u8],
+    bos_descriptor: &'a mut [u8],
+    msos_descriptor: &'a mut [u8],
+    control_buf: &'a mut [u8],
+) -> embassy_usb::Builder<'a, Driver<'a, USB>> {
     unsafe {
         #[cfg(feature = "stm32f072cb")]
         bind_interrupts!(
@@ -135,16 +138,6 @@ pub fn setup_usb_driver<K: crate::usb::USBKeyboard>(
         config.max_power = 500;
 
         let usb_driver = Driver::new(USB::steal(), Irqs, PA12::steal(), PA11::steal());
-
-        static CONFIG_DESCRIPTOR: static_cell::StaticCell<[u8; 256]> =
-            static_cell::StaticCell::new();
-        let config_descriptor = CONFIG_DESCRIPTOR.init([0; 256]);
-        static BOS_DESCRIPTOR: static_cell::StaticCell<[u8; 256]> = static_cell::StaticCell::new();
-        let bos_descriptor = BOS_DESCRIPTOR.init([0; 256]);
-        static MSOS_DESCRIPTOR: StaticCell<[u8; 256]> = StaticCell::new();
-        let msos_descriptor = MSOS_DESCRIPTOR.init([0; 256]);
-        static CONTROL_BUF: static_cell::StaticCell<[u8; 128]> = static_cell::StaticCell::new();
-        let control_buf = CONTROL_BUF.init([0; 128]);
 
         embassy_usb::Builder::new(
             usb_driver,

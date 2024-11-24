@@ -41,15 +41,15 @@ embedded-io-async = "0.6.0"
 embedded-graphics = { version = "0.8.1", features = ["defmt"] }
 embedded-layout = "0.3.2"
 embedded-text = "0.6.2"
-embassy-sync = { git = "https://github.com/embassy-rs/embassy", rev = "01c1cb2", features = ["defmt"] }
-embassy-futures = { git = "https://github.com/embassy-rs/embassy", rev = "01c1cb2" }
-embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "01c1cb2", features = ["defmt", "integrated-timers", "executor-thread"] }
-embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "01c1cb2", features = ["defmt", "defmt-timestamp-uptime"] }
-embassy-usb = { git = "https://github.com/embassy-rs/embassy", rev = "01c1cb2", features = ["defmt"] }
-embassy-rp = { git = "https://github.com/embassy-rs/embassy", rev = "01c1cb2", features = ["defmt", "unstable-pac"], optional = true }
-embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", rev = "01c1cb2", features = ["defmt", "unstable-pac", "exti"], optional = true }
-embassy-nrf = { git = "https://github.com/embassy-rs/embassy", rev = "01c1cb2", features = ["defmt", "nfc-pins-as-gpio", "time-driver-rtc1"], optional = true }
-nrf-softdevice = { git = "https://github.com/embassy-rs/nrf-softdevice", rev = "487f98e", optional = true }
+embassy-sync = { version = "0.6.0", features = ["defmt"] }
+embassy-futures = "0.1.0"
+embassy-executor = { version = "0.6.0", features = ["nightly","defmt", "integrated-timers", "executor-thread"] }
+embassy-time = { version = "0.3.0", features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-usb = { version = "0.3.0", features = ["defmt"] }
+embassy-rp = { version = "0.2.0", features = ["defmt", "unstable-pac"], optional = true }
+embassy-stm32 = { version = "0.1.0", features = ["defmt", "unstable-pac", "exti"], optional = true }
+embassy-nrf = { version = "0.2.0", features = ["defmt", "nfc-pins-as-gpio", "time-driver-rtc1"], optional = true }
+nrf-softdevice = { git = "https://github.com/embassy-rs/nrf-softdevice", rev = "b53991e", optional = true }
 tickv = { git = "https://github.com/tock/tock", rev = "18cf287" }
 keyberon = { path = "../keyberon" }
 once_cell = { version = "1.18.0", features = ["atomic-polyfill"], default-features = false }
@@ -79,6 +79,18 @@ ssd1306 = { version = "0.8.2", optional = true }
 
 rumcake-macros = { path = "../rumcake-macros" }
 
+[patch.crates-io]
+embassy-futures = { git = "https://github.com/embassy-rs/embassy", rev = "6dffb22" }
+embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "6dffb22" }
+embassy-time-driver = { git = "https://github.com/embassy-rs/embassy", rev = "6dffb22" }
+embassy-time-queue-driver = { git = "https://github.com/embassy-rs/embassy", rev = "6dffb22" }
+embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "6dffb22" }
+embassy-sync = { git = "https://github.com/embassy-rs/embassy", rev = "6dffb22" }
+embassy-nrf = { git = "https://github.com/embassy-rs/embassy", rev = "6dffb22" }
+embassy-rp = { git = "https://github.com/embassy-rs/embassy", rev = "6dffb22" }
+embassy-stm32 = { git = "https://github.com/embassy-rs/embassy", rev = "6dffb22" }
+embassy-usb = { git = "https://github.com/embassy-rs/embassy", rev = "6dffb22" }
+
 [features]
 default = []
 
@@ -88,7 +100,7 @@ default = []
 
 # RP
 rp = ["dep:cortex-m", "embassy-executor/arch-cortex-m", "dep:embassy-rp", "rumcake-macros/rp"]
-rp2040 = ["rp", "embassy-rp/time-driver"]
+rp2040 = ["rp", "embassy-rp/rp2040", "embassy-rp/time-driver"]
 
 # STM32
 stm32 = ["dep:cortex-m", "embassy-executor/arch-cortex-m", "dep:embassy-stm32", "rumcake-macros/stm32"]
@@ -97,7 +109,7 @@ stm32f303cb = ["stm32", "embassy-stm32/stm32f303cb", "embassy-stm32/time-driver-
 
 # nRF5x
 nrf = ["dep:cortex-m", "embassy-executor/arch-cortex-m", "dep:embassy-nrf", "rumcake-macros/nrf"]
-nrf-ble = ["dep:nrf-softdevice", "nrf-softdevice/defmt", "nrf-softdevice/ble-sec", "nrf-softdevice/critical-section-impl", "nrf-softdevice/nightly"]
+nrf-ble = ["dep:nrf-softdevice", "nrf-softdevice/defmt", "nrf-softdevice/ble-sec", "nrf-softdevice/critical-section-impl"]
 nrf52840 = ["nrf", "embassy-nrf/nrf52840", "nrf-softdevice?/nrf52840", "nrf-softdevice?/s140"]
 
 storage = ["rumcake-macros/storage"]

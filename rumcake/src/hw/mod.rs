@@ -120,7 +120,6 @@ pub enum HardwareCommand {
     OutputBluetooth = 2,
 }
 
-#[rumcake_macros::task]
 pub async fn output_switcher() {
     // This task doesn't need to run if only one of USB or Bluetooth is enabled, and there are no
     // HardwareCommand members on the user's layout.

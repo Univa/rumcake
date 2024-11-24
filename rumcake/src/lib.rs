@@ -147,47 +147,47 @@ pub mod hw;
 pub mod drivers;
 
 pub mod tasks {
-    pub use crate::hw::__output_switcher;
-    pub use crate::keyboard::{__ec11_encoders_poll, __layout_collect, __matrix_poll};
+    pub use crate::hw::output_switcher;
+    pub use crate::keyboard::{ec11_encoders_poll, layout_collect, matrix_poll};
 
     #[cfg(all(feature = "lighting", feature = "storage"))]
-    pub use crate::lighting::__lighting_storage_task;
+    pub use crate::lighting::lighting_storage_task;
     #[cfg(feature = "lighting")]
-    pub use crate::lighting::__lighting_task;
+    pub use crate::lighting::lighting_task;
 
     #[cfg(feature = "display")]
-    pub use crate::display::__display_task;
+    pub use crate::display::display_task;
 
     #[cfg(feature = "usb")]
-    pub use crate::usb::{__start_usb, __usb_hid_consumer_write_task, __usb_hid_kb_write_task};
+    pub use crate::usb::{start_usb, usb_hid_consumer_write_task, usb_hid_kb_write_task};
 
     #[cfg(all(feature = "via", feature = "usb"))]
-    pub use crate::usb::__usb_hid_via_read_task;
+    pub use crate::usb::usb_hid_via_read_task;
     #[cfg(all(feature = "via", feature = "usb"))]
-    pub use crate::usb::__usb_hid_via_write_task;
+    pub use crate::usb::usb_hid_via_write_task;
     #[cfg(feature = "via")]
-    pub use crate::via::__via_process_task;
+    pub use crate::via::via_process_task;
 
     #[cfg(feature = "vial")]
-    pub use crate::vial::__vial_process_task;
+    pub use crate::vial::vial_process_task;
 
     #[cfg(feature = "split-central")]
-    pub use crate::split::central::__central_task;
+    pub use crate::split::central::central_task;
 
     #[cfg(feature = "split-peripheral")]
-    pub use crate::split::peripheral::__peripheral_task;
+    pub use crate::split::peripheral::peripheral_task;
 
     #[cfg(feature = "nrf")]
-    pub use crate::hw::platform::__adc_task;
+    pub use crate::hw::platform::adc_task;
 
     #[cfg(feature = "nrf-ble")]
-    pub use crate::hw::platform::__softdevice_task;
+    pub use crate::hw::platform::softdevice_task;
 
     #[cfg(all(feature = "nrf", feature = "bluetooth"))]
-    pub use crate::bluetooth::nrf_ble::__nrf_ble_task;
+    pub use crate::bluetooth::nrf_ble::nrf_ble_task;
 
     #[cfg(all(feature = "nrf-ble", feature = "split-central"))]
-    pub use crate::drivers::nrf_ble::central::__nrf_ble_central_task;
+    pub use crate::drivers::nrf_ble::central::nrf_ble_central_task;
     #[cfg(all(feature = "nrf-ble", feature = "split-peripheral"))]
-    pub use crate::drivers::nrf_ble::peripheral::__nrf_ble_peripheral_task;
+    pub use crate::drivers::nrf_ble::peripheral::nrf_ble_peripheral_task;
 }

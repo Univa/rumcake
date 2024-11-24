@@ -51,7 +51,6 @@ pub trait VialKeyboard: ViaKeyboard {
 /// [`crate::lighting::rgb_backlight_matrix::RGBBacklightMatrixEffect::DirectSet`] effect.
 pub(crate) static VIAL_DIRECT_SET_CHANNEL: Channel<RawMutex, (u8, RGB8), 4> = Channel::new();
 
-#[rumcake_macros::task]
 pub async fn vial_process_task<K: VialKeyboard + 'static, T: HIDDevice + 'static>(_k: K, _t: T)
 where
     [(); <<K::StorageType as StorageDevice>::FlashStorageType as FlashStorage>::ERASE_SIZE]:,

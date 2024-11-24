@@ -57,8 +57,12 @@ pub fn initialize_rcc() {
 /// function that sets up the HID readers or writers to be used with a task. For example, you may
 /// need to pass this to [`crate::usb::setup_usb_hid_nkro_writer`] to set up a keyboard that
 /// communicates with a host device over USB.
-pub fn setup_usb_driver<K: crate::usb::USBKeyboard>(
-) -> embassy_usb::Builder<'static, Driver<'static, USB>> {
+pub fn setup_usb_driver<'a, K: crate::usb::USBKeyboard>(
+    config_descriptor: &'a mut [u8],
+    bos_descriptor: &'a mut [u8],
+    msos_descriptor: &'a mut [u8],
+    control_buf: &'a mut [u8],
+) -> embassy_usb::Builder<'a, Driver<'a, USB>> {
     unsafe {
         #[cfg(feature = "rp2040")]
         bind_interrupts!(
@@ -74,16 +78,6 @@ pub fn setup_usb_driver<K: crate::usb::USBKeyboard>(
         config.max_power = 500;
 
         let usb_driver = Driver::new(USB::steal(), Irqs);
-
-        static CONFIG_DESCRIPTOR: static_cell::StaticCell<[u8; 256]> =
-            static_cell::StaticCell::new();
-        let config_descriptor = CONFIG_DESCRIPTOR.init([0; 256]);
-        static BOS_DESCRIPTOR: static_cell::StaticCell<[u8; 256]> = static_cell::StaticCell::new();
-        let bos_descriptor = BOS_DESCRIPTOR.init([0; 256]);
-        static MSOS_DESCRIPTOR: static_cell::StaticCell<[u8; 256]> = static_cell::StaticCell::new();
-        let msos_descriptor = MSOS_DESCRIPTOR.init([0; 256]);
-        static CONTROL_BUF: static_cell::StaticCell<[u8; 128]> = static_cell::StaticCell::new();
-        let control_buf = CONTROL_BUF.init([0; 128]);
 
         embassy_usb::Builder::new(
             usb_driver,

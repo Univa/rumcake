@@ -102,7 +102,6 @@ impl<E> From<ReadExactError<E>> for CentralDeviceError<E> {
     }
 }
 
-#[rumcake_macros::task]
 pub async fn central_task<K: CentralDevice>(_k: K, mut driver: impl CentralDeviceDriver) {
     let message_to_peripherals_channel = K::get_message_to_peripheral_channel();
     let matrix_events_channel = K::Layout::get_matrix_events_channel();

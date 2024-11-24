@@ -283,13 +283,18 @@ then the `BluetoothDevice` trait should already be implemented for you.
 You will also need to change the `#[keyboard]` macro invocation to add `driver_type = "nrf-ble"`.
 This will change the requirements for the signature of `driver_setup_fn`.
 
-```rust ins={6}
+For the central device, you will also need to specify how many peripherals may connect to it.
+
+```rust ins={2,8-9}
 // central file
+const PERIPHERAL_COUNT: usize = 1; // This will be used in the macro below, and the driver_setup_fn return type.
+
 #[keyboard(
     // somewhere in your keyboard macro invocation ...
     split_central(
         driver_setup_fn = my_central_setup,
-        driver_type = "nrf-ble"
+        driver_type = "nrf-ble",
+        peripheral_count = PERIPHERAL_COUNT
     )
 )]
 struct MyKeyboardLeftHalf;
@@ -312,7 +317,7 @@ Now, your `driver_setup_fn` will need to change it's signature.
 For central devices, it will need to return:
 
 - `CentralDeviceDriver` implementor
-- A slice containing peripheral addresses to connect to
+- An array of peripheral addresses to connect to
 
 For peripheral devices, it will need to return:
 
@@ -326,7 +331,7 @@ implement your `driver_setup_fn`.
 // central file
 use rumcake::drivers::nrf_ble::central::setup_nrf_ble_split_central;
 async fn my_central_setup() -> impl CentralDeviceDriver {
-async fn my_central_setup() -> (impl CentralDeviceDriver, &'static [[u8; 6]]) {
+async fn my_central_setup() -> (impl CentralDeviceDriver, &'static [[u8; 6]; PERIPHERAL_COUNT]) {
     setup_nrf_ble_split_central! {
         peripheral_addresses: [
             [0x92, 0x32, 0x98, 0xC7, 0xF6, 0xF8] // address of peripheral we specified in the peripheral device's file

@@ -6,7 +6,7 @@ use quote::quote;
 use syn::parse::Parse;
 use syn::punctuated::Punctuated;
 use syn::{
-    braced, custom_keyword, Expr, ExprRange, ItemStruct, LitInt, LitStr, PathSegment, Token,
+    braced, custom_keyword, Expr, ExprRange, ItemStruct, LitInt, LitStr, Path, PathSegment, Token,
 };
 
 use crate::common::{Layer, LayoutLike, MatrixLike, OptionalItem, Row};
@@ -35,25 +35,26 @@ pub(crate) struct KeyboardSettings {
 #[derive(Debug, FromMeta)]
 pub(crate) struct LightingSettings {
     id: Ident,
-    driver_setup_fn: Ident,
+    driver_setup_fn: Path,
     use_storage: Option<SpannedValue<bool>>,
 }
 
 #[derive(Debug, FromMeta)]
 pub(crate) struct DisplaySettings {
-    driver_setup_fn: Ident,
+    driver_setup_fn: Path,
 }
 
 #[derive(Debug, FromMeta)]
 pub(crate) struct SplitCentralSettings {
     driver_type: Option<LitStr>,
-    driver_setup_fn: Ident,
+    driver_setup_fn: Path,
+    peripheral_count: Option<Expr>,
 }
 
 #[derive(Debug, FromMeta)]
 pub(crate) struct SplitPeripheralSettings {
     driver_type: Option<LitStr>,
-    driver_setup_fn: Ident,
+    driver_setup_fn: Path,
 }
 
 #[derive(Debug, FromMeta)]
@@ -250,6 +251,7 @@ pub(crate) fn keyboard_main(
 ) -> TokenStream {
     let mut initialization = TokenStream::new();
     let mut spawning = TokenStream::new();
+    let mut tasks = TokenStream::new();
     let mut outer = TokenStream::new();
     let mut error = false;
 
@@ -271,35 +273,59 @@ pub(crate) fn keyboard_main(
     });
 
     if cfg!(feature = "nrf") {
+        tasks.extend(quote! {
+            #[::embassy_executor::task]
+            async fn __adc_task(sampler: &'static AdcSamplerType) {
+                ::rumcake::tasks::adc_task(sampler).await;
+            }
+        });
         spawning.extend(quote! {
             let sampler = setup_adc_sampler();
-            spawner.spawn(::rumcake::adc_task!(sampler)).unwrap();
+            spawner.spawn(__adc_task(sampler)).unwrap();
         });
 
         if uses_bluetooth {
             initialization.extend(quote! {
                 let sd = ::rumcake::hw::platform::setup_softdevice::<#kb_name>();
             });
+            tasks.extend(quote! {
+                #[::embassy_executor::task]
+                async fn __softdevice_task(sd: &'static ::rumcake::hw::platform::nrf_softdevice::Softdevice) {
+                    ::rumcake::tasks::softdevice_task(sd).await;
+                }
+            });
             spawning.extend(quote! {
                 let sd = &*sd;
-                spawner.spawn(::rumcake::softdevice_task!(sd)).unwrap();
+                spawner.spawn(__softdevice_task(sd)).unwrap();
             });
         }
     }
 
     // Keyboard setup, and matrix polling task
     if !keyboard.no_matrix {
+        tasks.extend(quote! {
+            #[::embassy_executor::task]
+            async fn __matrix_poll(k: #kb_name) {
+                ::rumcake::tasks::matrix_poll(k).await;
+            }
+        });
         spawning.extend(quote! {
             spawner
-                .spawn(::rumcake::matrix_poll!(#kb_name))
+                .spawn(__matrix_poll(#kb_name))
                 .unwrap();
         });
     }
 
     if keyboard.encoders {
+        tasks.extend(quote! {
+            #[::embassy_executor::task]
+            async fn __ec11_encoders_poll(k: #kb_name) {
+                ::rumcake::tasks::ec11_encoders_poll(k).await;
+            }
+        });
         spawning.extend(quote! {
             spawner
-                .spawn(::rumcake::ec11_encoders_poll!(#kb_name))
+                .spawn(__ec11_encoders_poll(#kb_name))
                 .unwrap();
         })
     }
@@ -324,52 +350,113 @@ pub(crate) fn keyboard_main(
         outer.extend(quote! {
             impl ::rumcake::hw::HIDDevice for #kb_name {}
         });
+        tasks.extend(quote! {
+            #[::embassy_executor::task]
+            async fn __layout_collect(k: #kb_name) {
+                ::rumcake::tasks::layout_collect(k).await;
+            }
+        });
         spawning.extend(quote! {
-            spawner.spawn(::rumcake::layout_collect!(#kb_name)).unwrap();
+            spawner.spawn(__layout_collect(#kb_name)).unwrap();
         });
     }
 
+    tasks.extend(quote! {
+        #[::embassy_executor::task]
+        async fn __output_switcher() {
+            ::rumcake::tasks::output_switcher().await;
+        }
+    });
     spawning.extend(quote! {
-        spawner.spawn(::rumcake::output_switcher!()).unwrap();
+        spawner.spawn(__output_switcher()).unwrap();
     });
 
-    #[cfg(feature = "nrf")]
-    if keyboard.bluetooth {
+    if cfg!(feature = "nrf") && keyboard.bluetooth {
         initialization.extend(quote! {
             let hid_server = ::rumcake::bluetooth::nrf_ble::Server::new(sd).unwrap();
         });
+        tasks.extend(quote! {
+            #[::embassy_executor::task]
+            async fn __nrf_ble_task(k: #kb_name, sd: &'static ::rumcake::hw::platform::nrf_softdevice::Softdevice, hid_server: ::rumcake::bluetooth::nrf_ble::Server) {
+                ::rumcake::tasks::nrf_ble_task(#kb_name, sd, hid_server).await;
+            }
+        });
         spawning.extend(quote! {
-            spawner.spawn(::rumcake::nrf_ble_task!(#kb_name, sd, hid_server)).unwrap();
+            spawner.spawn(__nrf_ble_task(#kb_name, sd, hid_server)).unwrap();
         });
     }
 
     // USB Configuration
     if keyboard.usb {
+        outer.extend(quote! {
+            mod __usb_driver {
+                use super::*;
+                pub type UsbDriver = impl ::rumcake::usb::Driver<'static>;
+                pub fn __setup_usb_driver() -> ::rumcake::usb::Builder<'static, UsbDriver> {
+                    static CONFIG_DESCRIPTOR: ::static_cell::StaticCell<[u8; 256]> = ::static_cell::StaticCell::new();
+                    let config_descriptor = CONFIG_DESCRIPTOR.init([0; 256]);
+                    static BOS_DESCRIPTOR: ::static_cell::StaticCell<[u8; 256]> = ::static_cell::StaticCell::new();
+                    let bos_descriptor = BOS_DESCRIPTOR.init([0; 256]);
+                    static MSOS_DESCRIPTOR: ::static_cell::StaticCell<[u8; 256]> = ::static_cell::StaticCell::new();
+                    let msos_descriptor = MSOS_DESCRIPTOR.init([0; 256]);
+                    static CONTROL_BUF: ::static_cell::StaticCell<[u8; 128]> = ::static_cell::StaticCell::new();
+                    let control_buf = CONTROL_BUF.init([0; 128]);
+
+                    ::rumcake::hw::platform::setup_usb_driver::<#kb_name>(
+                        config_descriptor,
+                        bos_descriptor,
+                        msos_descriptor,
+                        control_buf,
+                    )
+                }
+            }
+        });
         initialization.extend(quote! {
-            let mut builder = ::rumcake::hw::platform::setup_usb_driver::<#kb_name>();
+            let mut builder = __usb_driver::__setup_usb_driver();
 
             // HID Class setup
-            let kb_class = ::rumcake::usb::setup_usb_hid_nkro_writer(&mut builder);
+            static KB_STATE: ::static_cell::StaticCell<::rumcake::usb::UsbState> = ::static_cell::StaticCell::new();
+            let kb_state = KB_STATE.init(::rumcake::usb::UsbState::new());
+            let kb_class = ::rumcake::usb::setup_usb_hid_nkro_writer(&mut builder, kb_state);
+        });
+        tasks.extend(quote! {
+            #[::embassy_executor::task]
+            async fn __start_usb(usb: ::rumcake::usb::UsbDevice<'static, __usb_driver::UsbDriver>) {
+                ::rumcake::tasks::start_usb(usb).await;
+            }
+
+            #[::embassy_executor::task]
+            async fn __usb_hid_kb_write_task(k: #kb_name, kb_class: ::rumcake::usb::NKROBootKeyboardReportWriter<'static, __usb_driver::UsbDriver>) {
+                ::rumcake::tasks::usb_hid_kb_write_task(k, kb_class).await;
+            }
         });
         spawning.extend(quote! {
             let usb = builder.build();
 
             // Task spawning
             // Initialize USB device
-            spawner.spawn(::rumcake::start_usb!(usb)).unwrap();
+            spawner.spawn(__start_usb(usb)).unwrap();
 
             // HID Keyboard Report sending
-            spawner.spawn(::rumcake::usb_hid_kb_write_task!(#kb_name, kb_class)).unwrap();
+            spawner.spawn(__usb_hid_kb_write_task(#kb_name, kb_class)).unwrap();
         });
 
         if cfg!(feature = "media-keycodes") {
             initialization.extend(quote! {
                 // HID consumer
-                let consumer_class = ::rumcake::usb::setup_usb_hid_consumer_writer(&mut builder);
+                static CONSUMER_STATE: ::static_cell::StaticCell<::rumcake::usb::UsbState> = ::static_cell::StaticCell::new();
+                let consumer_state = CONSUMER_STATE.init(::rumcake::usb::UsbState::new());
+                let consumer_class = ::rumcake::usb::setup_usb_hid_consumer_writer(&mut builder, consumer_state);
+            });
+            tasks.extend(quote! {
+                #[::embassy_executor::task]
+                async fn __usb_hid_consumer_write_task(k: #kb_name, consumer_class: ::rumcake::usb::MultipleConsumerReportWriter<'static, __usb_driver::UsbDriver>) {
+                    ::rumcake::tasks::usb_hid_consumer_write_task(k, consumer_class).await;
+                }
             });
             spawning.extend(quote! {
                 // HID Consumer Report sending
-                spawner.spawn(::rumcake::usb_hid_consumer_write_task!(#kb_name, consumer_class)).unwrap();
+                spawner.spawn(__usb_hid_consumer_write_task(#kb_name, consumer_class)).unwrap();
             });
         }
     }
@@ -377,17 +464,31 @@ pub(crate) fn keyboard_main(
     if keyboard.usb && (keyboard.via.is_some() || keyboard.vial.is_some()) {
         initialization.extend(quote! {
             // Via HID setup
+            static VIA_STATE: ::static_cell::StaticCell<::rumcake::usb::UsbState> = ::static_cell::StaticCell::new();
+            let via_state = VIA_STATE.init(::rumcake::usb::UsbState::new());
             let (via_reader, via_writer) =
-                ::rumcake::usb::setup_usb_via_hid_reader_writer(&mut builder).split();
+                ::rumcake::usb::setup_usb_via_hid_reader_writer(&mut builder, via_state);
+        });
+        tasks.extend(quote! {
+            #[::embassy_executor::task]
+            async fn __usb_hid_via_read_task(k: #kb_name, via_reader: ::rumcake::usb::ViaReportReader<'static, __usb_driver::UsbDriver>) {
+                ::rumcake::tasks::usb_hid_via_read_task(k, via_reader).await;
+            }
+        });
+        tasks.extend(quote! {
+            #[::embassy_executor::task]
+            async fn __usb_hid_via_write_task(k: #kb_name, via_writer: ::rumcake::usb::ViaReportWriter<'static, __usb_driver::UsbDriver>) {
+                ::rumcake::tasks::usb_hid_via_write_task(k, via_writer).await;
+            }
         });
         spawning.extend(quote! {
             // HID raw report (for VIA) reading and writing
             spawner
-                .spawn(::rumcake::usb_hid_via_read_task!(#kb_name, via_reader))
+                .spawn(__usb_hid_via_read_task(#kb_name, via_reader))
                 .unwrap();
         });
         spawning.extend(quote! {
-            spawner.spawn(::rumcake::usb_hid_via_write_task!(#kb_name, via_writer)).unwrap();
+            spawner.spawn(__usb_hid_via_write_task(#kb_name, via_writer)).unwrap();
         });
     }
 
@@ -399,34 +500,50 @@ pub(crate) fn keyboard_main(
         error = true;
     } else if let Some(args) = keyboard.via {
         let id = args.id;
-        if args.use_storage.map_or(false, |b| *b) && keyboard.storage.is_none() {
+        let use_storage = args.use_storage.map_or(false, |b| *b);
+
+        if use_storage && keyboard.storage.is_none() {
             emit_error!(args.use_storage.unwrap().span(), "Via uses storage but no `storage` driver was specified. Either specify a `storage` driver, or remove `use_storage` from your Via settings.");
             error = true;
-        } else if args.use_storage.map_or(false, |b| *b) {
+        } else if use_storage {
             spawning.extend(quote! {
                 ::rumcake::via::initialize_via_data(#id).await;
             });
         }
 
+        tasks.extend(quote! {
+            #[::embassy_executor::task]
+            async fn __via_process_task(id: #id, k: #kb_name) {
+                ::rumcake::tasks::via_process_task(id, k).await;
+            }
+        });
         spawning.extend(quote! {
             spawner
-                .spawn(::rumcake::via_process_task!(#id, #kb_name))
+                .spawn(__via_process_task(#id, #kb_name))
                 .unwrap();
         });
     } else if let Some(args) = keyboard.vial {
         let id = args.id;
-        if args.use_storage.map_or(false, |b| *b) && keyboard.storage.is_none() {
+        let use_storage = args.use_storage.map_or(false, |b| *b);
+
+        if use_storage && keyboard.storage.is_none() {
             emit_error!(args.use_storage.unwrap().span(), "Vial uses storage but no `storage` driver was specified. Either specify a `storage` driver, or remove `use_storage` from your Vial settings.");
             error = true;
-        } else if args.use_storage.map_or(false, |b| *b) {
+        } else if use_storage {
             spawning.extend(quote! {
                 ::rumcake::vial::initialize_vial_data(#id).await;
             });
         }
 
+        tasks.extend(quote! {
+            #[::embassy_executor::task]
+            async fn __vial_process_task(id: #id, k: #kb_name) {
+                ::rumcake::tasks::vial_process_task(id, k).await;
+            }
+        });
         spawning.extend(quote! {
             spawner
-                .spawn(::rumcake::vial_process_task!(#id, #kb_name))
+                .spawn(__vial_process_task(#id, #kb_name))
                 .unwrap();
         });
     }
@@ -446,17 +563,41 @@ pub(crate) fn keyboard_main(
             .map_or(String::from("standard"), |v| v.value());
         match driver_type.as_str() {
             "standard" => {
+                outer.extend(quote! {
+                    mod __split_peripheral_driver {
+                        use super::*;
+                        pub type SplitPeripheralDriver = impl ::rumcake::split::peripheral::PeripheralDeviceDriver;
+                        pub async fn __setup_split_peripheral_driver() -> SplitPeripheralDriver {
+                            #setup_fn().await
+                        }
+                    }
+                });
                 initialization.extend(quote! {
-                    let split_peripheral_driver = #setup_fn().await;
+                    let split_peripheral_driver = __split_peripheral_driver::__setup_split_peripheral_driver().await;
                 });
             }
             "nrf-ble" => {
+                outer.extend(quote! {
+                    mod __split_peripheral_driver {
+                        use super::*;
+                        pub type SplitPeripheralDriver = impl ::rumcake::split::peripheral::PeripheralDeviceDriver;
+                        pub async fn __setup_split_peripheral_driver() -> (SplitPeripheralDriver, [u8; 6]) {
+                            #setup_fn().await
+                        }
+                    }
+                });
                 initialization.extend(quote! {
                     let peripheral_server = ::rumcake::drivers::nrf_ble::peripheral::PeripheralDeviceServer::new(sd).unwrap();
-                    let (split_peripheral_driver, central_address) = #setup_fn().await;
+                    let (split_peripheral_driver, central_address) = __split_peripheral_driver::__setup_split_peripheral_driver().await;
+                });
+                tasks.extend(quote! {
+                    #[::embassy_executor::task]
+                    async fn __nrf_ble_peripheral_task(central_address: [u8; 6], sd: &'static ::rumcake::hw::platform::nrf_softdevice::Softdevice, peripheral_server: ::rumcake::drivers::nrf_ble::peripheral::PeripheralDeviceServer) {
+                        ::rumcake::tasks::nrf_ble_peripheral_task(central_address, sd, peripheral_server).await;
+                    }
                 });
                 spawning.extend(quote! {
-                    spawner.spawn(::rumcake::nrf_ble_peripheral_task!(central_address, sd, peripheral_server)).unwrap();
+                    spawner.spawn(__nrf_ble_peripheral_task(central_address, sd, peripheral_server)).unwrap();
                 });
             }
             _ => {
@@ -464,8 +605,14 @@ pub(crate) fn keyboard_main(
                 error = true;
             }
         }
+        tasks.extend(quote! {
+            #[::embassy_executor::task]
+            async fn __peripheral_task(k: #kb_name, split_peripheral_driver: __split_peripheral_driver::SplitPeripheralDriver) {
+                ::rumcake::tasks::peripheral_task(#kb_name, split_peripheral_driver).await;
+            }
+        });
         spawning.extend(quote! {
-            spawner.spawn(::rumcake::peripheral_task!(#kb_name, split_peripheral_driver)).unwrap();
+            spawner.spawn(__peripheral_task(#kb_name, split_peripheral_driver)).unwrap();
         });
     }
 
@@ -477,25 +624,63 @@ pub(crate) fn keyboard_main(
             .map_or(String::from("standard"), |v| v.value());
         match driver_type.as_str() {
             "standard" => {
+                outer.extend(quote! {
+                    mod __split_central_driver {
+                        use super::*;
+                        pub type SplitCentralDriver = impl ::rumcake::split::central::CentralDeviceDriver;
+                        pub async fn __setup_split_central_driver() -> SplitCentralDriver {
+                            #setup_fn().await
+                        }
+                    }
+                });
                 initialization.extend(quote! {
-                    let split_central_driver = #setup_fn().await;
+                    let split_central_driver = __split_central_driver::__setup_split_central_driver().await;
                 });
             }
             "nrf-ble" => {
-                initialization.extend(quote! {
-                    let (split_central_driver, peripheral_addresses) = #setup_fn().await;
-                });
-                spawning.extend(quote! {
-                    spawner.spawn(::rumcake::nrf_ble_central_task!(peripheral_addresses, sd)).unwrap();
-                });
+                if let Some(peripheral_count) = args.peripheral_count {
+                    outer.extend(quote! {
+                        mod __split_central_driver {
+                            use super::*;
+                            pub type SplitCentralDriver = impl ::rumcake::split::central::CentralDeviceDriver;
+                            pub async fn __setup_split_central_driver() -> (SplitCentralDriver, &'static [[u8; 6]; #peripheral_count]) {
+                                #setup_fn().await
+                            }
+                        }
+                    });
+                    initialization.extend(quote! {
+                        let (split_central_driver, peripheral_addresses) = __split_central_driver::__setup_split_central_driver().await;
+                    });
+                    tasks.extend(quote! {
+                        #[::embassy_executor::task]
+                        async fn __nrf_ble_central_task(peripheral_addresses: &'static [[u8; 6]; #peripheral_count], sd: &'static ::rumcake::hw::platform::nrf_softdevice::Softdevice) {
+                            ::rumcake::tasks::nrf_ble_central_task(peripheral_addresses, sd).await;
+                        }
+                    });
+                    spawning.extend(quote! {
+                        spawner.spawn(__nrf_ble_central_task(peripheral_addresses, sd)).unwrap();
+                    });
+                } else {
+                    emit_error!(
+                        args.peripheral_count,
+                        "You must specify a peripheral count for your central device."
+                    );
+                    error = true;
+                }
             }
             _ => {
                 emit_error!(args.driver_type, "Unknown split peripheral driver type.");
                 error = true;
             }
         }
+        tasks.extend(quote! {
+            #[::embassy_executor::task]
+            async fn __central_task(k: #kb_name, split_central_driver: __split_central_driver::SplitCentralDriver) {
+                ::rumcake::tasks::central_task(k, split_central_driver).await;
+            }
+        });
         spawning.extend(quote! {
-            spawner.spawn(::rumcake::central_task!(#kb_name, split_central_driver)).unwrap();
+            spawner.spawn(__central_task(#kb_name, split_central_driver)).unwrap();
         });
     }
 
@@ -506,25 +691,46 @@ pub(crate) fn keyboard_main(
             error = true;
         } else {
             let setup_fn = args.driver_setup_fn;
-            initialization.extend(quote! {
-                let underglow_driver = #setup_fn().await;
-            });
             let id = args.id;
+
             initialization.extend(quote! {
-                let underglow_animator = ::rumcake::lighting::underglow::UnderglowAnimator::<#id, _>::new(Default::default(), underglow_driver);
+                let underglow_driver = __underglow_driver::__setup_underglow_driver().await;
+                let underglow_animator = ::rumcake::lighting::underglow::UnderglowAnimator::<#id, __underglow_driver::UnderglowDriver>::new(Default::default(), underglow_driver);
             });
 
             if args.use_storage.map_or(false, |b| *b) {
                 initialization.extend(quote! {
                     let underglow_animator_storage = underglow_animator.create_storage_instance();
                 });
+                tasks.extend(quote! {
+                    #[::embassy_executor::task]
+                    async fn __underglow_lighting_storage_task(underglow_animator_storage: ::rumcake::lighting::underglow::storage::UnderglowStorage::<#id, __underglow_driver::UnderglowDriver>) {
+                        ::rumcake::tasks::lighting_storage_task(underglow_animator_storage, &DATABASE).await;
+                    }
+                });
                 spawning.extend(quote! {
                     ::rumcake::lighting::initialize_lighting_data(&underglow_animator_storage, &DATABASE).await;
-                    spawner.spawn(::rumcake::lighting_storage_task!(underglow_animator_storage, &DATABASE)).unwrap();
+                    spawner.spawn(__underglow_lighting_storage_task(underglow_animator_storage)).unwrap();
                 });
             }
+
+            outer.extend(quote! {
+                mod __underglow_driver {
+                    use super::*;
+                    pub type UnderglowDriver = impl ::rumcake::lighting::underglow::UnderglowDriver<super::#id>;
+                    pub async fn __setup_underglow_driver() -> UnderglowDriver {
+                        #setup_fn().await
+                    }
+                }
+            });
+            tasks.extend(quote! {
+                #[::embassy_executor::task]
+                async fn __underglow_lighting_task(underglow_animator: ::rumcake::lighting::underglow::UnderglowAnimator::<#id, __underglow_driver::UnderglowDriver>) {
+                    ::rumcake::tasks::lighting_task(underglow_animator, None).await;
+                }
+            });
             spawning.extend(quote! {
-                spawner.spawn(::rumcake::lighting_task!(underglow_animator, None)).unwrap();
+                spawner.spawn(__underglow_lighting_task(underglow_animator)).unwrap();
             });
         }
     }
@@ -536,24 +742,46 @@ pub(crate) fn keyboard_main(
             error = true;
         } else {
             let setup_fn = args.driver_setup_fn;
-            initialization.extend(quote! {
-                let simple_backlight_driver = #setup_fn().await;
-            });
             let id = args.id;
+
             initialization.extend(quote! {
-                let simple_backlight_animator = ::rumcake::lighting::simple_backlight::SimpleBacklightAnimator::<#id, _>::new(Default::default(), simple_backlight_driver);
+                let simple_backlight_driver = __simple_backlight_driver::__setup_simple_backlight_driver().await;
+                let simple_backlight_animator = ::rumcake::lighting::simple_backlight::SimpleBacklightAnimator::<#id, __simple_backlight_driver::SimpleBacklightDriver>::new(Default::default(), simple_backlight_driver);
             });
+
             if args.use_storage.map_or(false, |b| *b) {
                 initialization.extend(quote! {
                     let simple_backlight_animator_storage = simple_backlight_animator.create_storage_instance();
                 });
+                tasks.extend(quote! {
+                    #[::embassy_executor::task]
+                    async fn __simple_backlight_lighting_storage_task(simple_backlight_animator_storage: ::rumcake::lighting::simple_backlight::storage::SimpleBacklightStorage::<#id, __simple_backlight_driver::SimpleBacklightDriver>) {
+                        ::rumcake::tasks::lighting_storage_task(simple_backlight_animator_storage, &DATABASE).await;
+                    }
+                });
                 spawning.extend(quote! {
                     ::rumcake::lighting::initialize_lighting_data(&simple_backlight_animator_storage, &DATABASE).await;
-                    spawner.spawn(::rumcake::lighting_storage_task!(simple_backlight_animator_storage, &DATABASE)).unwrap();
+                    spawner.spawn(__simple_backlight_lighting_storage_task(simple_backlight_animator_storage)).unwrap();
                 });
             }
+
+            outer.extend(quote! {
+                mod __simple_backlight_driver {
+                    use super::*;
+                    pub type SimpleBacklightDriver = impl ::rumcake::lighting::simple_backlight::SimpleBacklightDriver<super::#id>;
+                    pub async fn __setup_simple_backlight_driver() -> SimpleBacklightDriver {
+                        #setup_fn().await
+                    }
+                }
+            });
+            tasks.extend(quote! {
+                #[::embassy_executor::task]
+                async fn __simple_backlight_lighting_task(simple_backlight_animator: ::rumcake::lighting::simple_backlight::SimpleBacklightAnimator::<#id, __simple_backlight_driver::SimpleBacklightDriver>) {
+                    ::rumcake::tasks::lighting_task(simple_backlight_animator, None).await;
+                }
+            });
             spawning.extend(quote! {
-                spawner.spawn(::rumcake::lighting_task!(simple_backlight_animator, None)).unwrap();
+                spawner.spawn(__simple_backlight_lighting_task(simple_backlight_animator)).unwrap();
             });
         }
     }
@@ -564,24 +792,46 @@ pub(crate) fn keyboard_main(
             error = true;
         } else {
             let setup_fn = args.driver_setup_fn;
-            initialization.extend(quote! {
-                let simple_backlight_matrix_driver = #setup_fn().await;
-            });
             let id = args.id;
+
             initialization.extend(quote! {
-                let simple_backlight_matrix_animator = ::rumcake::lighting::simple_backlight_matrix::SimpleBacklightMatrixAnimator::<#id, _>::new(Default::default(), simple_backlight_matrix_driver);
+                let simple_backlight_matrix_driver = __simple_backlight_matrix_driver::__setup_simple_backlight_matrix_driver().await;
+                let simple_backlight_matrix_animator = ::rumcake::lighting::simple_backlight_matrix::SimpleBacklightMatrixAnimator::<#id, __simple_backlight_matrix_driver::SimpleBacklightMatrixDriver>::new(Default::default(), simple_backlight_matrix_driver);
             });
+
             if args.use_storage.map_or(false, |b| *b) {
                 initialization.extend(quote! {
                     let simple_backlight_matrix_animator_storage = simple_backlight_matrix_animator.create_storage_instance();
                 });
+                tasks.extend(quote! {
+                    #[::embassy_executor::task]
+                    async fn __simple_backlight_matrix_lighting_storage_task(simple_backlight_matrix_animator_storage: ::rumcake::lighting::simple_backlight_matrix::storage::SimpleBacklightMatrixStorage::<#id, __simple_backlight_matrix_driver::SimpleBacklightMatrixDriver>) {
+                        ::rumcake::tasks::lighting_storage_task(simple_backlight_matrix_animator_storage, &DATABASE).await;
+                    }
+                });
                 spawning.extend(quote! {
                     ::rumcake::lighting::initialize_lighting_data(&simple_backlight_matrix_animator_storage, &DATABASE).await;
-                    spawner.spawn(::rumcake::lighting_storage_task!(simple_backlight_matrix_animator_storage, &DATABASE)).unwrap();
+                    spawner.spawn(__simple_backlight_matrix_lighting_storage_task(simple_backlight_matrix_animator_storage)).unwrap();
                 });
             }
+
+            outer.extend(quote! {
+                mod __simple_backlight_matrix_driver {
+                    use super::*;
+                    pub type SimpleBacklightMatrixDriver = impl ::rumcake::lighting::simple_backlight_matrix::SimpleBacklightMatrixDriver<super::#id>;
+                    pub async fn __setup_simple_backlight_matrix_driver() -> SimpleBacklightMatrixDriver {
+                        #setup_fn().await
+                    }
+                }
+            });
+            tasks.extend(quote! {
+                #[::embassy_executor::task]
+                async fn __simple_backlight_matrix_lighting_task(simple_backlight_matrix_animator: ::rumcake::lighting::simple_backlight_matrix::SimpleBacklightMatrixAnimator::<#id, __simple_backlight_matrix_driver::SimpleBacklightMatrixDriver>) {
+                    ::rumcake::tasks::lighting_task(simple_backlight_matrix_animator, None).await;
+                }
+            });
             spawning.extend(quote! {
-                spawner.spawn(::rumcake::lighting_task!(simple_backlight_matrix_animator, None)).unwrap();
+                spawner.spawn(__simple_backlight_matrix_lighting_task(simple_backlight_matrix_animator)).unwrap();
             });
         }
     }
@@ -592,24 +842,46 @@ pub(crate) fn keyboard_main(
             error = true;
         } else {
             let setup_fn = args.driver_setup_fn;
-            initialization.extend(quote! {
-                let rgb_backlight_matrix_driver = #setup_fn().await;
-            });
             let id = args.id;
+
             initialization.extend(quote! {
-                let rgb_backlight_matrix_animator = ::rumcake::lighting::rgb_backlight_matrix::RGBBacklightMatrixAnimator::<#id, _>::new(Default::default(), rgb_backlight_matrix_driver);
+                let rgb_backlight_matrix_driver = __rgb_backlight_matrix_driver::__setup_rgb_backlight_matrix_driver().await;
+                let rgb_backlight_matrix_animator = ::rumcake::lighting::rgb_backlight_matrix::RGBBacklightMatrixAnimator::<#id, __rgb_backlight_matrix_driver::RGBBacklightMatrixDriver>::new(Default::default(), rgb_backlight_matrix_driver);
             });
+
             if args.use_storage.map_or(false, |b| *b) {
                 initialization.extend(quote! {
                     let rgb_backlight_matrix_animator_storage = rgb_backlight_matrix_animator.create_storage_instance();
                 });
+                tasks.extend(quote! {
+                    #[::embassy_executor::task]
+                    async fn __rgb_backlight_matrix_lighting_storage_task(rgb_backlight_matrix_animator_storage: ::rumcake::lighting::rgb_backlight_matrix::storage::RGBBacklightMatrixStorage::<#id, __rgb_backlight_matrix_driver::RGBBacklightMatrixDriver>) {
+                        ::rumcake::tasks::lighting_storage_task(rgb_backlight_matrix_animator_storage, &DATABASE).await;
+                    }
+                });
                 spawning.extend(quote! {
                     ::rumcake::lighting::initialize_lighting_data(&rgb_backlight_matrix_animator_storage, &DATABASE).await;
-                    spawner.spawn(::rumcake::lighting_storage_task!(rgb_backlight_matrix_animator_storage, &DATABASE)).unwrap();
+                    spawner.spawn(__rgb_backlight_matrix_lighting_storage_task(rgb_backlight_matrix_animator_storage)).unwrap();
                 });
             }
+
+            outer.extend(quote! {
+                mod __rgb_backlight_matrix_driver {
+                    use super::*;
+                    pub type RGBBacklightMatrixDriver = impl ::rumcake::lighting::rgb_backlight_matrix::RGBBacklightMatrixDriver<super::#id>;
+                    pub async fn __setup_rgb_backlight_matrix_driver() -> RGBBacklightMatrixDriver {
+                        #setup_fn().await
+                    }
+                }
+            });
+            tasks.extend(quote! {
+                #[::embassy_executor::task]
+                async fn __rgb_backlight_matrix_lighting_task(rgb_backlight_matrix_animator: ::rumcake::lighting::rgb_backlight_matrix::RGBBacklightMatrixAnimator::<#id, __rgb_backlight_matrix_driver::RGBBacklightMatrixDriver>) {
+                    ::rumcake::tasks::lighting_task(rgb_backlight_matrix_animator, None).await;
+                }
+            });
             spawning.extend(quote! {
-                spawner.spawn(::rumcake::lighting_task!(rgb_backlight_matrix_animator, None)).unwrap();
+                spawner.spawn(__rgb_backlight_matrix_lighting_task(rgb_backlight_matrix_animator)).unwrap();
             });
         }
     }
@@ -617,11 +889,23 @@ pub(crate) fn keyboard_main(
     // Display setup
     if let Some(args) = keyboard.display {
         let setup_fn = args.driver_setup_fn;
-        initialization.extend(quote! {
-            let display_driver = #setup_fn().await;
+        outer.extend(quote! {
+            mod __display_driver {
+                use super::*;
+                pub type DisplayDriver = impl ::rumcake::display::DisplayDriver<super::#kb_name>;
+                pub async fn __setup_display_driver() -> DisplayDriver {
+                    #setup_fn().await
+                }
+            }
+        });
+        tasks.extend(quote! {
+            #[::embassy_executor::task]
+            async fn __display_task(k: #kb_name, display_driver: __display_driver::DisplayDriver) {
+                ::rumcake::tasks::display_task(k, display_driver).await;
+            }
         });
         spawning.extend(quote! {
-            spawner.spawn(::rumcake::display_task!(#kb_name, display_driver)).unwrap();
+            spawner.spawn(__display_task(#kb_name, __display_driver::__setup_display_driver().await)).unwrap();
         });
     }
 
@@ -666,6 +950,8 @@ pub(crate) fn keyboard_main(
                 #initialization
                 #spawning
             }
+
+            #tasks
 
             #outer
 

@@ -171,7 +171,6 @@ pub(crate) const VIA_REPORT_DESCRIPTOR: &[u8] = &[
     0xC0, // End Collection
 ];
 
-#[rumcake_macros::task]
 pub async fn via_process_task<K: ViaKeyboard + 'static, T: HIDDevice + 'static>(_k: K, _t: T)
 where
     [(); <<K::StorageType as StorageDevice>::FlashStorageType as FlashStorage>::ERASE_SIZE]:,

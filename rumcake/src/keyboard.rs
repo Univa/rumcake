@@ -8,7 +8,7 @@ use core::fmt::Debug;
 use core::ops::{DerefMut, Range};
 
 use defmt::{debug, info, warn, Debug2Format};
-use embassy_futures::select::{select, select_slice, Either};
+use embassy_futures::select::{select, select_array, Either};
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::pubsub::{PubSubBehavior, PubSubChannel};
@@ -434,7 +434,6 @@ where
     }
 }
 
-#[rumcake_macros::task]
 pub async fn ec11_encoders_poll<K: DeviceWithEncoders>(_k: K)
 where
     [(); K::ENCODER_COUNT]:,
@@ -447,13 +446,19 @@ where
 
     loop {
         events.clear();
-        let (event, idx) = select_slice(
-            &mut encoders
-                .iter_mut()
-                .map(|e| e.wait_for_event())
-                .collect::<Vec<_, { K::ENCODER_COUNT }>>(),
-        )
-        .await;
+
+        let futures = if let Ok(futures) = encoders
+            .iter_mut()
+            .map(|e| e.wait_for_event())
+            .collect::<Vec<_, { K::ENCODER_COUNT }>>()
+            .into_array::<{ K::ENCODER_COUNT }>()
+        {
+            futures
+        } else {
+            panic!("Could not start ec11_encoders_poll")
+        };
+
+        let (event, idx) = select_array(futures).await;
 
         let [sw_pos, cw_pos, ccw_pos] = mappings[idx];
 
@@ -484,7 +489,6 @@ where
     }
 }
 
-#[rumcake_macros::task]
 pub async fn matrix_poll<K: KeyboardMatrix + 'static>(_k: K) {
     let matrix = K::get_matrix();
     let layout_channel = <K::Layout as private::MaybeKeyboardLayout>::get_matrix_events_channel();
@@ -535,7 +539,6 @@ pub async fn matrix_poll<K: KeyboardMatrix + 'static>(_k: K) {
 /// slots will be used.
 pub static MATRIX_EVENTS: PubSubChannel<RawMutex, Event, 4, 4, 1> = PubSubChannel::new();
 
-#[rumcake_macros::task]
 pub async fn layout_collect<K: KeyboardLayout + HIDDevice + 'static>(_k: K)
 where
     [(); K::LAYERS]:,

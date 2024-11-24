@@ -241,7 +241,7 @@ impl<
 
 #[cfg(feature = "simple-backlight-matrix")]
 impl<
-        I2CError: Debug,
+        I2CError: Debug + 'static,
         I2C: I2c<Error = I2CError>,
         K: IS31FL3731BacklightDriver
             + crate::lighting::simple_backlight_matrix::SimpleBacklightMatrixDevice,
@@ -289,7 +289,7 @@ impl<
 
 #[cfg(feature = "rgb-backlight-matrix")]
 impl<
-        I2CError: Debug,
+        I2CError: Debug + 'static,
         I2C: I2c<Error = I2CError>,
         K: IS31FL3731BacklightDriver + crate::lighting::rgb_backlight_matrix::RGBBacklightMatrixDevice,
     > crate::lighting::rgb_backlight_matrix::RGBBacklightMatrixDriver<K> for IS31FL3731<I2C>

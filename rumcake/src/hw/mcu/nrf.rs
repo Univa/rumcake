@@ -24,7 +24,6 @@ use embassy_sync::blocking_mutex::ThreadModeMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
-use static_cell::StaticCell;
 
 use crate::hw::BATTERY_LEVEL_STATE;
 use crate::keyboard::MatrixSampler;
@@ -67,9 +66,14 @@ static VBUS_DETECT: once_cell::sync::OnceCell<embassy_nrf::usb::vbus_detect::Sof
 /// function that sets up the HID readers or writers to be used with a task. For example, you may
 /// need to pass this to [`crate::usb::setup_usb_hid_nkro_writer`] to set up a keyboard that
 /// communicates with a host device over USB.
-pub fn setup_usb_driver<K: crate::usb::USBKeyboard + 'static>() -> embassy_usb::Builder<
-    'static,
-    Driver<'static, embassy_nrf::peripherals::USBD, impl embassy_nrf::usb::vbus_detect::VbusDetect>,
+pub fn setup_usb_driver<'a, K: crate::usb::USBKeyboard + 'a>(
+    config_descriptor: &'a mut [u8],
+    bos_descriptor: &'a mut [u8],
+    msos_descriptor: &'a mut [u8],
+    control_buf: &'a mut [u8],
+) -> crate::usb::Builder<
+    'a,
+    Driver<'a, embassy_nrf::peripherals::USBD, impl embassy_nrf::usb::vbus_detect::VbusDetect>,
 > {
     unsafe {
         #[cfg(feature = "nrf52840")]
@@ -101,15 +105,6 @@ pub fn setup_usb_driver<K: crate::usb::USBKeyboard + 'static>() -> embassy_usb::
             #[cfg(not(feature = "nrf-ble"))]
             embassy_nrf::usb::vbus_detect::HardwareVbusDetect::new(Irqs),
         );
-
-        static CONFIG_DESCRIPTOR: StaticCell<[u8; 256]> = StaticCell::new();
-        let config_descriptor = CONFIG_DESCRIPTOR.init([0; 256]);
-        static BOS_DESCRIPTOR: StaticCell<[u8; 256]> = StaticCell::new();
-        let bos_descriptor = BOS_DESCRIPTOR.init([0; 256]);
-        static MSOS_DESCRIPTOR: StaticCell<[u8; 256]> = StaticCell::new();
-        let msos_descriptor = MSOS_DESCRIPTOR.init([0; 256]);
-        static CONTROL_BUF: StaticCell<[u8; 128]> = StaticCell::new();
-        let control_buf = CONTROL_BUF.init([0; 128]);
 
         embassy_usb::Builder::new(
             usb_driver,
@@ -367,7 +362,6 @@ where
 
 static BAT_SAMPLE_CHANNEL: Signal<RawMutex, AdcSampleType> = Signal::new();
 
-#[rumcake_macros::task]
 pub async fn adc_task<'a, const MP: usize, const N: usize>(
     sampler: &AdcSampler<
         'a,
@@ -472,7 +466,6 @@ pub fn setup_softdevice<K: BluetoothDevice + crate::keyboard::Keyboard>(
 }
 
 #[cfg(feature = "nrf-ble")]
-#[rumcake_macros::task]
 pub async fn softdevice_task(sd: &'static nrf_softdevice::Softdevice) {
     unsafe {
         nrf_softdevice::raw::sd_power_usbpwrrdy_enable(true as u8);

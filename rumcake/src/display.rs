@@ -174,7 +174,6 @@ pub trait DisplayDriver<K: DisplayDevice> {
     async fn turn_on(&mut self);
 }
 
-#[rumcake_macros::task]
 pub async fn display_task<K: DisplayDevice>(_k: K, mut display: impl DisplayDriver<K>) {
     let mut ticker = if K::FPS > 0 {
         Some(Ticker::every(Duration::from_millis(1000 / K::FPS as u64)))

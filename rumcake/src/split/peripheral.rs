@@ -112,7 +112,6 @@ impl<E> From<ReadExactError<E>> for PeripheralDeviceError<E> {
 }
 
 // This task replaces the `layout_collect` task, which is usually used on non-split keyboards for sending events to the keyboard layout
-#[rumcake_macros::task]
 pub async fn peripheral_task<K: PeripheralDevice>(_k: K, mut driver: impl PeripheralDeviceDriver) {
     let channel = K::get_matrix_events_channel();
     let matrix_event_publisher = MATRIX_EVENTS.immediate_publisher();

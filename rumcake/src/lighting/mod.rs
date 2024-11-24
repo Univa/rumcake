@@ -199,7 +199,6 @@ pub trait Animator {
     fn get_state() -> &'static State<'static, Self::ConfigType>;
 }
 
-#[rumcake_macros::task]
 pub async fn lighting_task<A: Animator + 'static>(
     mut animator: A,
     buf_channel: Option<&Channel<RawMutex, A::BufferUpdateArgs, 4>>,
@@ -333,7 +332,6 @@ mod storage {
         }
     }
 
-    #[rumcake_macros::task]
     pub async fn lighting_storage_task<
         K: StorageDevice,
         F: FlashStorage,

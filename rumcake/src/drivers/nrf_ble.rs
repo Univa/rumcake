@@ -14,7 +14,7 @@
 /// nrf-softdevice central device driver implementations
 pub mod central {
     use defmt::{assert, debug, error, info, warn, Debug2Format};
-    use embassy_futures::select::{select, select_slice, Either};
+    use embassy_futures::select::{select, select_array, Either};
     use embassy_sync::channel::Channel;
     use embassy_sync::mutex::Mutex;
     use embassy_sync::pubsub::{PubSubChannel, Publisher};
@@ -82,8 +82,10 @@ pub mod central {
         message_to_peripheral: [u8; MESSAGE_TO_PERIPHERAL_BUFFER_SIZE],
     }
 
-    #[rumcake_macros::task]
-    pub async fn nrf_ble_central_task(peripheral_addresses: &[[u8; 6]], sd: &'static Softdevice) {
+    pub async fn nrf_ble_central_task<const P: usize>(
+        peripheral_addresses: &[[u8; 6]; P],
+        sd: &'static Softdevice,
+    ) {
         assert!(
             peripheral_addresses.len() <= 4,
             "You can not have more than 4 peripherals."
@@ -207,13 +209,18 @@ pub mod central {
             }
         };
 
-        select_slice(
-            &mut peripheral_addresses
-                .iter()
-                .map(|addr| peripheral_fut(*addr))
-                .collect::<Vec<_, 4>>(),
-        )
-        .await;
+        let futures = if let Ok(futures) = peripheral_addresses
+            .iter()
+            .map(|addr| peripheral_fut(*addr))
+            .collect::<Vec<_, P>>()
+            .into_array::<P>()
+        {
+            futures
+        } else {
+            panic!("Could not start nrf_ble_central_task");
+        };
+
+        select_array(futures).await;
 
         error!(
             "[SPLIT_BT_DRIVER] A peripheral connection task has completed. This should not happen."
@@ -288,7 +295,6 @@ pub mod peripheral {
         split: SplitService,
     }
 
-    #[rumcake_macros::task]
     pub async fn nrf_ble_peripheral_task(
         central_address: [u8; 6],
         sd: &'static Softdevice,
