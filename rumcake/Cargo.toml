@@ -74,7 +74,7 @@ postcard = { version = "1.0.7", features = ["experimental-derive"] }
 smart-leds = "0.3.0"
 
 # third party drivers 
-is31fl3731 = { git = "https://github.com/Univa/is31fl3731", features = ["async"], optional = true }
+is31fl3731 = { git = "https://github.com/Univa/is31fl3731", rev = "9c65de4", features = ["async"], optional = true }
 ssd1306 = { version = "0.8.2", optional = true }
 
 rumcake-macros = { path = "../rumcake-macros" }
