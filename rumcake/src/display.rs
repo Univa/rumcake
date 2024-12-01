@@ -28,7 +28,7 @@ pub trait DisplayDevice {
     /// Set this to a value higher than 0 if you are trying to display something with animations.
     const FPS: usize = 0;
 
-    /// How long the screen will stay on before it turns off due to screen inactivty.
+    /// How long the screen will stay on before it turns off due to screen inactivity.
     ///
     /// If set to 0, the screen will always stay on.
     const TIMEOUT: usize = 30;

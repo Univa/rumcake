@@ -8,7 +8,7 @@ use crate::keyboard::KeyboardLayout;
 use crate::lighting::BacklightMatrixDevice;
 use crate::storage::{FlashStorage, StorageDevice, StorageKey};
 
-// Unlike the other normal Via comands, Vial overwrites the command data received from the host
+// Unlike the other normal Via commands, Vial overwrites the command data received from the host
 
 pub fn get_keyboard_id<K: VialKeyboard>(version: u32, data: &mut [u8]) {
     data[0..=3].copy_from_slice(&version.to_le_bytes());
