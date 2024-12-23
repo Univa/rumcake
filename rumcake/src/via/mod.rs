@@ -244,12 +244,12 @@ where
         let _ = database
             .check_metadata(crate::storage::StorageKey::LayoutOptions, &options_metadata)
             .await;
-        if let Ok((stored_data, stored_len)) = database
+        if let Ok(stored_data) = database
             .read_raw(crate::storage::StorageKey::LayoutOptions)
             .await
         {
             let mut bytes = [0; 4];
-            bytes[(4 - stored_len)..].copy_from_slice(&stored_data[..stored_len]);
+            bytes[(4 - stored_data.len())..].copy_from_slice(stored_data);
             VIA_LAYOUT_OPTIONS.signal(u32::from_be_bytes(bytes))
         };
 
@@ -262,13 +262,13 @@ where
         let _ = database
             .check_metadata(crate::storage::StorageKey::DynamicKeymap, &layout_metadata)
             .await;
-        if let Ok((stored_data, stored_len)) = database
+        if let Ok(stored_data) = database
             .read_raw(crate::storage::StorageKey::DynamicKeymap)
             .await
         {
             // Load layout from flash
             let mut layout = V::Layout::get_layout().layout.lock().await;
-            for byte in (0..stored_len).step_by(2) {
+            for byte in (0..stored_data.len()).step_by(2) {
                 if let Some(action) = protocol::keycodes::convert_keycode_to_action::<V>(
                     u16::from_be_bytes(stored_data[byte..byte + 2].try_into().unwrap()),
                 ) {
@@ -322,12 +322,12 @@ where
                 &layout_metadata,
             )
             .await;
-        if let Ok((stored_data, stored_len)) = database
+        if let Ok(stored_data) = database
             .read_raw(crate::storage::StorageKey::DynamicKeymapMacro)
             .await
         {
             if let Some(macro_data) = V::get_macro_buffer() {
-                macro_data.update_buffer(0, &stored_data[..stored_len])
+                macro_data.update_buffer(0, stored_data)
             }
         };
     }

@@ -144,7 +144,7 @@ where
         .await
         {
             (Ok(_), Some(buf), len) => {
-                let changed = current_metadata.len() != len || *current_metadata != *buf;
+                let changed = *current_metadata != buf[..len];
                 if changed {
                     warn!(
                         "[STORAGE] Metadata for {} has changed.",
@@ -238,7 +238,7 @@ where
 
     /// Read data from the storage peripheral, using the given key to look it up. This skips the
     /// deserialization step, returning raw bytes.
-    pub async fn read_raw(&self, key: StorageKey) -> Result<(&[u8], usize), ()> {
+    pub async fn read_raw(&self, key: StorageKey) -> Result<&[u8], ()> {
         let mut database = self.get_database().await;
         let buffer = S::get_storage_buffer();
 
@@ -262,7 +262,7 @@ where
                     Debug2Format(&error)
                 );
             })
-            .map(|_code| (&*buf.unwrap(), len))
+            .map(|_code| &buf.unwrap()[..len])
     }
 
     /// Write data to the storage peripheral, at the given key. This will serialize the given data

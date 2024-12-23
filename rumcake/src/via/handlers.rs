@@ -170,7 +170,8 @@ pub async fn dynamic_keymap_macro_set_buffer<K: ViaKeyboard + 'static>(
 
         // Read data
         let stored_len = match database.read_raw(StorageKey::DynamicKeymapMacro).await {
-            Ok((stored_data, stored_len)) => {
+            Ok(stored_data) => {
+                let stored_len = stored_data.len();
                 buf[..stored_len].copy_from_slice(stored_data);
                 stored_len
             }
@@ -276,8 +277,8 @@ pub async fn dynamic_keymap_set_keycode<K: ViaKeyboard + 'static>(
 
             // Read data
             match database.read_raw(StorageKey::DynamicKeymap).await {
-                Ok((stored_data, stored_len)) => {
-                    buf[..stored_len].copy_from_slice(stored_data);
+                Ok(stored_data) => {
+                    buf[..stored_data.len()].copy_from_slice(stored_data);
                 }
                 Err(()) => {
                     warn!("[VIA] Could not read dynamic keymap buffer.");
@@ -342,8 +343,8 @@ pub async fn dynamic_keymap_set_encoder<K: ViaKeyboard + 'static>(
 
             // Read data
             match database.read_raw(StorageKey::DynamicKeymapEncoder).await {
-                Ok((stored_data, stored_len)) => {
-                    buf[..stored_len].copy_from_slice(stored_data);
+                Ok(stored_data) => {
+                    buf[..stored_data.len()].copy_from_slice(stored_data);
                 }
                 Err(()) => {
                     warn!("[VIA] Could not read dynamic keymap encoder.");
@@ -470,8 +471,8 @@ pub async fn dynamic_keymap_set_buffer<K: ViaKeyboard + 'static>(
 
         // Read data
         match database.read_raw(StorageKey::DynamicKeymap).await {
-            Ok((stored_data, stored_len)) => {
-                buf[..stored_len].copy_from_slice(stored_data);
+            Ok(stored_data) => {
+                buf[..stored_data.len()].copy_from_slice(stored_data);
             }
             Err(()) => {
                 warn!("[VIA] Could not read dynamic keymap buffer.");
